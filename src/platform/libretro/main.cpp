@@ -192,6 +192,7 @@ void retro_run(void)
    frame_count++;
 
    Sound::fill(sndData, SND_DATA_SIZE / SND_FRAME_SIZE);
+   audio_cb(sndData->L, sndData->R);
 
    Game::update(0.016);
    Game::render();
@@ -212,6 +213,7 @@ static void context_reset(void)
 static void context_destroy(void)
 {
    fprintf(stderr, "Context destroy!\n");
+   delete[] sndData;
 }
 
 #ifdef HAVE_OPENGLES
