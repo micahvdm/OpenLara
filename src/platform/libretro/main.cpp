@@ -126,7 +126,6 @@ void retro_set_environment(retro_environment_t cb)
 
 void retro_set_audio_sample(retro_audio_sample_t cb)
 {
-   audio_cb = cb;
 }
 
 void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb)
@@ -183,8 +182,64 @@ void retro_run(void)
    input_poll_cb();
 
    if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP))
-   {
-   }
+      Input::setDown(InputKey::ikUp, true);
+   else
+      Input::setDown(InputKey::ikUp, false);
+
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN))
+      Input::setDown(InputKey::ikDown, true);
+   else
+      Input::setDown(InputKey::ikDown, false);
+
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT))
+      Input::setDown(InputKey::ikLeft, true);
+   else
+      Input::setDown(InputKey::ikLeft, false);
+
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT))
+      Input::setDown(InputKey::ikRight, true);
+   else
+      Input::setDown(InputKey::ikRight, false);
+
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y))
+      Input::setDown(InputKey::ikSpace, true);
+   else
+      Input::setDown(InputKey::ikSpace, false);
+
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B))
+      Input::setDown(InputKey::ikCtrl, true);
+   else
+      Input::setDown(InputKey::ikCtrl, false);
+
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A))
+      Input::setDown(InputKey::ikS, true);
+   else
+      Input::setDown(InputKey::ikS, false);
+
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X))
+      Input::setDown(InputKey::ikAlt, true);
+   else
+      Input::setDown(InputKey::ikAlt, false);
+
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R))
+      Input::setDown(InputKey::ikShift, true);
+   else
+      Input::setDown(InputKey::ikShift, false);
+
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2))
+      Input::setDown(InputKey::ikZ, true);
+   else
+      Input::setDown(InputKey::ikZ, false);
+
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2))
+      Input::setDown(InputKey::ikX, true);
+   else
+      Input::setDown(InputKey::ikX, false);
+
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START))
+      Input::setDown(InputKey::ikV, true);
+   else
+      Input::setDown(InputKey::ikV, false);
 
    frame_count++;
 
