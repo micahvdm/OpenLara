@@ -275,8 +275,8 @@ bool retro_load_game(const struct retro_game_info *info)
    fprintf(stderr, "Loaded game!\n");
    (void)info;
 
-   Core::width  = 640;
-   Core::height = 480;
+   Core::width  = width;
+   Core::height = height;
    sndData = new Sound::Frame[SND_DATA_SIZE / SND_FRAME_SIZE];
    Game::init();
 
