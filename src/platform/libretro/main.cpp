@@ -13,7 +13,7 @@
 #include "libretro.h"
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
-static struct retro_hw_render_callback hw_render;
+struct retro_hw_render_callback hw_render;
 
 #if defined(HAVE_PSGL)
 #define RARCH_GL_FRAMEBUFFER GL_FRAMEBUFFER_OES

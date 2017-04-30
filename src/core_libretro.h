@@ -4,10 +4,13 @@
 #include <stdio.h>
 
 #include <rglgen_headers.h>
+#include <libretro.h>
 
 #include "utils.h"
 #include "input.h"
 #include "sound.h"
+
+extern struct retro_hw_render_callback hw_render;
 
 #define glActiveStencilFaceEXT(...)
 #define MAX_LIGHTS          4
