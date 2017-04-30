@@ -12,7 +12,20 @@
 
 extern struct retro_hw_render_callback hw_render;
 
+#if __APPLE__
+#if TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR
+#define GL_COMPARE_REF_TO_TEXTURE GL_COMPARE_REF_TO_TEXTURE_EXT
+#else
+#define GL_RGBA32F GL_RGBA
+#define GL_RGBA16F GL_RGBA
+#define GL_RGB565 GL_RGBA
+#define GL_COMPARE_REF_TO_TEXTURE 0x884E
+#define GL_PROGRAM_BINARY_LENGTH 0
+#endif
 #define glActiveStencilFaceEXT(...)
+#else
+#define glActiveStencilFaceEXT(...)
+#endif
 #define MAX_LIGHTS          4
 #define MAX_CACHED_LIGHTS   3
 #define MAX_RENDER_BUFFERS  32
