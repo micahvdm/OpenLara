@@ -36,29 +36,15 @@ struct retro_hw_render_callback hw_render;
 #define MAX_HEIGHT 1440
 #endif
 
+#define SND_FRAME_SIZE  4
+
+static unsigned FRAMERATE     = 60;
+static float TIMESTEP         = 0.016;
 /* (44100 Hz * stereo channels * 16bit sound ) / framerate */
+static unsigned SND_DATA_SIZE = (44100 * 2 * 2) / FRAMERATE;
 
-//#define FPS_30_H
-
-#if defined(FPS_120_H)
-#define SND_FRAME_SIZE  4
-#define SND_DATA_SIZE   (1470)
-#define TIMESTEP        0.0083
-#define FRAMERATE       120
-#elif defined(FPS_30_H)
-#define SND_FRAME_SIZE  4
-#define SND_DATA_SIZE   (5880)
-#define TIMESTEP        0.033
-#define FRAMERATE       30
-#else
-#define SND_FRAME_SIZE  4
-#define SND_DATA_SIZE   (2940)
-#define TIMESTEP        0.016
-#define FRAMERATE       60
-#endif
-
-static unsigned width  = BASE_WIDTH;
-static unsigned height = BASE_HEIGHT;
+static unsigned width         = BASE_WIDTH;
+static unsigned height        = BASE_HEIGHT;
 
 Sound::Frame *sndData;
 
@@ -122,8 +108,12 @@ void retro_set_environment(retro_environment_t cb)
 
    struct retro_variable variables[] = {
       {
+         "openlara_framerate",
+         "Framerate (restart); 60fps|120fps",
+      },
+      {
          "openlara_resolution",
-         "Internal resolution; 320x240|360x480|480x272|512x384|512x512|640x240|640x448|640x480|720x576|800x600|960x720|1024x768|1024x1024|1280x720|1280x960|1600x1200|1920x1080|1920x1440|1920x1600|2048x2048|2560x1440",
+         "Internal resolution (restart); 320x240|360x480|480x272|512x384|512x512|640x240|640x448|640x480|720x576|800x600|960x720|1024x768|1024x1024|1280x720|1280x960|1600x1200|1920x1080|1920x1440|1920x1600|2048x2048|2560x1440",
       },
       { NULL, NULL },
    };
@@ -157,26 +147,50 @@ void retro_set_video_refresh(retro_video_refresh_t cb)
    video_cb = cb;
 }
 
-static void update_variables(void)
+static void update_variables(bool first_startup)
 {
-   struct retro_variable var = {
-      .key = "openlara_resolution",
-   };
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   if (first_startup)
    {
-      char *pch;
-      char str[100];
-      snprintf(str, sizeof(str), "%s", var.value);
-      
-      pch = strtok(str, "x");
-      if (pch)
-         width = strtoul(pch, NULL, 0);
-      pch = strtok(NULL, "x");
-      if (pch)
-         height = strtoul(pch, NULL, 0);
+      struct retro_variable var;
 
-      fprintf(stderr, "[openlara]: Got size: %u x %u.\n", width, height);
+      var.key = "openlara_resolution";
+
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      {
+         char *pch;
+         char str[100];
+         snprintf(str, sizeof(str), "%s", var.value);
+
+         pch = strtok(str, "x");
+         if (pch)
+            width = strtoul(pch, NULL, 0);
+         pch = strtok(NULL, "x");
+         if (pch)
+            height = strtoul(pch, NULL, 0);
+
+         fprintf(stderr, "[openlara]: Got size: %u x %u.\n", width, height);
+      }
+
+      var.key = "openlara_framerate";
+
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      {
+         if (!strcmp(var.value, "60fps"))
+         {
+            FRAMERATE     = 60;
+            TIMESTEP      = 0.016;
+            SND_DATA_SIZE = (44100 * 2 * 2) / FRAMERATE;
+         }
+         else if (!strcmp(var.value, "120fps"))
+         {
+            FRAMERATE     = 120;
+            TIMESTEP      = 0.0083;
+            SND_DATA_SIZE = (44100 * 2 * 2) / FRAMERATE;
+         }
+      }
+      else
+      {
+      }
    }
 }
 
@@ -184,7 +198,7 @@ void retro_run(void)
 {
    bool updated = false;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
-      update_variables();
+      update_variables(false);
 
    input_poll_cb();
 
@@ -347,7 +361,7 @@ static void extract_directory(char *buf, const char *path, size_t size)
 
 bool retro_load_game(const struct retro_game_info *info)
 {
-   update_variables();
+   update_variables(true);
 
    enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
    if (!environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt))
