@@ -39,11 +39,16 @@ static struct retro_hw_render_callback hw_render;
 #define MAX_HEIGHT 2048
 #endif
 
+#define SND_FRAME_SIZE  4
+#define SND_DATA_SIZE   (1024 * SND_FRAME_SIZE)
+
 static unsigned width  = BASE_WIDTH;
 static unsigned height = BASE_HEIGHT;
 
 static GLuint prog;
 static GLuint vbo;
+
+Sound::Frame *sndData;
 
 char Stream::cacheDir[255];
 char Stream::contentDir[255];
@@ -238,7 +243,7 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
 {
    info->timing = (struct retro_system_timing) {
       .fps = 60.0,
-      .sample_rate = 30000.0,
+      .sample_rate = 44100.0,
    };
 
    info->geometry = (struct retro_game_geometry) {
@@ -439,6 +444,8 @@ void retro_run(void)
 
    frame_count++;
 
+   Sound::fill(sndData, SND_DATA_SIZE / SND_FRAME_SIZE);
+
    Game::update(0.016);
    Game::render();
 
@@ -540,7 +547,10 @@ bool retro_load_game(const struct retro_game_info *info)
    fprintf(stderr, "Loaded game!\n");
    (void)info;
 
-    Game::init();
+   Core::width  = 640;
+   Core::height = 480;
+   sndData = new Sound::Frame[SND_DATA_SIZE / SND_FRAME_SIZE];
+   Game::init();
 
    return true;
 }
