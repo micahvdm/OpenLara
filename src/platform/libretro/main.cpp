@@ -48,6 +48,7 @@ static unsigned height = BASE_HEIGHT;
 Sound::Frame *sndData;
 
 char levelpath[255];
+char basedir[1024];
 char Stream::cacheDir[255];
 char Stream::contentDir[255];
 
@@ -202,12 +203,19 @@ void retro_run(void)
 
 static void context_reset(void)
 {
+   char musicpath[255];
+#ifdef _WIN32
+   char slash = '\\';
+#else
+   char slash = '/';
+#endif
    fprintf(stderr, "Context reset!\n");
    rglgen_resolve_symbols(hw_render.get_proc_address);
 
    sndData = new Sound::Frame[SND_DATA_SIZE / SND_FRAME_SIZE];
-   Game::init(levelpath,
-         "/home/squarepusher/libretro-super/libretro-openlara/bin/05.ogg");
+   snprintf(musicpath, sizeof(musicpath), "%s%c05.ogg",
+         basedir, slash);
+   Game::init(levelpath, musicpath);
 }
 
 static void context_destroy(void)
@@ -262,6 +270,24 @@ static bool retro_init_hw_context(void)
 }
 #endif
 
+static void extract_directory(char *buf, const char *path, size_t size)
+{
+   strncpy(buf, path, size - 1);
+   buf[size - 1] = '\0';
+
+   char *base = strrchr(buf, '/');
+   if (!base)
+      base = strrchr(buf, '\\');
+
+   if (base)
+      *base = '\0';
+   else
+   {
+      buf[0] = '.';
+      buf[1] = '\0';
+   }
+}
+
 bool retro_load_game(const struct retro_game_info *info)
 {
    update_variables();
@@ -284,7 +310,11 @@ bool retro_load_game(const struct retro_game_info *info)
 
    Stream::contentDir[0] = Stream::cacheDir[0] = 0;
 
+   levelpath[0] = '\0';
    strcpy(levelpath, info->path);
+
+   basedir[0] = '\0';
+   extract_directory(basedir, info->path, sizeof(basedir));
 
    Core::width  = width;
    Core::height = height;
