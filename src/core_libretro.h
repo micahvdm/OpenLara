@@ -9,14 +9,6 @@
 #include "input.h"
 #include "sound.h"
 
-        void* GetProc(const char *name) {
-            #ifdef WIN32
-                return (void*)wglGetProcAddress(name);
-            #elif LINUX
-                return (void*)glXGetProcAddress((GLubyte*)name);
-            #endif
-        }
-
 #define glActiveStencilFaceEXT(...)
 #define MAX_LIGHTS          4
 #define MAX_CACHED_LIGHTS   3
