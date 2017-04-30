@@ -155,7 +155,9 @@ else
 	CFLAGS += -std=c99
 endif
 
-OBJECTS := main.o glsym/rglgen.o ../../libs/stb_vorbis/stb_vorbis.o
+include Makefile.common
+
+OBJECTS := $(SOURCES_C:.c=.o) $(SOURCES_CXX:.cpp=.o)
 CXXFLAGS += $(fpic)
 CFLAGS += -Wall -pedantic $(fpic)
 

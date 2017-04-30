@@ -1,0 +1,4 @@
+SOURCES_C   := $(CORE_DIR)/glsym/rglgen.c \
+					$(CORE_DIR)/../../libs/stb_vorbis/stb_vorbis.c
+
+SOURCES_CXX := $(CORE_DIR)/main.cpp
