@@ -4,13 +4,10 @@
 #include <string.h>
 #include <math.h>
 
-#include <sys/time.h>
-
-#include "glsym/glsym.h"
+#include <glsym/glsym.h>
+#include <libretro.h>
 
 #include "../../game.h"
-
-#include "libretro.h"
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 struct retro_hw_render_callback hw_render;
@@ -69,12 +66,6 @@ char levelpath[255];
 char basedir[1024];
 char Stream::cacheDir[255];
 char Stream::contentDir[255];
-
-int getTime() {
-    timeval t;
-    gettimeofday(&t, NULL);
-    return (t.tv_sec * 1000 + t.tv_usec / 1000);
-}
 
 void retro_init(void)
 {}

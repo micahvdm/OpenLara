@@ -140,28 +140,19 @@ namespace Core {
     } active;
 
     struct Stats {
-        int dips, tris, frame, fps, fpsTime;
+        int dips, tris, frame;
     #ifdef PROFILE
         int tFrame;
     #endif
 
-        Stats() : frame(0), fps(0), fpsTime(0) {}
+        Stats() : frame(0) {}
 
         void start() {
             dips = tris = 0;
         }
 
         void stop() {
-            if (fpsTime < getTime()) {
-                LOG("FPS: %d DIP: %d TRI: %d\n", fps, dips, tris);
-            #ifdef PROFILE
-                LOG("frame time: %d mcs\n", tFrame / 1000);
-            #endif
-                fps     = frame;
-                frame   = 0;
-                fpsTime = getTime() + 1000;
-            } else
-                frame++;        
+           frame++;        
         }
     } stats;
 
