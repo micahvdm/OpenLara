@@ -39,9 +39,7 @@ struct retro_hw_render_callback hw_render;
 #define SND_FRAME_SIZE  4
 
 static unsigned FRAMERATE     = 60;
-static float TIMESTEP         = 0.016;
-/* (44100 Hz * stereo channels * 16bit sound ) / framerate */
-static unsigned SND_DATA_SIZE = (44100 * 2 * 2) / FRAMERATE;
+static unsigned SND_RATE      = 44100;
 
 static unsigned width         = BASE_WIDTH;
 static unsigned height        = BASE_HEIGHT;
@@ -83,7 +81,7 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
 {
    info->timing = (struct retro_system_timing) {
       .fps = (float)FRAMERATE,
-      .sample_rate = 44100.0,
+      .sample_rate = (float)SND_RATE,
    };
 
    info->geometry = (struct retro_game_geometry) {
@@ -109,7 +107,7 @@ void retro_set_environment(retro_environment_t cb)
    struct retro_variable variables[] = {
       {
          "openlara_framerate",
-         "Framerate (restart); 60fps|120fps",
+         "Framerate (restart); 60fps|90fps|120fps|144fps|30fps",
       },
       {
          "openlara_resolution",
@@ -175,25 +173,19 @@ static void update_variables(bool first_startup)
 
       if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
       {
-         if (!strcmp(var.value, "60fps"))
-         {
+         if (!strcmp(var.value, "30fps"))
+            FRAMERATE     = 30;
+         else if (!strcmp(var.value, "60fps"))
             FRAMERATE     = 60;
-            TIMESTEP      = 0.016;
-            SND_DATA_SIZE = (44100 * 2 * 2) / FRAMERATE;
-         }
+         else if (!strcmp(var.value, "90fps"))
+            FRAMERATE     = 90;
          else if (!strcmp(var.value, "120fps"))
-         {
             FRAMERATE     = 120;
-            TIMESTEP      = 0.0083;
-            SND_DATA_SIZE = (44100 * 2 * 2) / FRAMERATE;
-         }
+         else if (!strcmp(var.value, "144fps"))
+            FRAMERATE     = 120;
       }
       else
-      {
          FRAMERATE     = 60;
-         TIMESTEP      = 0.016;
-         SND_DATA_SIZE = (44100 * 2 * 2) / FRAMERATE;
-      }
    }
 }
 
@@ -265,10 +257,20 @@ void retro_run(void)
    else
       Input::setDown(InputKey::ikV, false);
 
-   Sound::fill(sndData, SND_DATA_SIZE / SND_FRAME_SIZE);
-   audio_batch_cb(&sndData->L, SND_DATA_SIZE / SND_FRAME_SIZE);
+   int audio_frames = SND_RATE / FRAMERATE;
+   int16_t *samples = (int16_t*)sndData;
 
-   Game::update(TIMESTEP);
+   Sound::fill(sndData, audio_frames);
+
+   while (audio_frames > 512)
+   {
+      audio_batch_cb(samples, 512);
+      samples += 1024;
+      audio_frames -= 512;
+   }
+   audio_batch_cb(samples, audio_frames);
+
+   Game::update(1.0 / FRAMERATE);
    Core::defaultFBO = hw_render.get_current_framebuffer();
    Game::render();
 
@@ -286,7 +288,7 @@ static void context_reset(void)
    fprintf(stderr, "Context reset!\n");
    rglgen_resolve_symbols(hw_render.get_proc_address);
 
-   sndData = new Sound::Frame[SND_DATA_SIZE / SND_FRAME_SIZE];
+   sndData = new Sound::Frame[SND_RATE * 2 * sizeof(int16_t) / FRAMERATE];
    snprintf(musicpath, sizeof(musicpath), "%s%c05.ogg",
          basedir, slash);
    Game::init(levelpath, musicpath);
