@@ -180,8 +180,6 @@ static void update_variables(void)
    }
 }
 
-static unsigned frame_count;
-
 void retro_run(void)
 {
    bool updated = false;
@@ -249,8 +247,6 @@ void retro_run(void)
       Input::setDown(InputKey::ikV, true);
    else
       Input::setDown(InputKey::ikV, false);
-
-   frame_count++;
 
    Sound::fill(sndData, SND_DATA_SIZE / SND_FRAME_SIZE);
    audio_batch_cb(&sndData->L, SND_DATA_SIZE / SND_FRAME_SIZE);
