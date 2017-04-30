@@ -17,6 +17,7 @@
             #endif
         }
 
+#define glActiveStencilFaceEXT(...)
 #define MAX_LIGHTS          4
 #define MAX_CACHED_LIGHTS   3
 #define MAX_RENDER_BUFFERS  32
@@ -389,16 +390,10 @@ namespace Core {
                 case 1 :
                     setCulling(cfNone);
                     glEnable(GL_STENCIL_TEST_TWO_SIDE_EXT);
-#if 0
-                    /* TODO/FIXME */
                     glActiveStencilFaceEXT(GL_BACK);
-#endif
                     glStencilOp(GL_KEEP, GL_DECR, GL_KEEP);
                     glStencilFunc(GL_ALWAYS, ref, ~0);
-#if 0
-                    /* TODO/FIXME */
                     glActiveStencilFaceEXT(GL_FRONT);
-#endif
                     glStencilOp(GL_KEEP, GL_INCR, GL_KEEP);
                     glStencilFunc(GL_ALWAYS, ref, ~0);
                     break;
