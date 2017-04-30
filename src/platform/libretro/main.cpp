@@ -439,6 +439,9 @@ void retro_run(void)
 
    frame_count++;
 
+   Game::update(0.016);
+   Game::render();
+
    video_cb(RETRO_HW_FRAME_BUFFER_VALID, width, height, 0);
 }
 
@@ -536,11 +539,16 @@ bool retro_load_game(const struct retro_game_info *info)
 
    fprintf(stderr, "Loaded game!\n");
    (void)info;
+
+    Game::init();
+
    return true;
 }
 
 void retro_unload_game(void)
-{}
+{
+    Game::free();
+}
 
 unsigned retro_get_region(void)
 {
