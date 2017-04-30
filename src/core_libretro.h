@@ -22,6 +22,20 @@
 #define MAX_CACHED_LIGHTS   3
 #define MAX_RENDER_BUFFERS  32
 
+#if defined(HAVE_PSGL)
+#define RARCH_GL_FRAMEBUFFER GL_FRAMEBUFFER_OES
+#define RARCH_GL_FRAMEBUFFER_COMPLETE GL_FRAMEBUFFER_COMPLETE_OES
+#define RARCH_GL_COLOR_ATTACHMENT0 GL_COLOR_ATTACHMENT0_EXT
+#elif defined(OSX_PPC)
+#define RARCH_GL_FRAMEBUFFER GL_FRAMEBUFFER_EXT
+#define RARCH_GL_FRAMEBUFFER_COMPLETE GL_FRAMEBUFFER_COMPLETE_EXT
+#define RARCH_GL_COLOR_ATTACHMENT0 GL_COLOR_ATTACHMENT0_EXT
+#else
+#define RARCH_GL_FRAMEBUFFER GL_FRAMEBUFFER
+#define RARCH_GL_FRAMEBUFFER_COMPLETE GL_FRAMEBUFFER_COMPLETE
+#define RARCH_GL_COLOR_ATTACHMENT0 GL_COLOR_ATTACHMENT0
+#endif
+
 struct Shader;
 struct Texture;
 
@@ -246,7 +260,7 @@ namespace Core {
         delete blackTex;
         delete whiteTex;
     /*
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glBindFramebuffer(RARCH_GL_FRAMEBUFFER, 0);
         glDeleteFrameBuffers(1, &FBO);
 
         glBindRenderbuffer(GL_RENDERBUFFER, 0);
@@ -419,9 +433,9 @@ namespace Core {
         if (support.discardFrame && (color || depth)) {
             int count = 0;
             GLenum discard[2];
-            if (color) discard[count++] = active.target ? GL_COLOR_ATTACHMENT0 : GL_COLOR_EXT;
-            if (depth) discard[count++] = active.target ? GL_DEPTH_ATTACHMENT  : GL_DEPTH_EXT;
-            glDiscardFramebufferEXT(GL_FRAMEBUFFER, count, discard);
+            if (color) discard[count++] = active.target ? RARCH_GL_COLOR_ATTACHMENT0 : GL_COLOR_EXT;
+            if (depth) discard[count++] = active.target ? RARCH_GL_DEPTH_ATTACHMENT  : GL_DEPTH_EXT;
+            glDiscardFramebufferEXT(RARCH_GL_FRAMEBUFFER, count, discard);
         }
     #endif
     }
@@ -431,7 +445,7 @@ namespace Core {
             return;
 
         if (!target)  {
-            glBindFramebuffer(GL_FRAMEBUFFER, defaultFBO);
+            glBindFramebuffer(RARCH_GL_FRAMEBUFFER, defaultFBO);
             glColorMask(true, true, true, true);
 
             setViewport(int(viewportDef.x), int(viewportDef.y), int(viewportDef.z), int(viewportDef.w));
@@ -445,9 +459,9 @@ namespace Core {
             bool depth   = target->format == Texture::DEPTH || target->format == Texture::SHADOW;
             int  rtIndex = cacheRenderTarget(depth, target->width, target->height);
 
-            glBindFramebuffer(GL_FRAMEBUFFER, FBO);
-            glFramebufferTexture2D    (GL_FRAMEBUFFER, depth ? GL_DEPTH_ATTACHMENT  : GL_COLOR_ATTACHMENT0, texTarget,       target->ID, 0);
-            glFramebufferRenderbuffer (GL_FRAMEBUFFER, depth ? GL_COLOR_ATTACHMENT0 : GL_DEPTH_ATTACHMENT,  GL_RENDERBUFFER, rtCache[depth].items[rtIndex].ID);
+            glBindFramebuffer(RARCH_GL_FRAMEBUFFER, FBO);
+            glFramebufferTexture2D    (RARCH_GL_FRAMEBUFFER, depth ? GL_DEPTH_ATTACHMENT  : RARCH_GL_COLOR_ATTACHMENT0, texTarget,       target->ID, 0);
+            glFramebufferRenderbuffer (RARCH_GL_FRAMEBUFFER, depth ? RARCH_GL_COLOR_ATTACHMENT0 : GL_DEPTH_ATTACHMENT,  GL_RENDERBUFFER, rtCache[depth].items[rtIndex].ID);
 
             if (depth)
                 glColorMask(false, false, false, false);
