@@ -79,7 +79,7 @@ void retro_get_system_info(struct retro_system_info *info)
    info->library_name     = "OpenLara";
    info->library_version  = "v1";
    info->need_fullpath    = false;
-   info->valid_extensions = NULL; // Anything is fine, we don't care.
+   info->valid_extensions = "phd|psx"; // Anything is fine, we don't care.
 }
 
 void retro_get_system_av_info(struct retro_system_av_info *info)
@@ -202,6 +202,10 @@ static void context_reset(void)
 {
    fprintf(stderr, "Context reset!\n");
    rglgen_resolve_symbols(hw_render.get_proc_address);
+
+   sndData = new Sound::Frame[SND_DATA_SIZE / SND_FRAME_SIZE];
+   Game::init("/home/squarepusher/libretro-super/libretro-openlara/bin/LEVEL2.PSX",
+         "/home/squarepusher/libretro-super/libretro-openlara/bin/05.ogg");
 }
 
 static void context_destroy(void)
@@ -275,10 +279,11 @@ bool retro_load_game(const struct retro_game_info *info)
    fprintf(stderr, "Loaded game!\n");
    (void)info;
 
+   Stream::contentDir[0] = Stream::cacheDir[0] = 0;
+   strcat(Stream::cacheDir, "/home/squarepusher/libretro-super/libretro-openlara/bin");
+
    Core::width  = width;
    Core::height = height;
-   sndData = new Sound::Frame[SND_DATA_SIZE / SND_FRAME_SIZE];
-   Game::init();
 
    return true;
 }

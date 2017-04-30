@@ -1,6 +1,10 @@
 #ifndef H_CORE
 #define H_CORE
 
+#ifdef __LIBRETRO__
+#include "core_libretro.h"
+#else
+
 #include <stdio.h>
 #ifdef WIN32
     #include <windows.h>
@@ -756,5 +760,7 @@ namespace Core {
 }
 
 #include "mesh.h"
+
+#endif
 
 #endif

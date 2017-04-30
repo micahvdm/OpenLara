@@ -32,6 +32,7 @@ endif
 
 TARGET_NAME = openlara
 
+CORE_DIR := .
 CXXFLAGS :=
 
 ifeq ($(platform), unix)
@@ -159,8 +160,8 @@ CXXFLAGS += $(fpic)
 CFLAGS += -Wall -pedantic $(fpic)
 
 CXXFLAGS += -std=c++11
-CFLAGS += -I../..
-CXXFLAGS += -I../..
+CFLAGS += -I$(CORE_DIR)/../.. -I$(CORE_DIR)/glsym
+CXXFLAGS += -I$(CORE_DIR)/../.. -I$(CORE_DIR)/glsym
 
 ifeq ($(GLES), 1)
    CXXFLAGS += -DHAVE_OPENGLES -DHAVE_OPENGLES2
@@ -183,6 +184,9 @@ ifeq ($(CORE), 1)
    CXXFLAGS += -DCORE
    CFLAGS += -DCORE
 endif
+
+CXXFLAGS += -D__LIBRETRO__
+CFLAGS += -D__LIBRETRO__
 
 all: $(TARGET)
 
