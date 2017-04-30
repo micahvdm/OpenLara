@@ -40,7 +40,7 @@ struct retro_hw_render_callback hw_render;
 #endif
 
 #define SND_FRAME_SIZE  4
-#define SND_DATA_SIZE   (1024 * SND_FRAME_SIZE)
+#define SND_DATA_SIZE   (735 * SND_FRAME_SIZE)
 
 static unsigned width  = BASE_WIDTH;
 static unsigned height = BASE_HEIGHT;
@@ -189,9 +189,10 @@ void retro_run(void)
    frame_count++;
 
    Sound::fill(sndData, SND_DATA_SIZE / SND_FRAME_SIZE);
-   audio_cb(sndData->L, sndData->R);
+   audio_batch_cb(&sndData->L, SND_DATA_SIZE / SND_FRAME_SIZE);
 
    Game::update(0.016);
+   Core::defaultFBO = hw_render.get_current_framebuffer();
    Game::render();
 
    video_cb(RETRO_HW_FRAME_BUFFER_VALID, width, height, 0);
