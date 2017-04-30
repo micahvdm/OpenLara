@@ -160,8 +160,8 @@ CXXFLAGS += $(fpic)
 CFLAGS += -Wall -pedantic $(fpic)
 
 CXXFLAGS += -std=c++11
-CFLAGS += -I$(CORE_DIR)/../.. -I$(CORE_DIR)/glsym
-CXXFLAGS += -I$(CORE_DIR)/../.. -I$(CORE_DIR)/glsym
+CFLAGS += -I$(CORE_DIR) -I$(CORE_DIR)/../.. -I$(CORE_DIR)/glsym
+CXXFLAGS += -I$(CORE_DIR) -I$(CORE_DIR)/../.. -I$(CORE_DIR)/glsym
 
 ifeq ($(GLES), 1)
    CXXFLAGS += -DHAVE_OPENGLES -DHAVE_OPENGLES2
