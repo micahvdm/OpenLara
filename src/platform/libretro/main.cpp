@@ -39,8 +39,26 @@ struct retro_hw_render_callback hw_render;
 #define MAX_HEIGHT 2048
 #endif
 
+/* (44100 Hz * stereo channels * 16bit sound ) / framerate */
+
+//#define FPS_30_H
+
+#if defined(FPS_120_H)
 #define SND_FRAME_SIZE  4
-#define SND_DATA_SIZE   (735 * SND_FRAME_SIZE)
+#define SND_DATA_SIZE   (1470)
+#define TIMESTEP        0.0083
+#define FRAMERATE       120
+#elif defined(FPS_30_H)
+#define SND_FRAME_SIZE  4
+#define SND_DATA_SIZE   (5880)
+#define TIMESTEP        0.033
+#define FRAMERATE       30
+#else
+#define SND_FRAME_SIZE  4
+#define SND_DATA_SIZE   (2940)
+#define TIMESTEP        0.016
+#define FRAMERATE       60
+#endif
 
 static unsigned width  = BASE_WIDTH;
 static unsigned height = BASE_HEIGHT;
@@ -87,7 +105,7 @@ void retro_get_system_info(struct retro_system_info *info)
 void retro_get_system_av_info(struct retro_system_av_info *info)
 {
    info->timing = (struct retro_system_timing) {
-      .fps = 60.0,
+      .fps = (float)FRAMERATE,
       .sample_rate = 44100.0,
    };
 
@@ -246,7 +264,7 @@ void retro_run(void)
    Sound::fill(sndData, SND_DATA_SIZE / SND_FRAME_SIZE);
    audio_batch_cb(&sndData->L, SND_DATA_SIZE / SND_FRAME_SIZE);
 
-   Game::update(0.016);
+   Game::update(TIMESTEP);
    Core::defaultFBO = hw_render.get_current_framebuffer();
    Game::render();
 
