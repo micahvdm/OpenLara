@@ -30,7 +30,7 @@ else ifneq ($(findstring Darwin,$(shell uname -a)),)
 	system_platform = win
 endif
 
-TARGET_NAME = testgl
+TARGET_NAME = openlara
 
 CXXFLAGS :=
 
