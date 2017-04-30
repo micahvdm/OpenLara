@@ -47,6 +47,7 @@ static unsigned height = BASE_HEIGHT;
 
 Sound::Frame *sndData;
 
+char levelpath[255];
 char Stream::cacheDir[255];
 char Stream::contentDir[255];
 
@@ -204,7 +205,7 @@ static void context_reset(void)
    rglgen_resolve_symbols(hw_render.get_proc_address);
 
    sndData = new Sound::Frame[SND_DATA_SIZE / SND_FRAME_SIZE];
-   Game::init("/home/squarepusher/libretro-super/libretro-openlara/bin/LEVEL2.PSX",
+   Game::init(levelpath,
          "/home/squarepusher/libretro-super/libretro-openlara/bin/05.ogg");
 }
 
@@ -280,7 +281,8 @@ bool retro_load_game(const struct retro_game_info *info)
    (void)info;
 
    Stream::contentDir[0] = Stream::cacheDir[0] = 0;
-   strcat(Stream::cacheDir, "/home/squarepusher/libretro-super/libretro-openlara/bin");
+
+   strcpy(levelpath, info->path);
 
    Core::width  = width;
    Core::height = height;
