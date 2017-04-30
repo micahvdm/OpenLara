@@ -173,8 +173,8 @@ struct vec2 {
 
 struct vec3 {
     union {
-        struct { vec2 xy; };
-        struct { float x, y, z; };
+       vec2 xy;
+       struct { float x, y, z; };
     };
 
     vec3() {}
@@ -235,8 +235,7 @@ struct vec3 {
 
 struct vec4 {
     union {
-        struct { vec2 xy, zw; };
-        struct { vec3 xyz; };
+       vec3 xyz;
         struct { float x, y, z, w; };
     };
 
@@ -261,7 +260,7 @@ struct vec4 {
 struct quat {
     union {
         struct { float x, y, z, w; };
-        struct { vec3  xyz; };
+        vec3 xyz;
     };
 
     quat() {}
@@ -371,13 +370,20 @@ struct quat {
 struct mat4 {
 
     union {
-        struct {
-            float e00, e10, e20, e30,
-                  e01, e11, e21, e31,
-                  e02, e12, e22, e32,
-                  e03, e13, e23, e33;
-        };
-        struct { vec4 right, up, dir, offset; };
+       struct {float e00, e10, e20, e30; };
+       vec4 right;
+    };
+    union {
+       struct {float e01, e11, e21, e31;};
+       vec4 up;
+    };
+    union {
+       struct {float e02, e12, e22, e32;};
+       vec4 dir;
+    };
+    union {
+       struct {float e03, e13, e23, e33;};
+       vec4 offset;
     };
 
     mat4() {}

@@ -34,9 +34,6 @@ TARGET_NAME = testgl
 
 CXXFLAGS :=
 
-CC  = clang
-CXX = clang
-
 ifeq ($(platform), unix)
    TARGET := $(TARGET_NAME)_libretro.so
    fpic := -fPIC
@@ -157,7 +154,7 @@ else
 	CFLAGS += -std=c99
 endif
 
-OBJECTS := main.o glsym/rglgen.o
+OBJECTS := main.o glsym/rglgen.o ../../libs/stb_vorbis/stb_vorbis.o
 CXXFLAGS += $(fpic)
 CFLAGS += -Wall -pedantic $(fpic)
 
