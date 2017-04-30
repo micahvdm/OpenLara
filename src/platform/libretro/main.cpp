@@ -190,6 +190,9 @@ static void update_variables(bool first_startup)
       }
       else
       {
+         FRAMERATE     = 60;
+         TIMESTEP      = 0.016;
+         SND_DATA_SIZE = (44100 * 2 * 2) / FRAMERATE;
       }
    }
 }
