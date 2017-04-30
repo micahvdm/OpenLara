@@ -65,8 +65,8 @@ struct Texture {
             float color[] = { 1.0f, 1.0f, 1.0f, 1.0f };
             glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, color);
         }
-        glTexParameteri(target, GL_TEXTURE_MAG_FILTER, filter ? GL_LINEAR : GL_NEAREST);
-        glTexParameteri(target, GL_TEXTURE_MIN_FILTER, filter ? GL_LINEAR : GL_NEAREST);
+        glTexParameteri(target, GL_TEXTURE_MAG_FILTER, filter && Core::support.force_linear ? GL_LINEAR : GL_NEAREST);
+        glTexParameteri(target, GL_TEXTURE_MIN_FILTER, filter && Core::support.force_linear ? GL_LINEAR : GL_NEAREST);
         
         struct FormatDesc {
             GLuint ifmt, fmt;

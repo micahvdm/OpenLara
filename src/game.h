@@ -18,25 +18,34 @@ namespace Game {
         delete lvl;
     }
 
-    void init(Stream *lvl, Stream *snd) {
+    void init(Stream *lvl, Stream *snd, bool disable_water,
+          bool disable_lighting) {
         Core::init();
 
-        Core::settings.ambient  = true;
-        Core::settings.lighting = true;
-        Core::settings.shadows  = true;
-        Core::settings.water    = Core::support.texFloat || Core::support.texHalf;
+        Core::settings.ambient     = true;
+        if (disable_lighting)
+           Core::settings.lighting = false;
+        else
+           Core::settings.lighting = true;
+        Core::settings.shadows     = true;
+        if (disable_water)
+           Core::settings.water    = false;
+        else
+           Core::settings.water    = Core::support.texFloat || Core::support.texHalf;
 
         level = NULL;
         ui    = NULL;
         startLevel(lvl, snd, false, false);
     }
 
-    void init(char *lvlName = NULL, char *sndName = NULL) {
+    void init(char *lvlName = NULL, char *sndName = NULL,
+          bool disable_water = false, bool disable_lighting = false) {
         if (!lvlName) lvlName = (char*)"LEVEL2.PSX";
         #ifndef __EMSCRIPTEN__  
             if (!sndName) sndName = (char*)"05.ogg";
         #endif
-        init(new Stream(lvlName), sndName ? new Stream(sndName) : NULL);
+        init(new Stream(lvlName), sndName ? new Stream(sndName) : NULL,
+              disable_water, disable_lighting);
     }
 
     void free() {

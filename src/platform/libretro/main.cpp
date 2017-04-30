@@ -44,6 +44,9 @@ static unsigned SND_RATE      = 44100;
 static unsigned width         = BASE_WIDTH;
 static unsigned height        = BASE_HEIGHT;
 
+static bool force_linear      = true;
+static bool disable_water     = false;
+
 Sound::Frame *sndData;
 
 char levelpath[255];
@@ -112,6 +115,14 @@ void retro_set_environment(retro_environment_t cb)
       {
          "openlara_resolution",
          "Internal resolution (restart); 320x240|360x480|480x272|512x384|512x512|640x240|640x448|640x480|720x576|800x600|960x720|1024x768|1024x1024|1280x720|1280x960|1600x1200|1920x1080|1920x1440|1920x1600|2048x2048|2560x1440",
+      },
+      {
+         "openlara_texture_filtering",
+         "Texture filtering (restart); Bilinear filtering|Nearest",
+      },
+      {
+         "openlara_water_effects",
+         "Water effects (restart); enabled|disabled",
       },
       { NULL, NULL },
    };
@@ -186,6 +197,30 @@ static void update_variables(bool first_startup)
       }
       else
          FRAMERATE     = 60;
+
+      var.key = "openlara_water_effects";
+
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      {
+         if (!strcmp(var.value, "enabled"))
+            disable_water     = false;
+         else if (!strcmp(var.value, "disabled"))
+            disable_water     = true;
+      }
+      else
+         disable_water     = false;
+
+      var.key = "openlara_texture_filtering";
+
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      {
+         if (!strcmp(var.value, "Bilinear filtering"))
+            force_linear     = true;
+         else if (!strcmp(var.value, "Nearest"))
+            force_linear     = false;
+      }
+      else
+         force_linear     = true;
    }
 }
 
@@ -291,13 +326,14 @@ static void context_reset(void)
    sndData = new Sound::Frame[SND_RATE * 2 * sizeof(int16_t) / FRAMERATE];
    snprintf(musicpath, sizeof(musicpath), "%s%c05.ogg",
          basedir, slash);
-   Game::init(levelpath, musicpath);
+   Game::init(levelpath, musicpath, disable_water, false);
 }
 
 static void context_destroy(void)
 {
    fprintf(stderr, "Context destroy!\n");
    delete[] sndData;
+   Game::free();
 }
 
 #ifdef HAVE_OPENGLES
@@ -394,13 +430,13 @@ bool retro_load_game(const struct retro_game_info *info)
 
    Core::width  = width;
    Core::height = height;
+   Core::support.force_linear  = force_linear;
 
    return true;
 }
 
 void retro_unload_game(void)
 {
-    Game::free();
 }
 
 unsigned retro_get_region(void)
