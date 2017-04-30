@@ -4,6 +4,8 @@
 #include <string.h>
 #include <math.h>
 
+#include <sys/time.h>
+
 #include "glsym/glsym.h"
 
 #include "../../game.h"
@@ -42,6 +44,15 @@ static unsigned height = BASE_HEIGHT;
 
 static GLuint prog;
 static GLuint vbo;
+
+char Stream::cacheDir[255];
+char Stream::contentDir[255];
+
+int getTime() {
+    timeval t;
+    gettimeofday(&t, NULL);
+    return (t.tv_sec * 1000 + t.tv_usec / 1000);
+}
 
 #if defined(CORE)
 static bool context_alive;
