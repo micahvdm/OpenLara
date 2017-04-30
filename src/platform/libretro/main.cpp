@@ -113,12 +113,8 @@ void retro_set_environment(retro_environment_t cb)
 
    struct retro_variable variables[] = {
       {
-         "testgl_resolution",
-#ifdef HAVE_OPENGLES
-         "Internal resolution; 320x240|360x480|480x272|512x384|512x512|640x240|640x448|640x480|720x576|800x600|960x720|1024x768",
-#else
+         "openlara_resolution",
          "Internal resolution; 320x240|360x480|480x272|512x384|512x512|640x240|640x448|640x480|720x576|800x600|960x720|1024x768|1024x1024|1280x720|1280x960|1600x1200|1920x1080|1920x1440|1920x1600|2048x2048",
-#endif
       },
       { NULL, NULL },
    };
@@ -156,7 +152,7 @@ void retro_set_video_refresh(retro_video_refresh_t cb)
 static void update_variables(void)
 {
    struct retro_variable var = {
-      .key = "testgl_resolution",
+      .key = "openlara_resolution",
    };
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
@@ -172,7 +168,7 @@ static void update_variables(void)
       if (pch)
          height = strtoul(pch, NULL, 0);
 
-      fprintf(stderr, "[libretro-test]: Got size: %u x %u.\n", width, height);
+      fprintf(stderr, "[openlara]: Got size: %u x %u.\n", width, height);
    }
 }
 
