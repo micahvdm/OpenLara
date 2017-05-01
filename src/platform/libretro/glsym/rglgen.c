@@ -1,4 +1,4 @@
-/* Copyright (C) 2010-2015 The RetroArch team
+/* Copyright (C) 2010-2017 The RetroArch team
  *
  * ---------------------------------------------------------------------------------------
  * The following license statement only applies to this libretro SDK code part (glsym).
@@ -23,8 +23,8 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "rglgen.h"
-#include "glsym.h"
+#include <glsym/rglgen.h>
+#include <glsym/glsym.h>
 
 void rglgen_resolve_symbols_custom(rglgen_proc_address_t proc,
       const struct rglgen_sym_map *map)
