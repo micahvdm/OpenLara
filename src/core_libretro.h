@@ -14,6 +14,9 @@ extern struct retro_hw_render_callback hw_render;
 
 #if __APPLE__
 #if TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR
+#define glGenVertexArrays           glGenVertexArraysOES
+#define glDeleteVertexArrays        glDeleteVertexArraysOES
+#define glBindVertexArray           glBindVertexArrayOES
 #define GL_COMPARE_REF_TO_TEXTURE GL_COMPARE_REF_TO_TEXTURE_EXT
 #else
 #define GL_RGBA32F GL_RGBA
