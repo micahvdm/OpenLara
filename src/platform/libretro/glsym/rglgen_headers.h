@@ -28,8 +28,8 @@
 #include <EGL/eglext.h>
 #endif
 
-#if defined(IOS)
-
+#if defined(__APPLE__)
+#if TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR
 #if defined(HAVE_OPENGLES3)
 #include <OpenGLES/ES3/gl.h>
 #include <OpenGLES/ES3/glext.h>
@@ -37,10 +37,10 @@
 #include <OpenGLES/ES2/gl.h>
 #include <OpenGLES/ES2/glext.h>
 #endif
-
-#elif defined(__APPLE__)
+#else
 #include <OpenGL/gl.h>
 #include <OpenGL/glext.h>
+#endif
 #elif defined(HAVE_PSGL)
 #include <PSGL/psgl.h>
 #include <GLES/glext.h>
