@@ -17,7 +17,12 @@ extern struct retro_hw_render_callback hw_render;
 #define glGenVertexArrays           glGenVertexArraysOES
 #define glDeleteVertexArrays        glDeleteVertexArraysOES
 #define glBindVertexArray           glBindVertexArrayOES
+#define GL_TEXTURE_COMPARE_MODE		GL_TEXTURE_COMPARE_MODE_EXT
+#define GL_TEXTURE_COMPARE_FUNC		GL_TEXTURE_COMPARE_FUNC_EXT
 #define GL_COMPARE_REF_TO_TEXTURE GL_COMPARE_REF_TO_TEXTURE_EXT
+#define GL_CLAMP_TO_BORDER          GL_CLAMP_TO_BORDER_EXT
+#define GL_TEXTURE_BORDER_COLOR     GL_TEXTURE_BORDER_COLOR_EXT
+#define GL_STENCIL_TEST_TWO_SIDE_EXT 0
 #else
 #define GL_RGBA32F GL_RGBA
 #define GL_RGBA16F GL_RGBA
