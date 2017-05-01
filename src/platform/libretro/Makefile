@@ -73,9 +73,10 @@ endif
 
    GL_LIB := -framework OpenGLES
    DEFINES := -DIOS
-   CXXFLAGS += -DHAVE_OPENGLES $(DEFINES)
-   CFLAGS += -DHAVE_OPENGLES $(DEFINES)
+   CXXFLAGS += -DHAVE_OPENGLES -DHAVE_OPENGLES2 $(DEFINES)
+   CFLAGS += -DHAVE_OPENGLES -DHAVE_OPENGLES2 $(DEFINES)
    CC = cc -arch armv7 -isysroot $(IOSSDK)
+   CXX = c++ -arch armv7 -isysroot $(IOSSDK)
 ifeq ($(platform),ios9)
 	CC     += -miphoneos-version-min=8.0
 	CXXFLAGS += -miphoneos-version-min=8.0
