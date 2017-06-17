@@ -54,11 +54,34 @@ char basedir[1024];
 char Stream::cacheDir[255];
 char Stream::contentDir[255];
 
+static retro_video_refresh_t video_cb;
+static retro_audio_sample_t audio_cb;
+static retro_audio_sample_batch_t audio_batch_cb;
+static retro_environment_t environ_cb;
+static retro_input_poll_t input_poll_cb;
+static retro_input_state_t input_state_cb;
+
+
 void retro_init(void)
-{}
+{
+   const char *sysdir = NULL;
+   Stream::contentDir[0] = Stream::cacheDir[0] = 0;
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &sysdir))
+   {
+#ifdef _WIN32
+      char slash = '\\';
+#else
+      char slash = '/';
+#endif
+      sprintf(Stream::cacheDir, "%s%copenlara-", sysdir, slash);
+   }
+}
 
 void retro_deinit(void)
-{}
+{
+   Stream::contentDir[0] = Stream::cacheDir[0] = 0;
+}
 
 unsigned retro_api_version(void)
 {
@@ -95,13 +118,6 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
       .aspect_ratio = 4.0 / 3.0,
    };
 }
-
-static retro_video_refresh_t video_cb;
-static retro_audio_sample_t audio_cb;
-static retro_audio_sample_batch_t audio_batch_cb;
-static retro_environment_t environ_cb;
-static retro_input_poll_t input_poll_cb;
-static retro_input_state_t input_state_cb;
 
 void retro_set_environment(retro_environment_t cb)
 {
@@ -420,7 +436,6 @@ bool retro_load_game(const struct retro_game_info *info)
    fprintf(stderr, "Loaded game!\n");
    (void)info;
 
-   Stream::contentDir[0] = Stream::cacheDir[0] = 0;
 
    levelpath[0] = '\0';
    strcpy(levelpath, info->path);
