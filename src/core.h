@@ -228,6 +228,7 @@ struct Texture;
 
 namespace Core {
     struct {
+        bool force_linear;
         bool shaderBinary;
         bool VAO;
         bool depthTexture;
