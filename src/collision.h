@@ -6,7 +6,7 @@
 #include "format.h"
 
 struct Collision {
-    enum Side { NONE, LEFT, RIGHT, FRONT, TOP, BOTTOM } side;
+    enum Side { NONE, LEFT, RIGHT, FRONT, BACK, TOP, BOTTOM } side;
 
     struct Info {
         int room, roomAbove, roomBelow, floor, ceiling;

@@ -11,15 +11,36 @@ namespace Debug {
     static GLuint font;
 
     void init() {
-        font = glGenLists(256);
-        HDC hdc = GetDC(0); 
-        HFONT hfont = CreateFontA(-MulDiv(10, GetDeviceCaps(hdc, LOGPIXELSY), 72), 0,
-                                 0, 0, FW_BOLD, 0, 0, 0,
-                                 ANSI_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                 ANTIALIASED_QUALITY, DEFAULT_PITCH, "Courier New");
-        SelectObject(hdc, hfont);
-        wglUseFontBitmaps(hdc, 0, 256, font);
-        DeleteObject(hfont);
+        #ifdef WIN32
+            font = glGenLists(256);
+            HDC hdc = GetDC(0);
+            HFONT hfont = CreateFontA(-MulDiv(10, GetDeviceCaps(hdc, LOGPIXELSY), 72), 0,
+                                     0, 0, FW_BOLD, 0, 0, 0,
+                                     ANSI_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                     ANTIALIASED_QUALITY, DEFAULT_PITCH, "Courier New");
+            SelectObject(hdc, hfont);
+            wglUseFontBitmaps(hdc, 0, 256, font);
+            DeleteObject(hfont);
+        #elif LINUX
+            XFontStruct *fontInfo;
+            Font id;
+            unsigned int first, last;
+            fontInfo = XLoadQueryFont(glXGetCurrentDisplay(), "-adobe-times-medium-r-normal--17-120-100-100-p-88-iso8859-1");
+
+            if (fontInfo == NULL) {
+                LOG("no font found\n");
+            }
+
+            id = fontInfo->fid;
+            first = fontInfo->min_char_or_byte2;
+            last = fontInfo->max_char_or_byte2;
+
+            font = glGenLists(last + 1);
+            if (font == 0) {
+                LOG("out of display lists\n");
+            }
+            glXUseXFont(id, first, last - first + 1, font + first);
+        #endif
     }
 
     void free() {
@@ -496,16 +517,31 @@ namespace Debug {
                 TR::Model *m = controller->getModel();
                 if (!m) continue;
 
+                bool bboxIntersect = false;
+
+                ASSERT(m->mCount <= 34);
+
+                int mask = 0;
+                for (int j = 0; j < level.entitiesCount; j++) {
+                    TR::Entity &t = level.entities[j];
+                    if (j == i || ((!t.isEnemy() || !t.flags.active) && t.type != TR::Entity::LARA)) continue;
+                    Controller *enemy = (Controller*)t.controller;
+                    if (!controller->getBoundingBox().intersect(enemy->getBoundingBox()))
+                        continue;
+                    bboxIntersect = true;
+                    mask |= controller->collide(enemy);
+                }
+
                 Box box = controller->getBoundingBoxLocal();
-                Debug::Draw::box(matrix, box.min, box.max, vec4(1.0));
+                Debug::Draw::box(matrix, box.min, box.max, bboxIntersect ? vec4(1, 0, 0, 1): vec4(1));
 
                 Sphere spheres[34];
-                ASSERT(m->mCount <= 34);
-                controller->getSpheres(spheres);
+                int count;
+                controller->getSpheres(spheres, count);
 
-                for (int joint = 0; joint < m->mCount; joint++) {
+                for (int joint = 0; joint < count; joint++) {
                     Sphere &sphere = spheres[joint];
-                    Debug::Draw::sphere(sphere.center, sphere.radius, vec4(0, 1, 1, 0.5f));
+                    Debug::Draw::sphere(sphere.center, sphere.radius, (mask & (1 << joint)) ? vec4(1, 0, 0, 0.5f) : vec4(0, 1, 1, 0.5f));
                     /*
                     { //if (e.id != 0) {
                         char buf[255];
@@ -542,10 +578,10 @@ namespace Debug {
                     uint32 data;
                     uint32 dataSize;
                 } header = {
-                        FOURCC("RIFF"), sizeof(Header) - 8 + dataSize,
+                        FOURCC("RIFF"), (uint32) sizeof(Header) - 8 + dataSize,
                         FOURCC("WAVE"), FOURCC("fmt "), 16,
                         { 1, 1, 44100, 44100 * 16 / 8, 0, 16 },
-                        FOURCC("data"), dataSize
+                        FOURCC("data"), (uint32) dataSize
                     };
 
                 fwrite(&header, sizeof(header), 1, f);
@@ -603,69 +639,14 @@ namespace Debug {
             return "UNKNOWN";
         }
 
+        const char *TR1_TYPE_NAMES[] = { TR1_TYPES(DECL_STR) };
+
         const char *getEntityName(const TR::Level &level, const TR::Entity &entity) {
-            switch (entity.type) {
-                case_name(TR::Entity, LARA                 ); 
-                case_name(TR::Entity, ENEMY_TWIN           ); 
-                case_name(TR::Entity, ENEMY_WOLF           ); 
-                case_name(TR::Entity, ENEMY_BEAR           ); 
-                case_name(TR::Entity, ENEMY_BAT            ); 
-                case_name(TR::Entity, ENEMY_CROCODILE_LAND ); 
-                case_name(TR::Entity, ENEMY_CROCODILE_WATER); 
-                case_name(TR::Entity, ENEMY_LION_MALE      ); 
-                case_name(TR::Entity, ENEMY_LION_FEMALE    ); 
-                case_name(TR::Entity, ENEMY_PUMA           ); 
-                case_name(TR::Entity, ENEMY_GORILLA        ); 
-                case_name(TR::Entity, ENEMY_RAT_LAND       ); 
-                case_name(TR::Entity, ENEMY_RAT_WATER      ); 
-                case_name(TR::Entity, ENEMY_REX            ); 
-                case_name(TR::Entity, ENEMY_RAPTOR         ); 
-                case_name(TR::Entity, ENEMY_MUTANT_1       ); 
-                case_name(TR::Entity, ENEMY_CENTAUR        ); 
-                case_name(TR::Entity, ENEMY_MUMMY          ); 
-                case_name(TR::Entity, ENEMY_LARSON         ); 
-                case_name(TR::Entity, TRAP_FLOOR           ); 
-                case_name(TR::Entity, TRAP_BLADE           ); 
-                case_name(TR::Entity, TRAP_SPIKES          ); 
-                case_name(TR::Entity, TRAP_BOULDER         ); 
-                case_name(TR::Entity, TRAP_DART            ); 
-                case_name(TR::Entity, TRAP_DARTGUN         ); 
-                case_name(TR::Entity, BLOCK_1              ); 
-                case_name(TR::Entity, BLOCK_2              ); 
-                case_name(TR::Entity, SWITCH               ); 
-                case_name(TR::Entity, SWITCH_WATER         ); 
-                case_name(TR::Entity, DOOR_1               ); 
-                case_name(TR::Entity, DOOR_2               ); 
-                case_name(TR::Entity, DOOR_3               ); 
-                case_name(TR::Entity, DOOR_4               ); 
-                case_name(TR::Entity, DOOR_BIG_1           ); 
-                case_name(TR::Entity, DOOR_BIG_2           ); 
-                case_name(TR::Entity, DOOR_5               ); 
-                case_name(TR::Entity, DOOR_6               ); 
-                case_name(TR::Entity, TRAP_DOOR_1          ); 
-                case_name(TR::Entity, TRAP_DOOR_2          );
-                case_name(TR::Entity, BRIDGE_0             );
-                case_name(TR::Entity, BRIDGE_1             );
-                case_name(TR::Entity, BRIDGE_2             );
-                case_name(TR::Entity, GEARS_1              );
-                case_name(TR::Entity, GEARS_2              );
-                case_name(TR::Entity, GEARS_3              );
-                case_name(TR::Entity, PUZZLE_1             ); 
-                case_name(TR::Entity, PUZZLE_2             ); 
-                case_name(TR::Entity, PUZZLE_3             ); 
-                case_name(TR::Entity, PUZZLE_4             ); 
-                case_name(TR::Entity, HOLE_PUZZLE          ); 
-                case_name(TR::Entity, HOLE_PUZZLE_SET      ); 
-                case_name(TR::Entity, PICKUP               ); 
-                case_name(TR::Entity, KEY_1                ); 
-                case_name(TR::Entity, KEY_2                ); 
-                case_name(TR::Entity, KEY_3                ); 
-                case_name(TR::Entity, KEY_4                ); 
-                case_name(TR::Entity, HOLE_KEY             ); 
-                case_name(TR::Entity, VIEW_TARGET          );
-                case_name(TR::Entity, WATERFALL            ); 
-            }
-            return "UNKNOWN";
+            if (entity.type == TR::Entity::NONE)
+                return "NONE";
+            if (entity.type < 0 || entity.type >= COUNT(TR1_TYPE_NAMES))
+                return "UNKNOWN";
+            return TR1_TYPE_NAMES[entity.type];
         }
 
         void info(const TR::Level &level, const TR::Entity &entity, Animation &anim) {

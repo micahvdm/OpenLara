@@ -57,8 +57,8 @@ struct Level : IGame {
         return item->boxes[int(randf() * item->count)];
     }
     
-    virtual uint16 findPath(int ascend, int descend, int boxStart, int boxEnd, uint16 *zones, uint16 **boxes) {
-        return zoneCache->findPath(ascend, descend, boxStart, boxEnd, zones, boxes);
+    virtual uint16 findPath(int ascend, int descend, bool big, int boxStart, int boxEnd, uint16 *zones, uint16 **boxes) {
+        return zoneCache->findPath(ascend, descend, big, boxStart, boxEnd, zones, boxes);
     }
 
     virtual void setClipParams(float clipSign, float clipHeight) {
@@ -107,6 +107,10 @@ struct Level : IGame {
         Core::pass = Core::passCompose;
         renderScene(roomIndex);
     }
+
+    virtual void fxQuake(float time) {
+        camera->shake = time;
+    }
 //==============================
 
     Level(Stream &stream, Stream *snd, bool demo, bool home) : level(stream, demo), lara(NULL) {
@@ -137,24 +141,28 @@ struct Level : IGame {
                 case TR::Entity::ENEMY_BAT             :   
                     entity.controller = new Bat(this, i);
                     break;
-                case TR::Entity::ENEMY_TWIN            :   
-                case TR::Entity::ENEMY_CROCODILE_LAND  :   
-                case TR::Entity::ENEMY_CROCODILE_WATER :   
-                case TR::Entity::ENEMY_LION_MALE       :   
-                case TR::Entity::ENEMY_LION_FEMALE     :   
-                case TR::Entity::ENEMY_PUMA            :   
-                case TR::Entity::ENEMY_GORILLA         :   
-                case TR::Entity::ENEMY_RAT_LAND        :   
-                case TR::Entity::ENEMY_RAT_WATER       :   
-                case TR::Entity::ENEMY_REX             :   
-                case TR::Entity::ENEMY_RAPTOR          :   
+                case TR::Entity::ENEMY_TWIN            :
+                case TR::Entity::ENEMY_CROCODILE_LAND  :
+                case TR::Entity::ENEMY_CROCODILE_WATER :
+                case TR::Entity::ENEMY_LION_MALE       :
+                case TR::Entity::ENEMY_LION_FEMALE     :
+                case TR::Entity::ENEMY_PUMA            :
+                case TR::Entity::ENEMY_GORILLA         :
+                case TR::Entity::ENEMY_RAT_LAND        :
+                case TR::Entity::ENEMY_RAT_WATER       :
+                case TR::Entity::ENEMY_REX             :
+                    entity.controller = new Rex(this, i);
+                    break;
+                case TR::Entity::ENEMY_RAPTOR          :
+                    entity.controller = new Raptor(this, i);
+                    break;
                 case TR::Entity::ENEMY_MUTANT_1        :
                 case TR::Entity::ENEMY_MUTANT_2        :
                 case TR::Entity::ENEMY_MUTANT_3        :
-                case TR::Entity::ENEMY_CENTAUR         :   
-                case TR::Entity::ENEMY_MUMMY           :   
+                case TR::Entity::ENEMY_CENTAUR         :
+                case TR::Entity::ENEMY_MUMMY           :
                 case TR::Entity::ENEMY_LARSON          :
-                    entity.controller = new Enemy(this, i, 100, 10, 0.0f);
+                    entity.controller = new Enemy(this, i, 100, 10, 0.0f, 0.0f);
                     break;
                 case TR::Entity::DOOR_1                :
                 case TR::Entity::DOOR_2                :
@@ -205,14 +213,21 @@ struct Level : IGame {
                 case TR::Entity::MOVING_BLOCK          :
                     entity.controller = new MovingBlock(this, i);                    
                     break;
-                case TR::Entity::FALLING_CEILING       :
+                case TR::Entity::FALLING_CEILING_1     :
+                case TR::Entity::FALLING_CEILING_2     :
                 case TR::Entity::FALLING_SWORD         :
                     entity.controller = new Trigger(this, i, true);
                     break;
                 case TR::Entity::SWITCH                :
                 case TR::Entity::SWITCH_WATER          :
-                case TR::Entity::HOLE_PUZZLE           :
-                case TR::Entity::HOLE_KEY              :
+                case TR::Entity::PUZZLE_HOLE_1         :
+                case TR::Entity::PUZZLE_HOLE_2         :
+                case TR::Entity::PUZZLE_HOLE_3         :
+                case TR::Entity::PUZZLE_HOLE_4         :
+                case TR::Entity::KEY_HOLE_1            :
+                case TR::Entity::KEY_HOLE_2            :
+                case TR::Entity::KEY_HOLE_3            :
+                case TR::Entity::KEY_HOLE_4            :
                     entity.controller = new Trigger(this, i, false);
                     break;
                 case TR::Entity::WATERFALL             :
@@ -492,8 +507,9 @@ struct Level : IGame {
 
 
         TR::Room &room = level.rooms[entity.room];
-        if (!room.flags.rendered || entity.flags.invisible || entity.flags.rendered)
-            return;
+        if (entity.type != TR::Entity::LARA) // TODO: remove this hack (collect conjugate room entities)
+            if (!room.flags.rendered || entity.flags.invisible || entity.flags.rendered)
+                return;
 
         int16 lum = entity.intensity == -1 ? room.ambient : entity.intensity;
 

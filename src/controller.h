@@ -20,7 +20,7 @@ struct IGame {
     virtual MeshBuilder* getMesh()      { return NULL; }
     virtual Controller*  getCamera()    { return NULL; }
     virtual uint16       getRandomBox(uint16 zone, uint16 *zones) { return 0; }
-    virtual uint16       findPath(int ascend, int descend, int boxStart, int boxEnd, uint16 *zones, uint16 **boxes) { return 0; }
+    virtual uint16       findPath(int ascend, int descend, bool big, int boxStart, int boxEnd, uint16 *zones, uint16 **boxes) { return 0; }
     virtual void setClipParams(float clipSign, float clipHeight) {}
     virtual void setWaterParams(float height) {}
     virtual void updateParams() {}
@@ -28,6 +28,7 @@ struct IGame {
     virtual void setShader(Core::Pass pass, Shader::Type type, bool underwater = false, bool alphaTest = false) {}
     virtual void renderEnvironment(int roomIndex, const vec3 &pos, Texture **targets, int stride = 0) {}
     virtual void renderCompose(int roomIndex, bool genShadowMask = false) {}
+    virtual void fxQuake(float time) {}
 };
 
 struct Controller {
@@ -253,42 +254,46 @@ struct Controller {
         return animation.getBoundingBox(vec3(0, 0, 0), oriented ? getEntity().rotation.value / 0x4000 : 0);
     }
 
-    void getSpheres(Sphere *spheres) {
+    void getSpheres(Sphere *spheres, int &count) {
         TR::Model *m = getModel();
         Basis basis(getMatrix());
 
+        count = 0;
         for (int i = 0; i < m->mCount; i++) {
             TR::Mesh &aMesh = level->meshes[level->meshOffsets[m->mStart + i]];
+            if (aMesh.radius <= 0) continue;
             vec3 center = animation.getJoints(basis, i, true) * aMesh.center;
-            spheres[i] = Sphere(center, aMesh.radius);
+            spheres[count++] = Sphere(center, aMesh.radius);
         }
-
     }
 
-    bool collide(Controller *controller) {
+    int collide(Controller *controller, bool checkBoxes = true) {
         TR::Model *a = getModel();
-        TR::Model *b = getModel();
+        TR::Model *b = controller->getModel();
         if (!a || !b) 
-            return false;
+            return 0;
 
-        if (!getBoundingBox().intersect(controller->getBoundingBox()))
-            return false;
+        if (checkBoxes && !getBoundingBox().intersect(controller->getBoundingBox()))
+            return 0;
 
         ASSERT(a->mCount <= 34);
         ASSERT(b->mCount <= 34);
 
         Sphere aSpheres[34];
         Sphere bSpheres[34];
+        int aCount, bCount;
 
-        getSpheres(aSpheres);
-        controller->getSpheres(bSpheres);
+        getSpheres(aSpheres, aCount);
+        controller->getSpheres(bSpheres, bCount);
 
-        for (int i = 0; i < a->mCount; i++)        
-            for (int j = 0; j < b->mCount; j++)
-                if (aSpheres[i].intersect(bSpheres[j]))
-                    return true;
-
-        return false;
+        int mask = 0;
+        for (int i = 0; i < aCount; i++) 
+            for (int j = 0; j < bCount; j++)
+                if (bSpheres[j].intersect(aSpheres[i])) {
+                    mask |= (1 << i);
+                    break;
+                }
+        return mask;
     }
 
     vec3 trace(int fromRoom, const vec3 &from, const vec3 &to, int &room, bool isCamera) { // TODO: use Bresenham
@@ -452,6 +457,7 @@ struct Controller {
                             if (cmd == TR::ANIM_CMD_EFFECT) {
                                 switch (fx) {
                                     case TR::EFFECT_ROTATE_180     : angle.y = angle.y + PI; break;
+                                    case TR::EFFECT_FLOOR_SHAKE    : game->fxQuake(0.5f * max(0.0f, 1.0f - (pos - ((Controller*)level->cameraController)->pos).length2() / (15 * 1024 * 15 * 1024) )); break;
                                     case TR::EFFECT_LARA_BUBBLES   : doBubbles(); break;
                                     default                        : cmdEffect(fx); break;
                                 }
@@ -543,19 +549,19 @@ struct Controller {
         if (Core::pass != Core::passCompose || !TR::castShadow(entity.type))
             return;
 
+        Box box = animation.getBoundingBox(pos, 0);
+        vec3 center = box.center();
+
         TR::Level::FloorInfo info;
-        level->getFloorInfo(entity.room, entity.x, entity.y, entity.z, info);
+        level->getFloorInfo(entity.room, int(center.x), int(center.y), int(center.z), info);
 
-        Box box = animation.getBoundingBox(vec3(0, 0, 0), 0);
-
-        const vec3 fpos   = vec3(float(entity.x), info.floor - 16.0f, float(entity.z));
-        const vec3 offset = box.center();
-        const vec3 size   = box.size();
+        const vec3 fpos = vec3(pos.x, info.floor - 16.0f, pos.z);
+        const vec3 size = box.size();
 
         mat4 m = Core::mViewProj;
         m.translate(fpos);
         m.rotateY(angle.y);
-        m.translate(vec3(offset.x, 0.0f, offset.z));
+        m.translate(vec3(center.x - pos.x, 0.0f, center.z - pos.z));
         m.scale(vec3(size.x, 0.0f, size.z) * (1.0f / 1024.0f));        
 
         Basis b;
@@ -564,7 +570,7 @@ struct Controller {
         game->setShader(Core::pass, Shader::FLASH, false, false);
         Core::active.shader->setParam(uViewProj, m);
         Core::active.shader->setParam(uBasis, b);
-        float alpha = lerp(0.7f, 0.90f, clamp((fpos.y - pos.y) / 1024.0f, 0.0f, 1.0f) );
+        float alpha = lerp(0.7f, 0.90f, clamp((fpos.y - box.max.y) / 1024.0f, 0.0f, 1.0f) );
         Core::active.shader->setParam(uMaterial, vec4(vec3(0.5f * (1.0f - alpha)), alpha));
         Core::active.shader->setParam(uAmbient, vec3(0.0f));
 

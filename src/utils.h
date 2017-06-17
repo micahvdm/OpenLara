@@ -7,7 +7,12 @@
 #include <float.h>
 
 #ifdef _DEBUG
-    #define debugBreak() _asm { int 3 }
+    #ifdef LINUX
+        #define debugBreak() raise(SIGTRAP);
+    #else
+        #define debugBreak() _asm { int 3 }
+    #endif
+
     #define ASSERT(expr) if (expr) {} else { LOG("ASSERT %s in %s:%d\n", #expr, __FILE__, __LINE__); debugBreak(); }
 
     #ifndef ANDROID
@@ -29,6 +34,8 @@
         #define LOG(...) __android_log_print(ANDROID_LOG_INFO,"OpenLara",__VA_ARGS__)
 #endif
 
+#define DECL_ENUM(v) v,
+#define DECL_STR(v)  #v,
 
 #define EPS     FLT_EPSILON
 #define INF     INFINITY
@@ -140,6 +147,8 @@ struct vec2 {
     inline bool operator != (const vec2 &v) const { return !(*this == v); }
     inline bool operator == (float s)       const { return x == s && y == s; }
     inline bool operator != (float s)       const { return !(*this == s); }
+    inline bool operator <  (const vec2 &v) const { return x < v.x && y < v.y; }
+    inline bool operator >  (const vec2 &v) const { return x > v.x && y > v.y; }
     inline vec2 operator -  ()              const { return vec2(-x, -y); }
 
     vec2& operator += (const vec2 &v) { x += v.x; y += v.y; return *this; }
@@ -165,6 +174,7 @@ struct vec2 {
 
     float length2() const { return dot(*this); }
     float length()  const { return sqrtf(length2()); }
+    vec2  abs()     const { return vec2(fabsf(x), fabsf(y)); }
     vec2  normal()  const { float s = length(); return s == 0.0 ? (*this) : (*this)*(1.0f/s); }
     float angle()   const { return atan2f(y, x); }
     vec2& rotate(const vec2 &cs) { *this = vec2(x*cs.x - y*cs.y, x*cs.y + y*cs.x); return *this; }
@@ -189,6 +199,8 @@ struct vec3 {
     inline bool operator != (const vec3 &v) const { return !(*this == v); }
     inline bool operator == (float s)       const { return x == s && y == s && z == s; }
     inline bool operator != (float s)       const { return !(*this == s); }
+    inline bool operator <  (const vec3 &v) const { return x < v.x && y < v.y && z < v.z; }
+    inline bool operator >  (const vec3 &v) const { return x > v.x && y > v.y && z > v.z; }
     inline vec3 operator -  ()              const { return vec3(-x, -y, -z); }
 
     vec3& operator += (const vec3 &v) { x += v.x; y += v.y; z += v.z; return *this; }
@@ -214,6 +226,7 @@ struct vec3 {
 
     float length2() const { return dot(*this); }
     float length()  const { return sqrtf(length2()); }
+    vec3  abs()     const { return vec3(fabsf(x), fabsf(y), fabsf(z)); }
     vec3  normal()  const { float s = length(); return s == 0.0f ? (*this) : (*this)*(1.0f/s); }
     vec3  axisXZ()  const { return (fabsf(x) > fabsf(z)) ? vec3(float(sign(x)), 0, 0) : vec3(0, 0, float(sign(z))); }
 
@@ -820,7 +833,7 @@ struct Box {
     }
 
     bool contains(const vec3 &v) const {
-        return v.x >= min.x && v.x <= max.x && v.y >= min.y && v.y <= max.x && v.z >= min.z && v.z <= max.z;
+        return v.x >= min.x && v.x <= max.x && v.y >= min.y && v.y <= max.y && v.z >= min.z && v.z <= max.z;
     }
 
     vec3 pushOut2D(const vec3 &v) const {
@@ -866,19 +879,24 @@ struct Box {
     }
 
     bool intersect(const vec3 &rayPos, const vec3 &rayDir, float &t) const {
-        float t1 = INF, t0 = -t1;
+        float tMax = INF, tMin = -tMax;
 
         for (int i = 0; i < 3; i++) 
             if (rayDir[i] != 0) {
                 float lo = (min[i] - rayPos[i]) / rayDir[i];
                 float hi = (max[i] - rayPos[i]) / rayDir[i];
-                t0 = ::max(t0, ::min(lo, hi));
-                t1 = ::min(t1, ::max(lo, hi));
+                tMin = ::max(tMin, ::min(lo, hi));
+                tMax = ::min(tMax, ::max(lo, hi));
             } else
                 if (rayPos[i] < min[i] || rayPos[i] > max[i])
                     return false;
-        t = t0;
-        return (t0 <= t1) && (t1 > 0);
+        t = tMin;
+        return (tMin <= tMax) && (tMax > 0.0f);
+    }
+
+    bool intersect(const mat4 &matrix, const vec3 &rayPos, const vec3 &rayDir, float &t) const {
+        mat4 mInv = matrix.inverse();
+        return intersect(mInv * rayPos, (mInv * vec4(rayDir, 0)).xyz, t);
     }
 };
 
@@ -889,10 +907,29 @@ struct Sphere {
     Sphere() {}
     Sphere(const vec3 &center, float radius) : center(center), radius(radius) {}
 
-    bool intersect(const Sphere &s) {
+    bool intersect(const Sphere &s) const {
         float d = (center - s.center).length2();
         float r = (radius + s.radius);
         return d < r * r;
+    }
+
+    bool intersect(const vec3 &rayPos, const vec3 &rayDir, float &t) const {
+        vec3 v = rayPos - center;
+        float h = -v.dot(rayDir);
+        float d = h * h + radius * radius - v.length2();
+
+        if (d > 0.0f) {
+            d = sqrtf(d);
+            float tMin = h - d;
+            float tMax = h + d;
+            if (tMax > 0.0f) {
+                if (tMin < 0.0f)
+                    tMin = 0.0f;
+                t = tMin;
+                return true;
+            }
+        }
+        return false;
     }
 };
 
