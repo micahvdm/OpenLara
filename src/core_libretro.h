@@ -26,6 +26,9 @@ extern struct retro_hw_render_callback hw_render;
 #define GL_TEXTURE_BORDER_COLOR     GL_TEXTURE_BORDER_COLOR_EXT
 #define GL_STENCIL_TEST_TWO_SIDE_EXT 0
 #else
+#define glGenVertexArrays           glGenVertexArraysAPPLE
+#define glDeleteVertexArrays        glDeleteVertexArraysAPPLE
+#define glBindVertexArray           glBindVertexArrayAPPLE
 #define GL_RGBA32F GL_RGBA
 #define GL_RGBA16F GL_RGBA
 #define GL_RGB565 GL_RGBA
