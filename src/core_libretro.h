@@ -5,6 +5,15 @@
 
 #include <rglgen_headers.h>
 #include <libretro.h>
+#ifdef HAVE_OPENGLES
+#ifdef HAVE_OPENGLES3
+#include <glsym/glsym_es3.h>
+#else
+#include <glsym/glsym_es2.h>
+#endif
+#else
+#include <glsym/glsym_gl.h>
+#endif
 
 #include "utils.h"
 #include "input.h"
