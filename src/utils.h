@@ -28,7 +28,7 @@
 //    #endif
 #endif
 
-#ifdef ANDROID
+#if defined(ANDROID) && !defined(__LIBRETRO__)
         #include <android/log.h>
         #undef LOG
         #define LOG(...) __android_log_print(ANDROID_LOG_INFO,"OpenLara",__VA_ARGS__)

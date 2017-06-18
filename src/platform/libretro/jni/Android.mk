@@ -1,8 +1,11 @@
 LOCAL_PATH := $(call my-dir)
+GLES=1
 
 include $(CLEAR_VARS)
 
-LOCAL_MODULE := retro-test-gl
+LOCAL_MODULE  := retro
+LOCAL_CLFAGS   =
+LOCAL_CXXFLAGS =
 
 ifeq ($(TARGET_ARCH),arm)
 LOCAL_CFLAGS += -DANDROID_ARM
@@ -25,8 +28,17 @@ else
    GLES_LIB := -lGLESv2
 endif
 
-LOCAL_SRC_FILES += $(addprefix ../,$(wildcard *.c)) ../glsym/rglgen.c ../glsym/glsym_es2.c
-LOCAL_CFLAGS += -O2 -Wall -std=gnu99 -ffast-math -DHAVE_OPENGLES 
+CORE_DIR := ..
+
+include ../Makefile.common
+
+LOCAL_SRC_FILES := $(SOURCES_C) $(SOURCES_CXX)
+
+LOCAL_CXXFLAGS   += -O2 -Wall -std=c++11 -ffast-math -DHAVE_OPENGLES -D__LIBRETRO__
+LOCAL_CFLAGS     += -O2 -Wall -ffast-math -DHAVE_OPENGLES -D__LIBRETRO__
+LOCAL_C_INCLUDES = $(CORE_DIR) \
+						 $(CORE_DIR)/../.. \
+						 $(CORE_DIR)/glsym
 LOCAL_LDLIBS += $(GLES_LIB)
 
 include $(BUILD_SHARED_LIBRARY)

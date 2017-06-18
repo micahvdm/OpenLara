@@ -163,8 +163,8 @@ CXXFLAGS += $(fpic)
 CFLAGS += -Wall -pedantic $(fpic)
 
 CXXFLAGS += -std=c++11
-CFLAGS += -I$(CORE_DIR) -I$(CORE_DIR)/../.. -I$(CORE_DIR)/glsym
-CXXFLAGS += -I$(CORE_DIR) -I$(CORE_DIR)/../.. -I$(CORE_DIR)/glsym
+CFLAGS   += $(INCFLAGS)
+CXXFLAGS += $(INCFLAGS)
 
 ifeq ($(GLES), 1)
    CXXFLAGS += -DHAVE_OPENGLES -DHAVE_OPENGLES2
@@ -177,9 +177,7 @@ ifeq ($(GLES), 1)
       CFLAGS += -DHAVE_OPENGLES3
    endif
    LIBS += -lGLESv2 # Still link against GLESv2 when using GLES3 API, at least on desktop Linux.
-   OBJECTS += glsym/glsym_es2.o
 else
-   OBJECTS += glsym/glsym_gl.o
    LIBS += $(GL_LIB)
 endif
 

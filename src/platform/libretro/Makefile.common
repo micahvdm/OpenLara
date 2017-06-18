@@ -1,4 +1,18 @@
+INCFLAGS    := -I$(CORE_DIR) \
+					-I$(CORE_DIR)/../.. \
+					-I$(CORE_DIR)/glsym
+
 SOURCES_C   := $(CORE_DIR)/glsym/rglgen.c \
 					$(CORE_DIR)/../../libs/stb_vorbis/stb_vorbis.c
+
+ifeq ($(GLES), 1)
+ifeq ($(GLES3), 1)
+SOURCES_C	+= $(CORE_DIR)/glsym/glsym_es3.c
+else
+SOURCES_C	+= $(CORE_DIR)/glsym/glsym_es2.c
+endif
+else
+SOURCES_C	+= $(CORE_DIR)/glsym/glsym_gl.c
+endif
 
 SOURCES_CXX := $(CORE_DIR)/main.cpp

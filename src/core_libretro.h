@@ -33,6 +33,25 @@ extern struct retro_hw_render_callback hw_render;
 #define GL_PROGRAM_BINARY_LENGTH 0
 #endif
 #define glActiveStencilFaceEXT(...)
+#elif defined(ANDROID)
+#define GL_CLAMP_TO_BORDER          0x812D
+#define GL_TEXTURE_BORDER_COLOR     0x1004
+#define GL_TEXTURE_COMPARE_MODE		0x884C
+#define GL_TEXTURE_COMPARE_FUNC		0x884D
+#define GL_COMPARE_REF_TO_TEXTURE	0x884E
+#define GL_RGBA32F      GL_RGBA
+#define GL_RGBA16F      GL_RGBA
+#define GL_HALF_FLOAT   GL_HALF_FLOAT_OES
+#define GL_DEPTH_STENCIL        GL_DEPTH_STENCIL_OES
+#define GL_UNSIGNED_INT_24_8    GL_UNSIGNED_INT_24_8_OES
+#define GL_PROGRAM_BINARY_LENGTH     GL_PROGRAM_BINARY_LENGTH_OES
+#define GL_STENCIL_TEST_TWO_SIDE_EXT 0
+#define glGetProgramBinary           glGetProgramBinaryOES
+#define glProgramBinary              glProgramBinaryOES
+#define glActiveStencilFaceEXT(...)
+#define glGenVertexArrays            glGenVertexArraysOES
+#define glDeleteVertexArrays         glDeleteVertexArraysOES
+#define glBindVertexArray            glBindVertexArrayOES
 #else
 #define glActiveStencilFaceEXT(...)
 #endif
