@@ -13,7 +13,7 @@ inspired by OpenTomb project http://opentomb.github.io/
 
 Dependencies (Debian-based systems):
 ```
-sudo apt-get install build-essential libgl1-mesa-dev,
+sudo apt-get install build-essential libgl1-mesa-dev
 ```
 
 Building the core:
