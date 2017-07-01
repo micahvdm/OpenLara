@@ -268,42 +268,56 @@ void retro_run(void)
    else
       Input::setDown(InputKey::ikRight, false);
 
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y))
+   /* Draw weapon */
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X))
       Input::setDown(InputKey::ikSpace, true);
    else
       Input::setDown(InputKey::ikSpace, false);
 
+   /* Grab/shoot - Action button */
    if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B))
       Input::setDown(InputKey::ikCtrl, true);
    else
       Input::setDown(InputKey::ikCtrl, false);
 
+   /* Roll */
    if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A))
-      Input::setDown(InputKey::ikS, true);
+      Input::setDown(InputKey::ikA, true);
    else
-      Input::setDown(InputKey::ikS, false);
+      Input::setDown(InputKey::ikA, false);
 
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X))
+   /* Jump */
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y))
       Input::setDown(InputKey::ikAlt, true);
    else
       Input::setDown(InputKey::ikAlt, false);
 
+   /* Walk */
    if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R))
       Input::setDown(InputKey::ikShift, true);
    else
       Input::setDown(InputKey::ikShift, false);
 
+   /* Sidestep left */
    if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2))
       Input::setDown(InputKey::ikZ, true);
    else
       Input::setDown(InputKey::ikZ, false);
 
+   /* Sidestep right */
    if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2))
       Input::setDown(InputKey::ikX, true);
    else
       Input::setDown(InputKey::ikX, false);
 
+   /* Inventory screen */
    if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START))
+      Input::setDown(InputKey::ikTab, true);
+   else
+      Input::setDown(InputKey::ikTab, false);
+
+   /* First-person view toggle */
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT))
       Input::setDown(InputKey::ikV, true);
    else
       Input::setDown(InputKey::ikV, false);
@@ -418,7 +432,26 @@ static void extract_directory(char *buf, const char *path, size_t size)
 
 bool retro_load_game(const struct retro_game_info *info)
 {
+   struct retro_input_descriptor desc[] = {
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "Left" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "Up" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,  "Down" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "Right" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Inventory" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "View toggle" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y,      "Jump" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,      "Draw weapon" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,      "Action (Shoot/grab)" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,      "Roll" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,      "Walk (when holding)" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,     "Sidestep left" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,     "Sidestep right" },
+      { 0 },
+   };
+
    update_variables(true);
+
+   environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, desc);
 
    enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
    if (!environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt))
