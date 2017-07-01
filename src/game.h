@@ -8,13 +8,11 @@
 
 namespace Game {
     Level *level;
-    UI    *ui;
 
     void startLevel(Stream *lvl, Stream *snd, bool demo, bool home) {
-        delete ui;
         delete level;
         level = new Level(*lvl, snd, demo, home);
-        ui    = new UI(level);
+        UI::init(level);
         delete lvl;
     }
 
@@ -22,19 +20,19 @@ namespace Game {
           bool disable_lighting) {
         Core::init();
 
-        Core::settings.ambient     = true;
+        Core::settings.detail.ambient     = true;
         if (disable_lighting)
-           Core::settings.lighting = false;
+           Core::settings.detail.lighting = false;
         else
-           Core::settings.lighting = true;
-        Core::settings.shadows     = true;
+           Core::settings.detail.lighting = true;
+        Core::settings.detail.shadows     = true;
         if (disable_water)
-           Core::settings.water    = false;
+           Core::settings.detail.water    = false;
         else
-           Core::settings.water    = Core::support.texFloat || Core::support.texHalf;
+           Core::settings.detail.water    = Core::support.texFloat || Core::support.texHalf;
+        Core::settings.controls.retarget    = true;
 
         level = NULL;
-        ui    = NULL;
         startLevel(lvl, snd, false, false);
     }
 
@@ -49,12 +47,14 @@ namespace Game {
     }
 
     void free() {
-        delete ui;
         delete level;
         Core::free();
     }
 
     void updateTick() {
+        if (Input::state[cInventory])
+            level->inventory.toggle();
+
         float dt = Core::deltaTime;
         if (Input::down[ikR]) // slow motion (for animation debugging)
             Core::deltaTime /= 10.0f;
@@ -69,13 +69,15 @@ namespace Game {
     }
 
     void update(float delta) {
+        Input::update();
+
         if (Input::down[ikV]) { // third <-> first person view
             level->camera->changeView(!level->camera->firstPerson);
             Input::down[ikV] = false;
         }
 
         Core::deltaTime = delta = min(1.0f, delta);
-        ui->update();
+        UI::update();
 
         while (delta > EPS) {
             Core::deltaTime = min(delta, 1.0f / 30.0f);
@@ -88,7 +90,12 @@ namespace Game {
         PROFILE_TIMING(Core::stats.tFrame);
         Core::beginFrame();
         level->render();
-        ui->renderTouch();
+        UI::renderTouch();
+
+        #ifdef _DEBUG
+            level->renderDebug();
+        #endif
+
         Core::endFrame();
     }
 }

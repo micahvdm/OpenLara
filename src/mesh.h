@@ -4,6 +4,12 @@
 #include "core.h"
 #include "format.h"
 
+#define TEX_HEALTH_BAR_X 1000
+#define TEX_HEALTH_BAR_Y 1000
+
+#define TEX_OXYGEN_BAR_X 1002
+#define TEX_OXYGEN_BAR_Y 1000
+
 typedef unsigned short Index;
 
 struct Vertex {
@@ -22,7 +28,12 @@ struct MeshRange {
     MeshRange() : aIndex(-1) {}
 
     void setup() const {
-        Vertex *v = (Vertex*)(vStart * sizeof(Vertex));
+        glEnableVertexAttribArray(aCoord);
+        glEnableVertexAttribArray(aTexCoord);
+        glEnableVertexAttribArray(aNormal);
+        glEnableVertexAttribArray(aColor);
+
+        Vertex *v = (Vertex*)NULL + vStart;
         glVertexAttribPointer(aCoord,    4, GL_SHORT,         false, sizeof(Vertex), &v->coord);
         glVertexAttribPointer(aTexCoord, 4, GL_SHORT,         false, sizeof(Vertex), &v->texCoord);
         glVertexAttribPointer(aNormal,   4, GL_SHORT,         true,  sizeof(Vertex), &v->normal);
@@ -30,17 +41,16 @@ struct MeshRange {
     }
 
     void bind(GLuint *VAO) const {
-        if (aIndex > -1) {
-            if (Core::active.VAO != VAO[aIndex]) {
-                glBindVertexArray(Core::active.VAO = VAO[aIndex]);
-            }
-        } else
-            setup();        
+        GLuint vao = aIndex == -1 ? 0 : VAO[aIndex];
+        if (Core::support.VAO && Core::active.VAO != vao)
+            glBindVertexArray(Core::active.VAO = vao);
     }
 };
 
 #define PLANE_DETAIL 48
 #define CIRCLE_SEGS  16
+
+#define DYN_MESH_QUADS 1024
 
 struct Mesh {
     GLuint  ID[2];
@@ -51,14 +61,31 @@ struct Mesh {
     int     aIndex;
 
     Mesh(Index *indices, int iCount, Vertex *vertices, int vCount, int aCount) : VAO(NULL), iCount(iCount), vCount(vCount), aCount(aCount), aIndex(0) {
+        if (Core::support.VAO)
+            glBindVertexArray(Core::active.VAO = 0);
+
         glGenBuffers(2, ID);
-        bind();
+        bind(true);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, iCount * sizeof(Index), indices, GL_STATIC_DRAW);
         glBufferData(GL_ARRAY_BUFFER, vCount * sizeof(Vertex), vertices, GL_STATIC_DRAW);
 
         if (Core::support.VAO && aCount) {
             VAO = new GLuint[aCount];
             glGenVertexArrays(aCount, VAO);
+        }
+    }
+
+    void update(Index *indices, int iCount, Vertex *vertices, int vCount) {
+        if (Core::support.VAO)
+            glBindVertexArray(Core::active.VAO = 0);
+
+        if (indices && iCount) {
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, Core::active.iBuffer = ID[0]);
+            glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, iCount * sizeof(Index), indices);
+        }
+        if (vertices && vCount) {
+            glBindBuffer(GL_ARRAY_BUFFER, Core::active.vBuffer = ID[1]);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, vCount * sizeof(Vertex), vertices);
         }
     }
 
@@ -74,30 +101,32 @@ struct Mesh {
         if (Core::support.VAO) {
             range.aIndex = aIndex++;
             range.bind(VAO);
-            bind();
+            bind(true);
             range.setup();
         } else
             range.aIndex = -1;
     }
 
-    void bind() {
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ID[0]);
-        glBindBuffer(GL_ARRAY_BUFFER, ID[1]);
-
-        glEnableVertexAttribArray(aCoord);
-        glEnableVertexAttribArray(aTexCoord);
-        glEnableVertexAttribArray(aNormal);
-        glEnableVertexAttribArray(aColor);
+    void bind(bool force = false) {
+        if (force || Core::active.iBuffer != ID[0])
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, Core::active.iBuffer = ID[0]);
+        if (force || Core::active.vBuffer != ID[1])
+            glBindBuffer(GL_ARRAY_BUFFER, Core::active.vBuffer = ID[1]);
     }
 
     void DIP(const MeshRange &range) {
-        glDrawElements(GL_TRIANGLES, range.iCount, GL_UNSIGNED_SHORT, (GLvoid*)(range.iStart * sizeof(Index)));
+        glDrawElements(GL_TRIANGLES, range.iCount, GL_UNSIGNED_SHORT, (Index*)NULL + range.iStart);
         Core::stats.dips++;
         Core::stats.tris += range.iCount / 3;
     }
 
     void render(const MeshRange &range) {
         range.bind(VAO);
+
+        if (range.aIndex == -1) {
+            bind();
+            range.setup();
+        };
 
         if (Core::active.stencilTwoSide && Core::support.stencil == 0) {
             Core::setCulling(cfBack);
@@ -144,6 +173,9 @@ uint8 intensity(int lighting) {
 }
 
 struct MeshBuilder {
+    MeshRange dynRange;
+    Mesh      *dynMesh;
+
     Mesh *mesh;
 // level
     struct RoomRange {
@@ -158,7 +190,6 @@ struct MeshBuilder {
     MeshRange *sequences;
 // procedured
     MeshRange shadowBlob, shadowBox;
-    MeshRange bar;
     MeshRange quad, circle;
     MeshRange plane;
 
@@ -172,6 +203,11 @@ struct MeshBuilder {
     TR::ObjectTexture whiteTile;
 
     MeshBuilder(TR::Level &level) : level(&level) {
+        dynMesh = new Mesh(NULL, DYN_MESH_QUADS * 6, NULL, DYN_MESH_QUADS * 4, 1);
+        dynRange.vStart = 0;
+        dynRange.iStart = 0;
+        dynMesh->initRange(dynRange);
+
         initAnimTextures(level);
 
     // create dummy white object textures for non-textured (colored) geometry        
@@ -196,7 +232,7 @@ struct MeshBuilder {
             iCount += d.rCount * 6 + d.tCount * 3;
             vCount += d.rCount * 4 + d.tCount * 3;
 
-            if (Core::settings.water)
+            if (Core::settings.detail.water)
                 roomRemoveWaterSurfaces(r, iCount, vCount);
             
             for (int j = 0; j < r.meshesCount; j++) {
@@ -256,13 +292,6 @@ struct MeshBuilder {
         shadowBox.iCount = (3 * (2 + 4)) * 6;
         iCount += shadowBox.iCount;
         vCount += 4 * 6;
-
-    // bar (health, oxygen)
-        bar.vStart = vCount;
-        bar.iStart = iCount;
-        bar.iCount = 2 * 3;
-        iCount += bar.iCount;
-        vCount += 4;
 
     // quad (post effect filter)
         quad.vStart = vCount;
@@ -467,22 +496,6 @@ struct MeshBuilder {
             aCount++;
         }
 
-    // white bar
-        addQuad(indices, iCount, vCount, bar.vStart, vertices, &whiteTile);
-        vertices[vCount + 0].coord = { 0, 0, 0, 0 };
-        vertices[vCount + 1].coord = { 1, 0, 0, 0 };
-        vertices[vCount + 2].coord = { 1, 1, 0, 0 };
-        vertices[vCount + 3].coord = { 0, 1, 0, 0 };
-
-        for (int i = 0; i < 4; i++) {
-            Vertex &v = vertices[vCount + i];
-            v.normal    = { 0, 0, 0, 0 };
-            v.color     = { 255, 255, 255, 255 };
-            v.texCoord  = { 32688, 32688, 0, 0 };
-        }
-        vCount += 4;
-        aCount++;
-
     // quad
         addQuad(indices, iCount, vCount, quad.vStart, vertices, &whiteTile);
         vertices[vCount + 3].coord = { -1, -1, 0, 0 };
@@ -564,7 +577,6 @@ struct MeshBuilder {
             mesh->initRange(models[i].geometry);
         mesh->initRange(shadowBlob);
         mesh->initRange(shadowBox);
-        mesh->initRange(bar);
         mesh->initRange(quad);
         mesh->initRange(circle);
         mesh->initRange(plane);
@@ -577,6 +589,7 @@ struct MeshBuilder {
         delete[] models;
         delete[] sequences;
         delete mesh;
+        delete dynMesh;
     }
 
     inline short4 rotate(const short4 &v, int dir) {
@@ -904,22 +917,39 @@ struct MeshBuilder {
         if (tex) addTexCoord(vertices, vCount, tex, false);
     }
 
-    void addSprite(Index *indices, Vertex *vertices, int &iCount, int &vCount, int vStart, int16 x, int16 y, int16 z, const TR::SpriteTexture &sprite, uint8 intensity) {
+    void addSprite(Index *indices, Vertex *vertices, int &iCount, int &vCount, int vStart, int16 x, int16 y, int16 z, const TR::SpriteTexture &sprite, uint8 intensity, bool expand = false) {
         addQuad(indices, iCount, vCount, vStart, NULL, NULL);
 
         Vertex *quad = &vertices[vCount];
 
-        quad[0].coord  = quad[1].coord  = quad[2].coord  = quad[3].coord  = { x, y, z, 0 };
+        int16 x0, y0, x1, y1;
+
+        if (expand) {
+            x0 = x + int16(sprite.l);
+            y0 = y + int16(sprite.t);
+            x1 = x + int16(sprite.r);
+            y1 = y + int16(sprite.b);
+        } else {
+            x0 = x1 = x;
+            y0 = y1 = y;
+        }
+
+        quad[0].coord = { x0, y0, z, 0 };
+        quad[1].coord = { x1, y0, z, 0 };
+        quad[2].coord = { x1, y1, z, 0 };
+        quad[3].coord = { x0, y1, z, 0 };
+
+
         quad[0].normal = quad[1].normal = quad[2].normal = quad[3].normal = { 0, 0, 0, 0 };
         quad[0].color  = quad[1].color  = quad[2].color  = quad[3].color  = { 255, 255, 255, intensity };
 
         int  tx = (sprite.tile % 4) * 256;
         int  ty = (sprite.tile / 4) * 256;
 
-        int16 u0 = ((tx + sprite.texCoord[0].x + 1) << 5);
-        int16 v0 = ((ty + sprite.texCoord[0].y + 1) << 5);
-        int16 u1 = ((tx + sprite.texCoord[1].x - 1) << 5);
-        int16 v1 = ((ty + sprite.texCoord[1].y - 1) << 5);
+        int16 u0 = (((tx + sprite.texCoord[0].x) << 5));
+        int16 v0 = (((ty + sprite.texCoord[0].y) << 5));
+        int16 u1 = (((tx + sprite.texCoord[1].x) << 5));
+        int16 v1 = (((ty + sprite.texCoord[1].y) << 5));
 
         quad[0].texCoord = { u0, v0, sprite.l, sprite.t };
         quad[1].texCoord = { u1, v0, sprite.r, sprite.t };
@@ -929,8 +959,103 @@ struct MeshBuilder {
         vCount += 4;
     }
 
+    void addBar(Index *indices, Vertex *vertices, int &iCount, int &vCount, int type, const vec2 &pos, const vec2 &size, uint32 color) {
+        addQuad(indices, iCount, vCount, 0, vertices, NULL);
+
+        int16 minX = int16(pos.x);
+        int16 minY = int16(pos.y);
+        int16 maxX = int16(size.x) + minX;
+        int16 maxY = int16(size.y) + minY;
+
+        vertices[vCount + 0].coord = { minX, minY, 0, 0 };
+        vertices[vCount + 1].coord = { maxX, minY, 0, 0 };
+        vertices[vCount + 2].coord = { maxX, maxY, 0, 0 };
+        vertices[vCount + 3].coord = { minX, maxY, 0, 0 };
+
+        for (int i = 0; i < 4; i++) {
+            Vertex &v = vertices[vCount + i];
+            v.normal  = { 0, 0, 0, 0 };
+            v.color   = *((ubyte4*)&color);
+
+            int16 s, t;
+
+            if (type == 0) { // health bar
+                s = TEX_HEALTH_BAR_X + 1;
+                t = TEX_HEALTH_BAR_Y + 1;
+            } else {         // oxygen bar
+                s = TEX_OXYGEN_BAR_X + 1;
+                t = TEX_OXYGEN_BAR_Y + 1;
+            }
+
+            if (i > 1) t += 5;
+            
+            s = int(s) * 32767 / 1024;
+            t = int(t) * 32767 / 1024;
+
+            v.texCoord = { s, t, 0, 0 };
+        }
+
+        vCount += 4;
+    }
+
+    void addFrame(Index *indices, Vertex *vertices, int &iCount, int &vCount, const vec2 &pos, const vec2 &size, uint32 color1, uint32 color2) {
+        int16 minX = int16(pos.x);
+        int16 minY = int16(pos.y);
+        int16 maxX = int16(size.x) + minX;
+        int16 maxY = int16(size.y) + minY;
+
+        vertices[vCount + 0].coord = { minX, minY, 0, 0 };
+        vertices[vCount + 1].coord = { maxX, minY, 0, 0 };
+        vertices[vCount + 2].coord = { maxX, int16(minY + 1), 0, 0 };
+        vertices[vCount + 3].coord = { minX, int16(minY + 1), 0, 0 };
+
+        vertices[vCount + 4].coord = { minX, minY, 0, 0 };
+        vertices[vCount + 5].coord = { int16(minX + 1), minY, 0, 0 };
+        vertices[vCount + 6].coord = { int16(minX + 1), maxY, 0, 0 };
+        vertices[vCount + 7].coord = { minX, maxY, 0, 0 };
+
+        for (int i = 0; i < 8; i++) {
+            Vertex &v = vertices[vCount + i];
+            v.normal   = { 0, 0, 0, 0 };
+            v.color    = *((ubyte4*)&color1);
+            v.texCoord = { 32688, 32688, 0, 0 };
+        }
+
+        addQuad(indices, iCount, vCount, 0, vertices, NULL); vCount += 4;
+        addQuad(indices, iCount, vCount, 0, vertices, NULL); vCount += 4;
+
+        vertices[vCount + 0].coord = { minX, int16(maxY - 1), 0, 0 };
+        vertices[vCount + 1].coord = { maxX, int16(maxY - 1), 0, 0 };
+        vertices[vCount + 2].coord = { maxX, maxY, 0, 0 };
+        vertices[vCount + 3].coord = { minX, maxY, 0, 0 };
+
+        vertices[vCount + 4].coord = { int16(maxX - 1), minY, 0, 0 };
+        vertices[vCount + 5].coord = { maxX, minY, 0, 0 };
+        vertices[vCount + 6].coord = { maxX, maxY, 0, 0 };
+        vertices[vCount + 7].coord = { int16(maxX - 1), maxY, 0, 0 };
+
+        for (int i = 0; i < 8; i++) {
+            Vertex &v = vertices[vCount + i];
+            v.normal   = { 0, 0, 0, 0 };
+            v.color    = *((ubyte4*)&color2);
+            v.texCoord = { 32688, 32688, 0, 0 };
+        }
+
+        addQuad(indices, iCount, vCount, 0, vertices, NULL); vCount += 4;
+        addQuad(indices, iCount, vCount, 0, vertices, NULL); vCount += 4;
+    }
+
+
     void bind() {
         mesh->bind();
+    }
+    
+    void renderBuffer(Index *indices, int iCount, Vertex *vertices, int vCount) {
+        dynRange.iStart = 0;
+        dynRange.iCount = iCount;
+
+        dynMesh->update(indices, iCount, vertices, vCount);
+        dynMesh->render(dynRange);
     }
 
     void renderRoomGeometry(int roomIndex, bool transparent) {
@@ -971,85 +1096,6 @@ struct MeshBuilder {
 
     void renderPlane() {
         mesh->render(plane);
-    }
-
-    void renderBar(const vec2 &size, float value) {
-        /*
-        float w = size.y / 9.0f;
-        // health bar
-        enum Colors {
-            clBlack = 0xFF000000,
-            clGrayL = 0xFF748474,
-            clGrayD = 0xFF4C504C,
-            clRed1  = 0xFF705C2C,
-            clRed2  = 0xFFA47848,
-            clRed3  = 0xFF705C2C,
-            clRed4  = 0xFF584400,
-            clRed5  = 0xFF503014,
-        };
-
-        uint32 *d = (uint32*)&data[0];
-        d[0] = clGrayD; d[1] = clGrayD; d[2] = clGrayD; d[3] = clGrayD; d[4] = clGrayL; d+= 1024;
-        d[0] = clGrayD; d[1] = clBlack; d[2] = clBlack; d[3] = clBlack; d[4] = clGrayL; d+= 1024;
-        d[0] = clGrayD; d[1] = clBlack; d[2] = clRed1;  d[3] = clBlack; d[4] = clGrayL; d+= 1024;
-        d[0] = clGrayD; d[1] = clBlack; d[2] = clRed2;  d[3] = clBlack; d[4] = clGrayL; d+= 1024;
-        d[0] = clGrayD; d[1] = clBlack; d[2] = clRed3;  d[3] = clBlack; d[4] = clGrayL; d+= 1024;
-        d[0] = clGrayD; d[1] = clBlack; d[2] = clRed4;  d[3] = clBlack; d[4] = clGrayL; d+= 1024;
-        d[0] = clGrayD; d[1] = clBlack; d[2] = clRed5;  d[3] = clBlack; d[4] = clGrayL; d+= 1024;
-        d[0] = clGrayD; d[1] = clBlack; d[2] = clBlack; d[3] = clBlack; d[4] = clGrayL; d+= 1024;
-        d[0] = clGrayD; d[1] = clGrayL; d[2] = clGrayL; d[3] = clGrayL; d[4] = clGrayL; d+= 1024;
-        */
-    }
-
-    void textOut(const vec2 &pos, const vec4 &color, char *text) {
-        const static uint8 char_width[110] = {
-            14, 11, 11, 11, 11, 11, 11, 13, 8, 11, 12, 11, 13, 13, 12, 11, 12, 12, 11, 12, 13, 13, 13, 12, 
-            12, 11, 9, 9, 9, 9, 9, 9, 9, 9, 5, 9, 9, 5, 12, 10, 9, 9, 9, 8, 9, 8, 9, 9, 11, 9, 9, 9, 12, 8,
-            10, 10, 10, 10, 10, 9, 10, 10, 5, 5, 5, 11, 9, 10, 8, 6, 6, 7, 7, 3, 11, 8, 13, 16, 9, 4, 12, 12, 
-            7, 5, 7, 7, 7, 7, 7, 7, 7, 7, 16, 14, 14, 14, 16, 16, 16, 16, 16, 12, 14, 8, 8, 8, 8, 8, 8, 8 }; 
-        
-        static const uint8 char_map[102] = {
-            0, 64, 66, 78, 77, 74, 78, 79, 69, 70, 92, 72, 63, 71, 62, 68, 52, 53, 54, 55, 56, 57, 58, 59, 
-            60, 61, 73, 73, 66, 74, 75, 65, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 
-            18, 19, 20, 21, 22, 23, 24, 25, 80, 76, 81, 97, 98, 77, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 
-            37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 100, 101, 102, 67, 0, 0, 0, 0, 0, 0, 0 };
-        
-        if (!text) return;
-        
-        Core::active.shader->setParam(uMaterial, vec4(1.0, 0.0, 0.0, 1.0));
-        //text = "a: b";
-        Basis basis;
-        basis.identity();
-        basis.translate(vec3(pos.x, pos.y, 0.0f));
-       // text = "A";
-        while (char c = *text++) {
-            
-            int frame = c > 10 ? (c > 15 ? char_map[c - 32] : c + 91) : c + 81; 
-
-
-            //int frame = T_remapASCII[c - 32];
-            /*
-            if (c >= 'A' && c <= 'Z')
-                frame = c - 'A';
-            else if (c >= 'a' && c <= 'z')
-                frame = 26 + c - 'a';
-            else if (c >= '0' && c <= '9')
-                frame = 52 + c - '0';
-            else {
-                if (c == ' ')
-                    m.translate(vec3(16, 0.0f, 0.0f));
-                continue;
-            }
-            */
-            if (c == ' ' || c == '_') {
-                basis.translate(vec3(char_width[0], 0.0f, 0.0f));
-                continue;
-            }
-
-            Core::active.shader->setParam(uBasis, basis);
-            renderSprite(15, frame);
-            basis.translate(vec3(char_width[frame], 0.0f, 0.0f));
-        }
     }
 };
 

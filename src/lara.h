@@ -6,7 +6,6 @@
 #include "character.h"
 #include "trigger.h"
 #include "sprite.h"
-#include "inventory.h"
 
 #define TURN_FAST           PI
 #define TURN_FAST_BACK      PI * 3.0f / 4.0f
@@ -21,6 +20,9 @@
 #define LARA_TILT_SPEED     (DEG2RAD * 37.5f)
 #define LARA_TILT_MAX       (DEG2RAD * 10.0f)
 
+#define LARA_MAX_HEALTH     1000.0f
+#define LARA_MAX_OXYGEN     60.0f
+
 #define LARA_HANG_OFFSET    724
 #define LARA_HEIGHT         762
 #define LARA_HEIGHT_WATER   400
@@ -34,6 +36,8 @@
 
 #define LARA_WET_SPECULAR   0.5f
 #define LARA_WET_TIMER      (LARA_WET_SPECULAR / 16.0f)   // 4 sec
+
+#define LARA_DAMAGE_TIME    (40.0f / 30.0f)
 
 #define PICKUP_FRAME_GROUND     40
 #define PICKUP_FRAME_UNDERWATER 18
@@ -213,12 +217,13 @@ struct Lara : Character {
 
     ActionCommand actionList[MAX_TRIGGER_ACTIONS];
 
-    Inventory inventory;
     int lastPickUp;
     int viewTarget;
     int roomPrev; // water out from room
     vec2 rotFactor;
 
+    float       oxygen;
+    float       damageTime;
     float       hitTime;
     int         hitDir;
     vec3        collisionOffset;
@@ -384,7 +389,7 @@ struct Lara : Character {
 
     } *braid;
 
-    Lara(IGame *game, int entity, bool home) : Character(game, entity, 1000), home(home), wpnCurrent(Weapon::EMPTY), wpnNext(Weapon::EMPTY), chestOffset(pos), viewTarget(-1), braid(NULL) {
+    Lara(IGame *game, int entity, bool home) : Character(game, entity, LARA_MAX_HEALTH), home(home), wpnCurrent(Weapon::EMPTY), wpnNext(Weapon::EMPTY), chestOffset(pos), viewTarget(-1), braid(NULL) {
 
         if (getEntity().type == TR::Entity::LARA) {
             if (getRoom().flags.water)
@@ -393,13 +398,19 @@ struct Lara : Character {
                 animation.setAnim(ANIM_STAND);
         }
 
-        hitDir  = -1;
-        hitTime = 0.0f;
+        oxygen     = LARA_MAX_OXYGEN;
+        hitDir     = -1;
+        damageTime = LARA_DAMAGE_TIME;
+        hitTime    = 0.0f;
 
         getEntity().flags.active = 1;
         initMeshOverrides();
 
-        memset(weapons, -1, sizeof(weapons));
+        weapons[Weapon::PISTOLS].ammo = -1;
+        weapons[Weapon::SHOTGUN].ammo = -1;
+        weapons[Weapon::MAGNUMS].ammo = -1;
+        weapons[Weapon::UZIS   ].ammo = -1;
+
         if (!home) {
             weapons[Weapon::PISTOLS].ammo = 0;
             weapons[Weapon::SHOTGUN].ammo = 9000;
@@ -422,7 +433,7 @@ struct Lara : Character {
         //reset(14, vec3(40448, 3584, 60928), PI * 0.5f, true);  // gym (pool)
 
         //reset(14, vec3(20215, 6656, 52942), PI);         // level 1 (bridge)
-        //reset(15, vec3(70067, -256, 29104), -0.68f);     // level 2 (pool)
+        reset(15, vec3(70067, -256, 29104), -0.68f);     // level 2 (pool)
         //reset(61, vec3(27221, -1024, 29205), PI * 0.5f); // level 2 (blade)
         //reset(43, vec3(31400, -2560, 25200), PI);        // level 2 (reach)
         //reset(16, vec3(60907, 0, 39642), PI * 3 / 2);    // level 2 (hang & climb)
@@ -516,7 +527,7 @@ struct Lara : Character {
         wpnSetState(wState);
     }
 
-    int wpnGetDamage() {
+    float wpnGetDamage() {
         switch (wpnCurrent) {
             case Weapon::PISTOLS : return 1;
             case Weapon::SHOTGUN : return 1;
@@ -666,7 +677,11 @@ struct Lara : Character {
     }
 
     void wpnChange(Weapon::Type wType) {
-        if (wpnCurrent == wType || home) return;
+        if (wpnCurrent == wType || home) {
+            if (emptyHands())
+                wpnDraw();
+            return;
+        }
         wpnNext = wType;
         wpnHide();
     }
@@ -802,11 +817,6 @@ struct Lara : Character {
 
         updateTargets();
         updateOverrides();
-
-        if (Input::down[ik1]) wpnChange(Weapon::PISTOLS);
-        if (Input::down[ik2]) wpnChange(Weapon::SHOTGUN);
-        if (Input::down[ik3]) wpnChange(Weapon::MAGNUMS);
-        if (Input::down[ik4]) wpnChange(Weapon::UZIS);
 
         if (wpnNext != Weapon::EMPTY && emptyHands()) {
             wpnSet(wpnNext);
@@ -1056,8 +1066,18 @@ struct Lara : Character {
             return;
         }
 
+        // auto retarget 
+        bool retarget = false;
+        if (Core::settings.controls.retarget) {
+            for (int i = 0; i < 2; i++)
+                if (arms[i].tracking == -1 || ((Character*)level->entities[arms[i].tracking].controller)->health <= 0.0f) {
+                    retarget = true;
+                    break;
+                }
+        }
+
         int count = wpnCurrent != Weapon::SHOTGUN ? 2 : 1;
-        if (!(input & ACTION)) {
+        if (!(input & ACTION) || retarget) {
             getTargets(arms[0].tracking, arms[1].tracking);
             if (count == 1)
                 arms[1].tracking = -1;
@@ -1216,8 +1236,10 @@ struct Lara : Character {
         }
     }
 
-    virtual void hit(int damage, Controller *enemy = NULL) {
-        health -= damage;
+    virtual void hit(float damage, Controller *enemy = NULL) {
+        damageTime = LARA_DAMAGE_TIME;
+
+        Character::hit(damage, enemy);
         if (damage == 10000) { // T-Rex attack (fatal)
             pos   = enemy->pos;
             angle = enemy->angle;
@@ -1232,6 +1254,22 @@ struct Lara : Character {
         if (health <= 0)
             Core::lightColor[1 + 0] = Core::lightColor[1 + 1] = vec4(0, 0, 0, 1);
     };
+
+    void useItem(TR::Entity::Type item) {
+        switch (item) {
+            case TR::Entity::INV_PISTOLS       : wpnChange(Lara::Weapon::PISTOLS); break;
+            case TR::Entity::INV_SHOTGUN       : wpnChange(Lara::Weapon::SHOTGUN); break;
+            case TR::Entity::INV_MAGNUMS       : wpnChange(Lara::Weapon::MAGNUMS); break;
+            case TR::Entity::INV_UZIS          : wpnChange(Lara::Weapon::UZIS);    break;
+            case TR::Entity::INV_MEDIKIT_SMALL :
+            case TR::Entity::INV_MEDIKIT_BIG   :
+                damageTime = LARA_DAMAGE_TIME;
+                health = min(LARA_MAX_HEALTH, health + (item == TR::Entity::INV_MEDIKIT_SMALL ? LARA_MAX_HEALTH / 2 : LARA_MAX_HEALTH));
+                playSound(TR::SND_HEALTH, pos, Sound::PAN);
+                break;
+            default : ;
+        }
+    }
 
     bool waterOut() {
         // TODO: playSound 36
@@ -1294,22 +1332,6 @@ struct Lara : Character {
                 lastPickUp = i;
                 return true;
             }
-        }
-        return false;
-    }
-
-    bool useItem(TR::Entity::Type item, TR::Entity::Type slot) {
-        if (item == TR::Entity::NONE) {
-            switch (slot) {
-                case TR::Entity::KEY_HOLE_1    : item = TR::Entity::KEY_1;    break;      // TODO: 1-4
-                case TR::Entity::PUZZLE_HOLE_1 : item = TR::Entity::PUZZLE_1; break;
-                default : return false;
-            }
-        }
-
-        if (inventory.getCount(item) > 0) {
-            inventory.remove(item);
-            return true;
         }
         return false;
     }
@@ -1390,7 +1412,7 @@ struct Lara : Character {
                 limit = actionState == STATE_USE_KEY ? &TR::Limits::KEY_HOLE : &TR::Limits::PUZZLE_HOLE;
                 if (!checkInteraction((Controller*)level->entities[info.trigCmd[0].args].controller, *limit, isPressed(ACTION)))
                     return;                
-                if (!useItem(TR::Entity::NONE, level->entities[info.trigCmd[0].args].type)) {
+                if (!game->invUse(TR::Entity::NONE, level->entities[info.trigCmd[0].args].type)) {
                     playSound(TR::SND_NO, pos, Sound::PAN);
                     return;
                 }
@@ -1864,7 +1886,7 @@ struct Lara : Character {
 
     virtual int getStateDeath() {
         velocity = vec3(0.0f);
-        return STATE_DEATH;
+        return (stand == STAND_UNDERWATER || stand == STAND_ONWATER) ? STATE_UNDERWATER_DEATH : STATE_DEATH;
     }
 
     virtual int getStateDefault() {
@@ -1884,31 +1906,20 @@ struct Lara : Character {
         input = Character::getInput();
         if (input & DEATH) return input;
 
-        int &p = Input::joy.POV;
-
-    #ifndef LEVEL_EDITOR
-        if (Input::down[ikW]) input |= FORTH;
-        if (Input::down[ikD]) input |= RIGHT;
-        if (Input::down[ikS]) input |= BACK;
-        if (Input::down[ikA]) input |= LEFT;
-    #endif
-
-        if (Input::down[ikUp]    || p == 8 || p == 1 || p == 2)             input |= FORTH;
-        if (Input::down[ikRight] || p == 2 || p == 3 || p == 4)             input |= RIGHT;
-        if (Input::down[ikDown]  || p == 4 || p == 5 || p == 6)             input |= BACK;
-        if (Input::down[ikLeft]  || p == 6 || p == 7 || p == 8)             input |= LEFT;
-        if (Input::down[ikJoyB])                                            input  = FORTH | BACK; // roll
-        if (Input::down[ikJoyRT] || Input::down[ikX])                       input  = WALK | RIGHT; // step right
-        if (Input::down[ikJoyLT] || Input::down[ikZ])                       input  = WALK | LEFT;  // step left
-        if (Input::down[ikSpace] || Input::down[ikJoyX])                    input |= JUMP;
-        if (Input::down[ikShift] || Input::down[ikJoyLB])                   input |= WALK;
-        if (Input::down[ikE] || Input::down[ikCtrl] || Input::down[ikJoyA]) input |= ACTION;
-        if (Input::down[ikQ] || Input::down[ikAlt]  || Input::down[ikJoyY]) input |= WEAPON;
+        if (Input::state[cUp])        input |= FORTH;
+        if (Input::state[cRight])     input |= RIGHT;
+        if (Input::state[cDown])      input |= BACK;
+        if (Input::state[cLeft])      input |= LEFT;
+        if (Input::state[cRoll])      input  = FORTH | BACK;
+        if (Input::state[cStepRight]) input  = WALK  | RIGHT;
+        if (Input::state[cStepLeft])  input  = WALK  | LEFT;
+        if (Input::state[cJump])      input |= JUMP;
+        if (Input::state[cWalk])      input |= WALK;
+        if (Input::state[cAction])    input |= ACTION;
+        if (Input::state[cWeapon])    input |= WEAPON;
 
     // analog control
         rotFactor = vec2(1.0f);
-
-        if (Input::down[ikJoyL]) input = FORTH | BACK;
 
         if ((state == STATE_STOP || state == STATE_SURF_TREAD || state == STATE_HANG) && fabsf(Input::joy.L.x) < 0.5f && fabsf(Input::joy.L.y) < 0.5f)
             return input;
@@ -1945,7 +1956,7 @@ struct Lara : Character {
                     int pickupFrame = stand == STAND_GROUND ? PICKUP_FRAME_GROUND : PICKUP_FRAME_UNDERWATER;
                     if (animation.isFrameActive(pickupFrame)) {
                         item.flags.invisible = true;
-                        inventory.add(item.type, 1);
+                        game->invAdd(item.type, 1);
                     }
                 }
                 break;
@@ -1961,6 +1972,18 @@ struct Lara : Character {
 
     virtual void update() {
         Character::update();
+
+        if (damageTime > 0.0f)
+            damageTime = max(0.0f, damageTime - Core::deltaTime);
+
+        if (stand == STAND_UNDERWATER) {
+            if (oxygen > 0.0f)
+                oxygen -= Core::deltaTime;
+            else
+                hit(Core::deltaTime * 150.0f);
+        } else
+            if (oxygen < LARA_MAX_OXYGEN)
+                oxygen = min(LARA_MAX_OXYGEN, oxygen += Core::deltaTime * 10.0f);
     }
 
     virtual void updateAnimation(bool commands) {

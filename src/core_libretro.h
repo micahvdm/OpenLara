@@ -15,6 +15,11 @@
 #include <glsym/glsym_gl.h>
 #endif
 
+namespace Core {
+   float deltaTime;
+   int width, height;
+}
+
 #include "utils.h"
 #include "input.h"
 #include "sound.h"
@@ -157,8 +162,6 @@ enum BlendMode { bmNone, bmAlpha, bmAdd, bmMultiply, bmScreen };
 extern int getTime();
 
 namespace Core {
-    int width, height;
-    float deltaTime;
     float eye;
     vec4 viewport, viewportDef;
     vec4 scissor;
@@ -171,9 +174,11 @@ namespace Core {
 
     Texture *blackTex, *whiteTex;
 
-    enum Pass { passCompose, passShadow, passAmbient, passWater, passFilter, passVolume, passGUI, passMAX } pass;
+    enum Pass { passCompose, passShadow, passAmbient, passWater, passFilter, passGUI, passMAX } pass;
 
     GLuint FBO, defaultFBO;
+    Texture *defaultTarget;
+
     struct RenderTargetCache {
         int count;
         struct Item {
@@ -189,6 +194,8 @@ namespace Core {
         Texture     *target;
         int         targetFace;
         GLuint      VAO;
+        GLuint      iBuffer;
+        GLuint      vBuffer;
         BlendMode   blendMode;
         CullMode    cullMode;
         bool        stencilTwoSide;
@@ -212,10 +219,16 @@ namespace Core {
     } stats;
 
     struct {
+       struct {
         bool ambient;
         bool lighting;
         bool shadows;
         bool water;
+       } detail;
+
+       struct {
+          bool retarget;
+       } controls;
     } settings;
 }
 
@@ -229,7 +242,7 @@ namespace Core {
     }
 
     void init() {
-        Input::reset();
+        Input::init();
         char *ext = (char*)glGetString(GL_EXTENSIONS);
         //LOG("%s\n", ext);
 
@@ -282,6 +295,7 @@ namespace Core {
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, (GLint*)&defaultFBO);
         glGenFramebuffers(1, &FBO);
         memset(rtCache, 0, sizeof(rtCache));
+        defaultTarget = NULL;
 
         Sound::init();
 
@@ -347,9 +361,14 @@ namespace Core {
         glClearStencil(value);
     }
 
+    void setViewport(const vec4 &vp) {
+       glViewport(int(vp.x), int(vp.y), int(vp.z), int(vp.w));
+       viewport = vp;
+    }
+ 
+
     void setViewport(int x, int y, int width, int height) {
-        glViewport(x, y, width, height);
-        viewport = vec4(float(x), float(y), float(width), float(height));
+       setViewport(vec4(float(x), float(y), float(width), float(height)));
     }
 
     void setScissor(int x, int y, int width, int height) {
@@ -482,32 +501,36 @@ namespace Core {
     }
 
     void setTarget(Texture *target, bool clear = false, int face = 0) {
-        if (target == active.target && face == active.targetFace)
-            return;
+       if (!target && defaultTarget)
+          target = defaultTarget;
 
-        if (!target)  {
-            glBindFramebuffer(RARCH_GL_FRAMEBUFFER, defaultFBO);
-            glColorMask(true, true, true, true);
+       if (target != active.target || face != active.targetFace) {
+          if (!target)  {
+             glBindFramebuffer(GL_FRAMEBUFFER, defaultFBO);
+             glColorMask(true, true, true, true);
 
-            setViewport(int(viewportDef.x), int(viewportDef.y), int(viewportDef.z), int(viewportDef.w));
-        } else {
-            if (active.target == NULL)
+             setViewport(int(viewportDef.x), int(viewportDef.y), int(viewportDef.z), int(viewportDef.w));
+          } else {
+             if (active.target == NULL || active.target == defaultTarget)
                 viewportDef = viewport;
-            GLenum texTarget = GL_TEXTURE_2D;
-            if (target->cube) 
+             GLenum texTarget = GL_TEXTURE_2D;
+             if (target->cube) 
                 texTarget = GL_TEXTURE_CUBE_MAP_POSITIVE_X + face;
 
-            bool depth   = target->format == Texture::DEPTH || target->format == Texture::SHADOW;
-            int  rtIndex = cacheRenderTarget(depth, target->width, target->height);
+             bool depth   = target->format == Texture::DEPTH || target->format == Texture::SHADOW;
+             int  rtIndex = cacheRenderTarget(depth, target->width, target->height);
 
-            glBindFramebuffer(RARCH_GL_FRAMEBUFFER, FBO);
-            glFramebufferTexture2D    (RARCH_GL_FRAMEBUFFER, depth ? GL_DEPTH_ATTACHMENT  : RARCH_GL_COLOR_ATTACHMENT0, texTarget,       target->ID, 0);
-            glFramebufferRenderbuffer (RARCH_GL_FRAMEBUFFER, depth ? RARCH_GL_COLOR_ATTACHMENT0 : GL_DEPTH_ATTACHMENT,  GL_RENDERBUFFER, rtCache[depth].items[rtIndex].ID);
+             glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+             glFramebufferTexture2D    (GL_FRAMEBUFFER, depth ? GL_DEPTH_ATTACHMENT  : GL_COLOR_ATTACHMENT0, texTarget,       target->ID, 0);
+             glFramebufferRenderbuffer (GL_FRAMEBUFFER, depth ? GL_COLOR_ATTACHMENT0 : GL_DEPTH_ATTACHMENT,  GL_RENDERBUFFER, rtCache[depth].items[rtIndex].ID);
 
-            if (depth)
+             if (depth)
                 glColorMask(false, false, false, false);
-            setViewport(0, 0, target->width, target->height);
-        }
+             else
+                glColorMask(true, true, true, true);
+             setViewport(0, 0, target->width, target->height);
+          }
+       }
 
         if (clear)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
