@@ -28,13 +28,9 @@ struct retro_hw_render_callback hw_render;
 
 #define BASE_WIDTH 320
 #define BASE_HEIGHT 240
-#ifdef HAVE_OPENGLES
-#define MAX_WIDTH 1024
-#define MAX_HEIGHT 1024
-#else
-#define MAX_WIDTH 2560
-#define MAX_HEIGHT 1440
-#endif
+
+static unsigned MAX_WIDTH  = 320;
+static unsigned MAX_HEIGHT = 240;
 
 #define SND_FRAME_SIZE  4
 
@@ -130,7 +126,7 @@ void retro_set_environment(retro_environment_t cb)
       },
       {
          "openlara_resolution",
-         "Internal resolution (restart); 320x240|360x480|480x272|512x384|512x512|640x240|640x448|640x480|720x576|800x600|960x720|1024x768|1024x1024|1280x720|1280x960|1600x1200|1920x1080|1920x1440|1920x1600|2048x2048|2560x1440",
+         "Internal resolution (restart); 320x240|360x480|480x272|512x384|512x512|640x240|640x448|640x480|720x576|800x600|960x720|1024x768|1024x1024|1280x720|1280x960|1600x1200|1920x1080|1920x1440|1920x1600|2048x2048|2560x1440|3840x2160|7680x4320|15360x8640|16000x9000",
       },
       {
          "openlara_texture_filtering",
@@ -192,6 +188,9 @@ static void update_variables(bool first_startup)
          pch = strtok(NULL, "x");
          if (pch)
             height = strtoul(pch, NULL, 0);
+
+	 MAX_WIDTH  = width;
+	 MAX_HEIGHT = height;
 
          fprintf(stderr, "[openlara]: Got size: %u x %u.\n", width, height);
       }
