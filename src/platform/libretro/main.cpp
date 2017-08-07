@@ -448,6 +448,9 @@ bool retro_load_game(const struct retro_game_info *info)
       { 0 },
    };
 
+   if (!environ_cb(RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT, NULL))
+      return false;
+
    update_variables(true);
 
    environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, desc);
