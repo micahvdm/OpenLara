@@ -448,8 +448,7 @@ bool retro_load_game(const struct retro_game_info *info)
       { 0 },
    };
 
-   if (!environ_cb(RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT, NULL))
-      return false;
+   environ_cb(RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT, NULL);
 
    update_variables(true);
 
