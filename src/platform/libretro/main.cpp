@@ -139,8 +139,6 @@ void retro_set_environment(retro_environment_t cb)
       { NULL, NULL },
    };
 
-   bool no_rom = true;
-   cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &no_rom);
    cb(RETRO_ENVIRONMENT_SET_VARIABLES, variables);
 }
 
