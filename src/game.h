@@ -117,8 +117,10 @@ namespace Game {
 
         PROFILE_MARKER("UPDATE");
 
+#ifndef __LIBRETRO__
         if (!Core::update())
             return false;
+#endif
 
         float delta = Core::deltaTime;
 
