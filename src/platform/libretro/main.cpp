@@ -114,7 +114,7 @@ void osRWLockWrite(void *obj) {
 
 #elif defined(__linux__)
 #include <pthread.h>
-#include <time.h>
+#include <sys/time.h>
 unsigned int startTime;
 
 int osGetTime(void)
