@@ -5,21 +5,22 @@ R"====(
 #endif
 
 varying vec2 vTexCoord;
-
-uniform int uType;
+varying vec4 vColor;
+uniform vec4 uParam;
 
 #ifdef VERTEX
 	attribute vec4 aCoord;
+	attribute vec4 aTexCoord;
+	attribute vec4 aLight;
 
 	void main() {
-		vTexCoord	= aCoord.zw;
-		gl_Position = vec4(aCoord.xy, 0.0, 1.0);
+		vTexCoord	= aTexCoord.xy;
+		vColor		= aLight;
+		gl_Position	= vec4(aCoord.xy * (1.0 / 32767.0), 0.0, 1.0);
 	}
 #else
 	uniform sampler2D sDiffuse;
 	uniform sampler2D sNormal;
-
-	uniform vec4 uParam;
 
 	vec4 downsample() { // uParam (textureSize, unused, unused, unused)
 		float k = 1.0 / uParam.x; // inverted texture size
@@ -29,7 +30,7 @@ uniform int uType;
 			for (float x = -1.5; x < 2.0; x++) {
 				vec4 p;
 				p.xyz  = texture2D(sDiffuse, vTexCoord + vec2(x, y) * k).xyz;
-				p.w	   = dot(p.xyz, vec3(0.299, 0.587, 0.114));
+				p.w    = dot(p.xyz, vec3(0.299, 0.587, 0.114));
 				p.xyz *= p.w;
 				color += p;
 			}
@@ -60,6 +61,18 @@ uniform int uType;
 		return mix(texture2D(sDiffuse, vTexCoord), texture2D(sNormal, vTexCoord), uParam.x) * uParam.y;
 	}
 
+	#ifdef FILTER_EQUIRECTANGULAR
+		uniform samplerCube sEnvironment;
+
+		#define PI 3.14159265358979323846
+
+		vec4 equirectangular() {
+			vec2 a = (vTexCoord - 0.5) * vec2(PI * 2.0, PI);
+			vec3 v = vec3(sin(a.x) * cos(a.y), -sin(a.y), cos(a.x) * cos(a.y));
+			return textureCube(sEnvironment, normalize(v));
+		}
+	#endif
+
 	vec4 filter() {
 		#ifdef FILTER_DOWNSAMPLE
 			return downsample();
@@ -77,7 +90,11 @@ uniform int uType;
 			return mixer();
 		#endif
 
-		return texture2D(sDiffuse, vTexCoord);
+		#ifdef FILTER_EQUIRECTANGULAR
+			return equirectangular();
+		#endif
+
+		return texture2D(sDiffuse, vTexCoord) * vColor;
 	}
 
 	void main() {

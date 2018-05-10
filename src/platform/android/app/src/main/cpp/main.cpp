@@ -3,49 +3,74 @@
 #include <sys/time.h>
 #include <stdio.h>
 #include <math.h>
+#include <pthread.h>
 
 #include "game.h"
+
+JavaVM *jvm;
 
 #define JNI_METHOD(return_type, method_name) \
   JNIEXPORT return_type JNICALL              \
       Java_org_xproger_openlara_Wrapper_##method_name
 
-int getTime() {
-    timeval time;
-    gettimeofday(&time, NULL);
-    return (time.tv_sec * 1000) + (time.tv_usec / 1000);
+// timing
+time_t startTime;
+
+int osGetTime() {
+    timeval t;
+    gettimeofday(&t, NULL);
+    return int((t.tv_sec - startTime) * 1000 + t.tv_usec / 1000);
+}
+
+// joystick
+bool osJoyReady(int index) {
+    return index == 0;
+}
+
+void osJoyVibrate(int index, float L, float R) {
+    //
+}
+
+void osToggleVR(bool enable) {
+    JNIEnv *jniEnv;
+    jvm->AttachCurrentThread(&jniEnv, NULL);
+
+    jboolean  v = enable;
+    jclass    c = jniEnv->FindClass("org/xproger/openlara/MainActivity");
+    jmethodID m = jniEnv->GetStaticMethodID(c, "toggleVR", "(Z)V");
+    jniEnv->CallStaticVoidMethod(c, m, v);
 }
 
 extern "C" {
 
-int lastTime;
-
 char Stream::cacheDir[255];
 char Stream::contentDir[255];
 
-JNI_METHOD(void, nativeInit)(JNIEnv* env, jobject obj, jstring packName, jstring cacheDir, jint levelOffset, jint musicOffset) {
+JNI_METHOD(void, nativeInit)(JNIEnv* env, jobject obj, jstring contentDir, jstring cacheDir) {
+    env->GetJavaVM(&jvm);
+
+    timeval t;
+    gettimeofday(&t, NULL);
+    startTime = t.tv_sec;	
+
     const char* str;
 
     Stream::contentDir[0] = Stream::cacheDir[0] = 0;
+
+    str = env->GetStringUTFChars(contentDir, NULL);
+    strcat(Stream::contentDir, str);
+    env->ReleaseStringUTFChars(contentDir, str);
+
     str = env->GetStringUTFChars(cacheDir, NULL);
     strcat(Stream::cacheDir, str);
     env->ReleaseStringUTFChars(cacheDir, str);
 
-    str = env->GetStringUTFChars(packName, NULL);
-    Stream *level = new Stream(str);
-    Stream *music = new Stream(str);
-    env->ReleaseStringUTFChars(packName, str);
-
-    level->seek(levelOffset);
-    music->seek(musicOffset);
-
-    Game::init(level, music);
-
-    lastTime    = getTime();
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, (GLint*)&Core::defaultFBO);
+    Game::init();
 }
 
 JNI_METHOD(void, nativeFree)(JNIEnv* env) {
-    Game::free();
+    Game::deinit();
 }
 
 JNI_METHOD(void, nativeReset)(JNIEnv* env) {
@@ -53,47 +78,38 @@ JNI_METHOD(void, nativeReset)(JNIEnv* env) {
 }
 
 JNI_METHOD(void, nativeUpdate)(JNIEnv* env) {
-    int time = getTime();
-    if (time == lastTime)
-        return;
-    Game::update((time - lastTime) * 0.001f);
-    lastTime = time;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, (GLint*)&Core::defaultFBO);
+
+    Game::update();
 }
 
-JNI_METHOD(void, nativeRender)(JNIEnv* env) {
-    Core::stats.dips = 0;
-    Core::stats.tris = 0;
-    Game::render();
+JNI_METHOD(void, nativeFrameBegin)(JNIEnv* env) {
+    Game::frameBegin();
 }
 
-JNI_METHOD(void, nativeResize)(JNIEnv* env, jobject obj, jint w, jint h) {
+JNI_METHOD(void, nativeFrameEnd)(JNIEnv* env) {
+    Core::setBlending(bmNone);
+    Core::validateRenderState();
+
+    Game::frameEnd();
+    Core::reset();
+}
+
+JNI_METHOD(void, nativeFrameRender)(JNIEnv* env) {
+    Game::frameRender();
+    Core::reset();
+}
+
+JNI_METHOD(void, nativeResize)(JNIEnv* env, jobject obj, jint x, jint y, jint w, jint h) {
+    Core::viewportDef = vec4(float(x), float(y), float(w), float(h));
+    Core::x      = x;
+    Core::y      = y;
     Core::width  = w;
     Core::height = h;
 }
 
 float DeadZone(float x) {
     return x = fabsf(x) < 0.2f ? 0.0f : x;
-}
-
-int getPOV(int x, int y) {
-    switch (x) {
-        case -1 : {
-            if (y == -1) return 8;
-            if (y ==  0) return 7;
-            if (y == +1) return 6;
-        }
-        case 0 : {
-            if (y == -1) return 1;
-            if (y ==  0) return 0;
-            if (y == +1) return 5;
-        }
-        case +1 : {
-            if (y == -1) return 2;
-            if (y ==  0) return 3;
-            if (y == +1) return 4;
-        }
-    }
-    return 0;
 }
 
 InputKey keyToInputKey(int code) {
@@ -114,22 +130,15 @@ JNI_METHOD(void, nativeTouch)(JNIEnv* env, jobject obj, jint id, jint state, jfl
 // gamepad / keyboard
     if (state < 0) {
         switch (state) {
-            case -3 : Input::setPos(ikJoyL, vec2(DeadZone(x), DeadZone(y))); break;
-            case -4 : Input::setPos(ikJoyR, vec2(DeadZone(x), DeadZone(y))); break;
-            case -5 : Input::setPos(ikJoyPOV, vec2(float(getPOV(sign(x), sign(y))), 0.0f)); break;
+            case -3 : Input::setJoyPos(id, jkL, vec2(DeadZone(x), DeadZone(y))); break;
+            case -4 : Input::setJoyPos(id, jkR, vec2(DeadZone(x), DeadZone(y))); break;
             default : {
                 int btn = int(x);
-                InputKey key = btn <= 0 ? InputKey(ikJoyA - btn) : keyToInputKey(btn);
-                Input::setDown(key, state != -1);
+                if (btn < 0)
+                    Input::setJoyDown(id, JoyKey(jkNone - btn), state != -1);
+                else
+                    Input::setDown(keyToInputKey(btn), state != -1);
             }
-        }
-        return;
-    }
-
-    if (id == -100) {
-        switch (state) {
-            case 0 : Input::head.basis.rot.x = x; Input::head.basis.rot.y = y; break;
-            case 1 : Input::head.basis.rot.z = x; Input::head.basis.rot.w = y; Input::head.set(); break;
         }
         return;
     }
@@ -140,6 +149,37 @@ JNI_METHOD(void, nativeTouch)(JNIEnv* env, jobject obj, jint id, jint state, jfl
     Input::setPos(key, vec2(x, y));
     if (state == 1 || state == 2)
         Input::setDown(key, state == 2);
+}
+
+JNI_METHOD(void, nativeSetVR)(JNIEnv* env, jobject obj, jboolean enabled) {
+    Core::Settings settings = Core::settings;
+    settings.detail.stereo = enabled ? Core::Settings::STEREO_VR : Core::Settings::STEREO_OFF;
+    Game::level->applySettings(settings);
+}
+
+JNI_METHOD(void, nativeSetHead)(JNIEnv* env, jobject obj, jfloatArray head) {
+    jfloat *mHead = env->GetFloatArrayElements(head, NULL);
+    memcpy(&Input::hmd.head, mHead, sizeof(float) * 16);
+    Input::hmd.head = Input::hmd.head.inverseOrtho();
+    env->ReleaseFloatArrayElements(head, mHead, 0);
+}
+
+JNI_METHOD(void, nativeSetEye)(JNIEnv* env, jobject obj, jint eye, jfloatArray proj, jfloatArray view) {
+    Core::eye = float(eye);
+    if (eye == 0) return;
+    eye = eye == -1 ? 0 : 1;
+
+    jfloat *mProj = env->GetFloatArrayElements(proj, NULL);
+    jfloat *mView = env->GetFloatArrayElements(view, NULL);
+
+    memcpy(&Input::hmd.proj[eye], mProj, sizeof(float) * 16);
+    memcpy(&Input::hmd.eye[eye],  mView, sizeof(float) * 16);
+
+    Input::hmd.eye[eye].setPos(Input::hmd.eye[eye].getPos() * ONE_METER);
+    Input::hmd.eye[eye] = Input::hmd.eye[eye].inverseOrtho();
+
+    env->ReleaseFloatArrayElements(proj, mProj, 0);
+    env->ReleaseFloatArrayElements(view, mView, 0);
 }
 
 JNI_METHOD(void, nativeSoundFill)(JNIEnv* env, jobject obj, jshortArray buffer) {

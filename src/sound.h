@@ -2,19 +2,20 @@
 #define H_SOUND
 
 #define DECODE_VAG
-//#define DECODE_ADPCM
-//#define DECODE_MP3
+#define DECODE_ADPCM
+
 #define DECODE_OGG
 
-#ifdef __EMSCRIPTEN__ // TODO: http streaming
-    #undef DECODE_MP3
-    #undef DECODE_OGG
+#if !defined(_OS_PSP) && !defined(_OS_WEB)
+    #define DECODE_MP3
 #endif
 
 #include "utils.h"
+
 #ifdef DECODE_MP3
     #include "libs/minimp3/minimp3.h"
 #endif
+
 #ifdef DECODE_OGG
     #define STB_VORBIS_HEADER_ONLY
     #include "libs/stb_vorbis/stb_vorbis.c"
@@ -22,6 +23,7 @@
 
 #define SND_CHANNELS_MAX    128
 #define SND_FADEOFF_DIST    (1024.0f * 8.0f)
+#define SND_MAX_VOLUME      20
 
 namespace Sound {
 
@@ -29,11 +31,15 @@ namespace Sound {
         short L, R;
     };
 
-    namespace Filter {
-        #define MAX_FDN     32
-        #define MAX_DELAY   2048
+    struct FrameHI {
+        int L, R;
+    };
 
-        static const short FDN[MAX_FDN] = {281,331,373,419,461,503,547,593,641,683,727,769,811,853,907,953,997,1039,1087,1129,1171,1213,1259,1301,1361,1409,1451,1493,1543,1597,1657,1699};
+    namespace Filter {
+        #define MAX_FDN     16
+        #define MAX_DELAY   1024
+
+        static const int16 FDN[MAX_FDN] = { 281, 331, 373, 419, 461, 503, 547, 593, 641, 683, 727, 769, 811, 853, 907, 953 };
 
         struct Delay {
             int     index;
@@ -83,43 +89,46 @@ namespace Sound {
             void setRoomSize(const vec3 &size) {
                 float S = (size.x * size.z + size.x * size.y + size.z * size.y) * 2;
                 float V = size.x * size.y * size.z;
-                float f = 0.07f; // brick absorption
+                float f = 0.1f; // absorption factor
                 float rt60 = 0.161f * (V / (S * f));
                 float k = -10.0f / (44100.0f * rt60);
 
                 for (int i = 0; i < MAX_FDN; i++) {
-                    absCoeff[i][0] = pow(10.0f, FDN[i] * k);
-                    absCoeff[i][1] = 1.0f - (2.0f / (1.0f + pow(absCoeff[i][0], 1.0f - 1.0f / 0.15f)));
+                    absCoeff[i][0] = powf(10.0f, FDN[i] * k);
+                    absCoeff[i][1] = 1.0f - (2.0f / (1.0f + powf(absCoeff[i][0], 1.0f - 1.0f / 0.15f)));
                 }
             };
 
-            void process(Frame *frames, int count) {
+            void process(FrameHI *frames, int count) {
                 float buffer[MAX_FDN];
 
                 for (int i = 0; i < count; i++) {
-                    Frame &frame = frames[i];
-                    float L   = float(frame.L);
-                    float R   = float(frame.R);
+                    FrameHI &frame = frames[i];
+                    float L   = frame.L * (1.0f / 32768.0f);
+                    float R   = frame.R * (1.0f / 32768.0f);
                     float in  = (L + R) * 0.5f;
                     float out = 0.0f;
 
                 // apply delay & absorption filters
                     for (int j = 0; j < MAX_FDN; j++) {
-                        buffer[j] = in + output[j];
-                        buffer[j] = df[j].process(buffer[j], FDN[j]);
-                        buffer[j] = af[j].process(buffer[j], absCoeff[j][0], absCoeff[j][1]);
-                        out += buffer[j] * (2.0f / MAX_FDN);
+                        float k = in + output[j];
+                        k = df[j].process(k, FDN[j]);
+                        k = af[j].process(k, absCoeff[j][0], absCoeff[j][1]);
+                        out += k * (2.0f / MAX_FDN);
+                        buffer[j] = k;
                     }
 
                 // apply pan
                     for (int j = 0; j < MAX_FDN; j++) {
                         output[j] = out - buffer[(j + MAX_FDN - 1) % MAX_FDN];
+                        if (output[j] < EPS)
+                            output[j] = 0.0f;
                         L += buffer[j] * panCoeff[j][0];
                         R += buffer[j] * panCoeff[j][1];
                     }
 
-                    frame.L = clamp(int(L), -32768, 32767);
-                    frame.R = clamp(int(R), -32768, 32767);
+                    frame.L = int(L * 32768.0f);
+                    frame.R = int(R * 32768.0f);
                 }
             }
         };
@@ -140,33 +149,70 @@ namespace Sound {
 
     struct PCM : Decoder {
         int freq, size, bits;
+        Frame frameLast;
 
-        PCM(Stream *stream, int channels, int freq, int size, int bits) : Decoder(stream, channels), freq(freq), size(size), bits(bits) {}
+        PCM(Stream *stream, int channels, int freq, int size, int bits) : Decoder(stream, channels), freq(freq), size(size), bits(bits) { frameLast.L = frameLast.R = 0; }
 
         virtual int decode(Frame *frames, int count) {
             if (stream->pos - offset >= size) return 0;
+
+            // ! in the original game series only 11025 and 22050 Hz single channel samples were used ! //
+
+            Frame frame;
             if (bits == 16) {
                 int16 value;
                 if (channels == 2) {
-                    frames[0].L = stream->read(value);
-                    frames[0].R = stream->read(value);
+                    frame.L = stream->read(value);
+                    frame.R = stream->read(value);
                 } else
-                    frames[0].L = frames[0].R = stream->read(value);
+                    frame.L = frame.R = stream->read(value);
             } else if (bits == 8) {
                 uint8 value;
                 if (channels == 2) {
-                    frames[0].L = stream->read(value) * 257 - 32768;
-                    frames[0].R = stream->read(value) * 257 - 32768;
+                    frame.L = stream->read(value) * 257 - 32768;
+                    frame.R = stream->read(value) * 257 - 32768;
                 } else
-                    frames[0].L = frames[0].R = stream->read(value) * 257 - 32768;
+                    frame.L = frame.R = stream->read(value) * 257 - 32768;
             } else {
                 ASSERT(false);
                 return 0;
             }
 
-            int k = 44100 / freq;
-            for (int i = 1; i < k; i++) frames[i] = frames[0]; // TODO: lerp
-            return k;
+            int dL = int(frame.L) - int(frameLast.L);
+            int dR = int(frame.R) - int(frameLast.R);
+            switch (freq) {
+                case 11025 :
+                    if (channels == 2) {
+                        frames[0].L = frameLast.L + dL / 4;                   // 0.25 L
+                        frames[0].R = frameLast.R + dR / 4;                   // 0.25 R
+                        frames[1].L = frameLast.L + dL / 2;                   // 0.50 L
+                        frames[1].R = frameLast.R + dR / 2;                   // 0.50 R
+                        frames[2].L = frameLast.L + dL * 3 / 4;               // 0.75 L
+                        frames[2].R = frameLast.R + dR * 3 / 4;               // 0.75 R
+                    } else {
+                        frames[0].L = frames[0].R = frameLast.L + dL / 4;     // 0.25 LR
+                        frames[1].L = frames[1].R = frameLast.L + dL / 2;     // 0.50 LR
+                        frames[2].L = frames[2].R = frameLast.L + dL * 3 / 4; // 0.75 LR
+                    }
+                    frames[3] = frameLast = frame;                            // 1.00 LR
+                    return 4;
+                case 22050 :
+                    if (channels == 2) {
+                        frames[0].L = frameLast.L + dL / 2;                   // 0.50 L
+                        frames[0].R = frameLast.R + dR / 2;                   // 0.50 R
+                    } else
+                        frames[0].L = frames[0].R = frameLast.L + dL / 2;     // 0.50 LR
+                    frames[1] = frameLast = frame;                            // 1.00 LR
+                    return 2;
+                case 44100 : // not used
+                    frames[0] = frameLast = frame;
+                    return 1;
+                default    : // impossible
+                    ASSERT(false);
+                    int k = 44100 / freq;
+                    for (int i = 0; i < k; i++) frames[i] = frame; // no lerp
+                    return k;
+            }
         }
     };
 
@@ -206,7 +252,7 @@ namespace Sound {
 
             if (seek % block == 0) {
                 for (int i = 0; i < channels; i++) {
-                    char index;
+                    uint8 index;
                     stream->read(index);
                     channel[i].c1 = coeff1[index];
                     channel[i].c2 = coeff2[index];
@@ -259,16 +305,16 @@ namespace Sound {
 
             int s = (s1 * inc[pred] + s2 * dec[pred]) >> 6;
             s = clamp((value >> shift) + s, -32768, 32767);
-			s2 = s1;
+            s2 = s1;
             s1 = s;
         }
 
         void resample(Frame *frames, short value) {
             predicate(value);
-			frames[0].L = frames[0].R = s2 + (s1 - s2) / 4;     // 0.25
-			frames[1].L = frames[1].R = s2 + (s1 - s2) / 2;     // 0.50
-			frames[2].L = frames[2].R = s2 + (s1 - s2) * 3 / 4; // 0.75
-			frames[3].L = frames[3].R = s1;                     // 1.00
+            frames[0].L = frames[0].R = s2 + (s1 - s2) / 4;     // 0.25
+            frames[1].L = frames[1].R = s2 + (s1 - s2) / 2;     // 0.50
+            frames[2].L = frames[2].R = s2 + (s1 - s2) * 3 / 4; // 0.75
+            frames[3].L = frames[3].R = s1;                     // 1.00
         }
 
         int processBlock() {
@@ -363,23 +409,22 @@ namespace Sound {
         stb_vorbis       *ogg;
         stb_vorbis_alloc alloc;
 
-        char       *buffer;
-        int        size, pos;        
+        OGG(Stream *stream, int channels) : Decoder(stream, channels), ogg(NULL) {
+            char buf[255];
+            strcpy(buf, Stream::contentDir);
+            strcat(buf, stream->name);
 
-        OGG(Stream *stream, int channels) : Decoder(stream, channels), size(stream->size), pos(0) {
-            buffer = new char[size]; // TODO: file streaming
-            stream->raw(buffer, size);
             alloc.alloc_buffer_length_in_bytes = 256 * 1024;
             alloc.alloc_buffer = new char[alloc.alloc_buffer_length_in_bytes];
-            ogg = stb_vorbis_open_memory((unsigned char*)buffer, size, NULL, &alloc);
+            ogg = stb_vorbis_open_filename(buf, NULL, &alloc);
+            ASSERT(ogg);
             stb_vorbis_info info = stb_vorbis_get_info(ogg);
-            channels = info.channels;
+            this->channels = info.channels;
         }
 
         virtual ~OGG() {
             stb_vorbis_close(ogg);
             delete[] alloc.alloc_buffer;
-            delete[] buffer;
         }
 
         virtual int decode(Frame *frames, int count) {
@@ -393,41 +438,53 @@ namespace Sound {
         }
 
         virtual void replay() {
-            stb_vorbis_close(ogg);
-            ogg = stb_vorbis_open_memory((unsigned char*)buffer, size, NULL, &alloc);
+            stb_vorbis_seek_start(ogg);
         }
     };
 #endif
+    Mutex lock;
 
     struct Listener {
         mat4 matrix;
-    //    vec3 velocity;
-    } listener;
+    } listener[2];
+
+    int listenersCount;
+
+    Listener& getListener(const vec3 &pos) {
+        if (listenersCount == 1 || (listener[0].matrix.getPos() - pos).length2() < (listener[1].matrix.getPos() - pos).length2())
+            return listener[0];
+        return listener[1];
+    }
 
     enum Flags {
         LOOP            = 1,
         PAN             = 2,
         UNIQUE          = 4,
         REPLAY          = 8,
-        SYNC            = 16,
-        STATIC          = 32,
+        MUSIC           = 16,
+        FLIPPED         = 32,
+        UNFLIPPED       = 64,
     };
+
+    bool flipped;
 
     struct Sample {
         Decoder *decoder;
         vec3    pos;
-        vec3    velocity;
         float   volume;
+        float   volumeTarget;
+        float   volumeDelta;
         float   pitch;
         int     flags;
         int     id;
         bool    isPlaying;
+        bool    stopAfterFade;
 
-        Sample(Stream *stream, const vec3 &pos, float volume, float pitch, int flags, int id) : decoder(NULL), pos(pos), volume(volume), pitch(pitch), flags(flags), id(id) {
+        Sample(Stream *stream, const vec3 &pos, float volume, float pitch, int flags, int id) : decoder(NULL), pos(pos), volume(volume), volumeTarget(volume), volumeDelta(0.0f), pitch(pitch), flags(flags), id(id) {
             uint32 fourcc; 
             stream->read(fourcc);
             if (fourcc == FOURCC("RIFF")) { // wav
-                
+
                 struct {
                     uint16  format;
                     uint16  channels;
@@ -443,7 +500,7 @@ namespace Sound {
                     stream->read(type);
                     stream->read(size);
                     if (type == FOURCC("fmt ")) {
-                        stream->read(waveFmt);
+                        stream->raw(&waveFmt, sizeof(waveFmt));
                         stream->seek(size - sizeof(waveFmt));
                     } else if (type == FOURCC("data")) {
                         if (waveFmt.format == 1) decoder = new PCM(stream, waveFmt.channels, waveFmt.samplesPerSec, size, waveFmt.sampleBits);
@@ -455,54 +512,70 @@ namespace Sound {
                         stream->seek(size);
                 }
             } 
-            #ifdef DECODE_OGG
             else if (fourcc == FOURCC("OggS")) { // ogg
                 stream->seek(-4);
-                decoder = new OGG(stream, 2);
+                #ifdef DECODE_OGG
+                    decoder = new OGG(stream, 2);
+                #endif 
             }
-            #endif 
-            #ifdef DECODE_MP3
             else if (fourcc == FOURCC("ID3\3")) { // mp3
-                decoder = new MP3(stream, 2);
+                #ifdef DECODE_MP3
+                    decoder = new MP3(stream, 2);
+                #endif
             }
-            #endif
-            #ifdef DECODE_VAG
             else { // vag
                 stream->setPos(0);
-                decoder = new VAG(stream);
+                #ifdef DECODE_VAG
+                    decoder = new VAG(stream);
+                #endif
             }
-            #endif
-			
+
+            if (!decoder)
+                delete stream;
+
             isPlaying = decoder != NULL;
-            ASSERT(isPlaying);
         }
 
         ~Sample() {
             delete decoder;
         }
 
-        vec3 getPan() {
-            if (!(flags & PAN))
-                return vec3(1.0f);
-            mat4  m = Sound::listener.matrix;
-            vec3  v = pos - m.offset.xyz;
+        void setVolume(float value, float time) {
+            if (value < 0.0f) {
+                stopAfterFade = true;
+                value = 0.0f;
+            } else
+                stopAfterFade = false;
 
-            float dist = max(0.0f, 1.0f - (v.length2() / (SND_FADEOFF_DIST * SND_FADEOFF_DIST)));
-            float pan  = m.right.xyz.dot(v.normal());
+            volumeTarget = value;
+            volumeDelta  = volumeTarget - volume;
+            if (time > 0.0f)
+                volumeDelta /= 44100.0f * time;
+        }
+
+        vec2 getPan() {
+            if (!(flags & PAN))
+                return vec2(1.0f);
+            mat4  m = Sound::getListener(pos).matrix;
+            vec3  v = pos - m.offset().xyz();
+
+            float dist = max(0.0f, 1.0f - (v.length() / SND_FADEOFF_DIST));
+            float pan  = m.right().xyz().dot(v.normal());
 
             float l = min(1.0f, 1.0f - pan);
             float r = min(1.0f, 1.0f + pan);
 
-            return vec3(l, r, 1.0f) * dist;
+            return vec2(l, r) * dist;
         }
 
         bool render(Frame *frames, int count) {
-            if (!isPlaying) return 0;
+            if (!isPlaying) return false;
+        // decode
             int i = 0;
             while (i < count) {
                 int res = decoder->decode(&frames[i], count - i);
                 if (res == 0) {
-                    if (!(flags & Flags::LOOP)) {
+                    if (!(flags & LOOP)) {
                         isPlaying = false;
                         break;
                     } else
@@ -510,61 +583,90 @@ namespace Sound {
                 }
                 i += res;
             }
+        // apply volume
+            #define VOL_CONV(x) (1.0f - sqrtf(1.0f - x * x));
 
-            vec3 pan = getPan() * volume;
-
-            if (pan.x < 1.0f || pan.y < 1.0f)
-                for (int j = 0; j < i; j++) {
-                    frames[j].L = int(frames[j].L * pan.x);
-                    frames[j].R = int(frames[j].R * pan.y);
+            float m = ((flags & MUSIC) ? Core::settings.audio.music : Core::settings.audio.sound) / float(SND_MAX_VOLUME);
+            float v = volume * m;
+            vec2 pan = getPan();
+            vec2 vol = pan * VOL_CONV(v);
+            for (int j = 0; j < i; j++) {
+                if (volumeDelta != 0.0f) { // increase / decrease channel volume
+                    volume += volumeDelta;
+                    if ((volumeDelta < 0.0f && volume < volumeTarget) ||
+                        (volumeDelta > 0.0f && volume > volumeTarget)) {
+                        volume = volumeTarget;
+                        volumeDelta = 0.0f;
+                        if (stopAfterFade)
+                            isPlaying = false;
+                    }
+                    v   = volume * m;
+                    vol = pan * VOL_CONV(v);
                 }
+                frames[j].L = int(frames[j].L * vol.x);
+                frames[j].R = int(frames[j].R * vol.y);
+            }
+            #undef VOL_CONV
+
             return true;
+        }
+
+        void stop() {
+            isPlaying = false;
+        }
+
+        void replay() {
+            decoder->replay();
         }
     } *channels[SND_CHANNELS_MAX];
     int channelsCount;
 
+    typedef void (Callback)(Sample *channel);
+    Callback *callback;
+
+    FrameHI *result;
+    Frame   *buffer;
     Filter::Reverberation reverb;
 
     void init() {
+        flipped = false;
         channelsCount = 0;
+        callback = NULL;
+        buffer = NULL;
+        result = NULL;
     #ifdef DECODE_MP3
         mp3_decode_init();
     #endif
     }
 
-    void free() {
+    void deinit() {
         for (int i = 0; i < channelsCount; i++)
             delete channels[i];
     #ifdef DECODE_MP3
         mp3_decode_free();
     #endif
+        delete[] buffer;
+        delete[] result;
     }
 
-    void fill(Frame *frames, int count) {
-        if (!channelsCount) {
-            memset(frames, 0, sizeof(frames[0]) * count);
-            reverb.process(frames, count);
-            return;
-        }
-
-        struct FrameHI {
-            int L, R;
-        };
-
-        FrameHI *result = new FrameHI[count];
-        memset(result, 0, sizeof(FrameHI) * count);
-
+    void renderChannels(FrameHI *result, int count, bool music) {
         int bufSize = count + count / 2;
-        Frame *buffer = new Frame[bufSize]; // + 50% for pitch
+        if (!buffer) buffer = new Frame[bufSize]; // + 50% for pitch
 
         for (int i = 0; i < channelsCount; i++) {
-            if (channels[i]->flags & STATIC) {
-                vec3 d = channels[i]->pos - listener.matrix.getPos();
+            if (music != ((channels[i]->flags & MUSIC) != 0))
+                continue;
+            
+            if (channels[i]->flags & (FLIPPED | UNFLIPPED)) {
+                if (!(channels[i]->flags & (flipped ? FLIPPED : UNFLIPPED)))
+                    continue;
+
+                vec3 d = channels[i]->pos - getListener(channels[i]->pos).matrix.getPos();
                 if (fabsf(d.x) > SND_FADEOFF_DIST || fabsf(d.y) > SND_FADEOFF_DIST || fabsf(d.z) > SND_FADEOFF_DIST)
                     continue;
             }
 
-            if ((channels[i]->flags & LOOP) && channels[i]->volume < EPS)
+            if ((channels[i]->flags & LOOP) && channels[i]->volume < EPS && channels[i]->volumeTarget < EPS)
                 continue;
 
             memset(buffer, 0, sizeof(Frame) * bufSize);
@@ -586,27 +688,55 @@ namespace Sound {
                 }
             }
         }
+    }
 
+    void convFrames(FrameHI *from, Frame *to, int count) {
         for (int i = 0; i < count; i++) {
-            frames[i].L = clamp(result[i].L, -32768, 32767);
-            frames[i].R = clamp(result[i].R, -32768, 32767);
+            to[i].L = clamp(from[i].L, -32768, 32767);
+            to[i].R = clamp(from[i].R, -32768, 32767);
+        }
+    }
+
+    void fill(Frame *frames, int count) {
+        OS_LOCK(lock);
+
+        if (!channelsCount) {
+            if (result) {
+                memset(result, 0, sizeof(FrameHI) * count);
+                if (Core::settings.audio.reverb)
+                    reverb.process(result, count);
+                convFrames(result, frames, count);
+            } else
+                memset(frames, 0, sizeof(frames[0]) * count);
+            return;
         }
 
-        reverb.process(frames, count);
+        if (!result) result = new FrameHI[count];
+        memset(result, 0, sizeof(FrameHI) * count);
 
-        delete[] buffer;
-        delete[] result;
+        renderChannels(result, count, false);
+
+        if (Core::settings.audio.reverb)
+            reverb.process(result, count);
+
+        renderChannels(result, count, true);
+
+        convFrames(result, frames, count);
 
         for (int i = 0; i < channelsCount; i++) 
             if (!channels[i]->isPlaying) {
+                if (callback) callback(channels[i]);
                 delete channels[i];
                 channels[i] = channels[--channelsCount];
                 i--;
             }
     }
 
-    Stream *openWAD(const char *name) {
-        Stream *stream = new Stream("cdaudio.wad");
+    Stream *openCDAudioWAD(const char *name, int index = -1) {
+        if (!Stream::existsContent(name))
+            return NULL;
+
+        Stream *stream = new Stream(name);
         if (stream->size) {
             struct Item {
                 char name[260];
@@ -614,31 +744,55 @@ namespace Sound {
                 int  offset;
             } entity;
 
-            for (int i = 0; i < 130; i++) {
-                stream->read(entity);
-                if (strcmp(name, entity.name) == 0) {
-                    stream->setPos(entity.offset);
-                    return stream;
-                }
-            }
+            stream->seek(sizeof(entity) * index);
+            stream->raw(&entity, sizeof(entity));
+            stream->setPos(entity.offset);
+            return stream;
         }
         delete stream;
         return NULL;
     }
 
+    Stream *openCDAudioMP3(const char *dat, const char *name, int index = -1) {
+        if (!Stream::existsContent(dat) || !Stream::existsContent(name))
+            return NULL;
+        Stream *stream = new Stream(name);
+        return stream;
+    }
+
     Sample* play(Stream *stream, const vec3 &pos, float volume = 1.0f, float pitch = 0.0f, int flags = 0, int id = - 1) {
+        OS_LOCK(lock);
+
+        ASSERT(pitch >= 0.0f);
         if (!stream) return NULL;
         if (volume > 0.001f) {
-            if (flags & (REPLAY | SYNC | UNIQUE))
+            vec3 listenerPos = getListener(pos).matrix.getPos();
+
+            if (!(flags & (FLIPPED | UNFLIPPED | MUSIC)) && (flags & PAN)) {
+                vec3 d = pos - listenerPos;
+                if (fabsf(d.x) > SND_FADEOFF_DIST || fabsf(d.y) > SND_FADEOFF_DIST || fabsf(d.z) > SND_FADEOFF_DIST) {
+                    delete stream;
+                    return NULL;
+                }
+            }
+
+            if (flags & (UNIQUE | REPLAY)) {
                 for (int i = 0; i < channelsCount; i++)
                     if (channels[i]->id == id) {
-                        channels[i]->pos   = pos;
-                        channels[i]->pitch = pitch;
-                        if (flags & (REPLAY | UNIQUE))
-                            channels[i]->decoder->replay();
+                        vec3 p = listenerPos;
+
+                        if ((p - channels[i]->pos).length2() > (p - pos).length2()) {
+                            channels[i]->pos = pos;
+                            channels[i]->pitch = pitch;
+                        }
+
+                        if (flags & REPLAY)
+                            channels[i]->replay();
+
                         delete stream;
                         return channels[i];
                     }
+            }
 
             if (channelsCount < SND_CHANNELS_MAX)
                 return channels[channelsCount++] = new Sample(stream, pos, volume, pitch, flags, id);
@@ -649,7 +803,17 @@ namespace Sound {
         return NULL;
     }
 
+    void stop(int id = -1) {
+        OS_LOCK(lock);
+
+        for (int i = 0; i < channelsCount; i++)
+            if (id == -1 || channels[i]->id == id)
+                channels[i]->stop();
+    }
+
     void stopAll() {
+        OS_LOCK(lock);
+
         for (int i = 0; i < channelsCount; i++)
             delete channels[i];
         channelsCount = 0;

@@ -57,14 +57,10 @@ struct Enemy : Character {
     float length;       // dist from center to head (jaws)
     float aggression;
     int   radius;
-    int   stepHeight;
-    int   dropHeight;
+    int   hitSound;
 
     Character *target;
     Path      *path;
-
-    int jointChest;
-    int jointHead;
 
     float targetDist;
     bool  targetDead;
@@ -72,12 +68,7 @@ struct Enemy : Character {
     bool  targetFromView;   // enemy in target view zone
     bool  targetCanAttack;
 
-    Enemy(IGame *game, int entity, float health, int radius, float length, float aggression) : Character(game, entity, health), ai(AI_RANDOM), mood(MOOD_SLEEP), wound(false), nextState(0), targetBox(-1), thinkTime(1.0f / 30.0f), length(length), aggression(aggression), radius(radius), target(NULL), path(NULL) {
-        stepHeight =  256;
-        dropHeight = -256;
-
-        jointChest = jointHead = -1;
-
+    Enemy(IGame *game, int entity, float health, int radius, float length, float aggression) : Character(game, entity, health), ai(AI_RANDOM), mood(MOOD_SLEEP), wound(false), nextState(0), targetBox(-1), thinkTime(1.0f / 30.0f), length(length), aggression(aggression), radius(radius), hitSound(-1), target(NULL), path(NULL) {
         targetDist   = +INF;
         targetInView = targetFromView = targetCanAttack = false;
     }
@@ -86,28 +77,34 @@ struct Enemy : Character {
         delete path;
     }
 
-    virtual bool activate(ActionCommand *cmd) {
-    #ifdef LEVEL_EDITOR
-        return true;
-    #endif
-
-        Controller::activate(cmd);
-
-        getEntity().flags.active = true;
-        activateNext();
-
-        for (int i = 0; i < level->entitiesCount; i++)
-            if (level->entities[i].type == TR::Entity::LARA) {
-                target = (Character*)level->entities[i].controller;
-                break;
-            }
-        ASSERT(target);
-
+    virtual bool getSaveData(TR::SaveGame::Entity &data) {
+        Character::getSaveData(data);
+        data.extraSize = sizeof(data.extra.enemy);
+        data.extra.enemy.health    = health;
+        data.extra.enemy.mood      = mood;
+        data.extra.enemy.targetBox = targetBox;
         return true;
     }
 
+    virtual void setSaveData(const TR::SaveGame::Entity &data) {
+        Character::setSaveData(data);
+        health    = data.extra.enemy.health;
+        mood      = Mood(data.extra.enemy.mood);
+        targetBox = data.extra.enemy.targetBox;
+    }
+
+    virtual bool activate() {
+        return health > 0.0f && Character::activate();
+    }
+
     virtual void updateVelocity() {
-        velocity = getDir() * animation.getSpeed();
+        if (stand == STAND_AIR && (!flying || health <= 0.0f))
+            applyGravity(velocity.y);
+        else
+            velocity = getDir() * animation.getSpeed();
+
+        if (health <= 0.0f) 
+            velocity.x = velocity.z = 0.0f;
     }
 
     bool checkPoint(int x, int z) {
@@ -148,18 +145,22 @@ struct Enemy : Character {
 
         if (px != nx) pos.x = float(nx);
         if (pz != nz) pos.z = float(nz);
-   }
+    }
 
     virtual void updatePosition() {
-        if (!getEntity().flags.active) return;
+        if (!flags.active) return;
 
         vec3 p = pos;
-        pos += velocity * Core::deltaTime * 30.0f;
+        pos += velocity * (30.0f * Core::deltaTime);
 
         clipByBox(pos);
 
         TR::Level::FloorInfo info;
-        level->getFloorInfo(getRoomIndex(), (int)pos.x, (int)pos.y, (int)pos.z, info);
+        getFloorInfo(getRoomIndex(), pos, info);
+        if (stand == STAND_AIR && !flying && info.floor < pos.y) {
+            stand = STAND_GROUND;
+            pos.y = info.floor;
+        }
 
         if (info.boxIndex != 0xFFFF && zone == getZones()[info.boxIndex] && !level->boxes[info.boxIndex].overlap.block) {
             switch (stand) {
@@ -169,14 +170,13 @@ struct Enemy : Character {
                     break;
                 }
                 case STAND_AIR    : 
-                    pos.y = clamp(pos.y, float(info.ceiling), float(info.floor));
+                    pos.y = clamp(pos.y, info.ceiling, info.floor);
                     break;
                 default : ;
             }
         } else
             pos = p;
 
-        updateEntity();
         checkRoom();
     }
 
@@ -194,27 +194,6 @@ struct Enemy : Character {
             animation.overrideMask &= ~(1 << chest);
     }
 
-    void lookAt(int target, int chest, int head, bool rotate = false) {
-        float speed = 8.0f * Core::deltaTime;
-        quat rot;
-
-        if (chest > -1) {
-            if (rotate && aim(target, chest, vec4(-PI * 0.8f, PI * 0.8f, -PI * 0.75f, PI * 0.75f), rot))
-                rotChest = rotChest.slerp(quat(0, 0, 0, 1).slerp(rot, 0.5f), speed);
-            else 
-                rotChest = rotChest.slerp(quat(0, 0, 0, 1), speed);
-            animation.overrides[chest] = rotChest * animation.overrides[chest];
-        }
-
-        if (head > -1) {
-            if (rotate && aim(target, head, vec4(-PI * 0.25f, PI * 0.25f, -PI * 0.5f, PI * 0.5f), rot))
-                rotHead = rotHead.slerp(rot, speed);
-            else
-                rotHead = rotHead.slerp(quat(0, 0, 0, 1), speed);
-            animation.overrides[head] = rotHead * animation.overrides[head];
-        }
-    }
-
     bool getTargetInfo(int height, vec3 *pos, float *angleX, float *angleY, float *dist) {
         vec3 p = waypoint;
         p.y -= height;
@@ -230,6 +209,10 @@ struct Enemy : Character {
             if (angleY) *angleY = atan2f(b.cross(a).dot(n), a.dot(b));
         }
         return true;
+    }
+
+    virtual void lookAt(Controller *target) {
+        Character::lookAt(targetInView ? target : NULL);
     }
 
     int turn(float delta, float speed) {
@@ -251,21 +234,22 @@ struct Enemy : Character {
         speed *= Core::deltaTime;
         decrease(delta, pos.y, speed);
         if (speed != 0.0f) {
-            updateEntity();
             return speed < 0 ? FORTH : BACK;
         }
         return 0;
     }
 
-    virtual void hit(float damage, Controller *enemy = NULL) {
-        Character::hit(damage, enemy);
+    virtual void hit(float damage, Controller *enemy = NULL, TR::HitType hitType = TR::HIT_DEFAULT) {
+        if (hitSound > -1 && health > 0.0f) 
+            game->playSound(hitSound, pos, Sound::PAN);
+        Character::hit(damage, enemy, hitType);
         wound = true;
     };
 
     void bite(const vec3 &pos, float damage) {
         ASSERT(target);
         target->hit(damage, this);
-        Sprite::add(game, TR::Entity::BLOOD, target->getRoomIndex(), (int)pos.x, (int)pos.y, (int)pos.z, Sprite::FRAME_ANIMATED);
+        game->addEntity(TR::Entity::BLOOD, target->getRoomIndex(), pos);
     }
 
     #define STALK_BOX       (1024 * 3)
@@ -311,12 +295,7 @@ struct Enemy : Character {
             return false;
         thinkTime -= 1.0f / 30.0f;
 
-        if (!target) {
-            mood = MOOD_SLEEP;
-            targetDist  = +INF;
-            targetInView = targetFromView = targetCanAttack = false;
-            return true;
-        }
+        target = (Character*)game->getLara(pos);
 
         vec3 targetVec  = target->pos - pos - getDir() * length;
         targetDist      = targetVec.length();
@@ -326,6 +305,9 @@ struct Enemy : Character {
         targetCanAttack = targetInView && fabsf(targetVec.y) <= 256.0f;
 
         int targetBoxOld = targetBox;
+
+        if (target->health <= 0.0f)
+            targetBox = -1;
 
     // update mood
         bool inZone = zone == target->zone;
@@ -424,9 +406,8 @@ struct Enemy : Character {
         if (zone != getZones()[box])
             return false;
 
-        TR::Entity &e = getEntity();
         TR::Box    &b = game->getLevel()->boxes[box];
-        TR::Entity::Type type = e.type;
+        uint16   type = getEntity().type;
 
         if (b.overlap.block)
             return false;
@@ -438,17 +419,16 @@ struct Enemy : Character {
             if (b.overlap.block)
                 return false;
 
-        return e.x < int(b.minX) || e.x > int(b.maxX) || e.z < int(b.minZ) || e.z > int(b.maxZ);
+        return int(pos.x) < int(b.minX) || int(pos.x) > int(b.maxX) || int(pos.z) < int(b.minZ) || int(pos.z) > int(b.maxZ);
     }
 
     bool isStalkBox(int box) {
-        TR::Entity &t = target->getEntity();
         TR::Box    &b = game->getLevel()->boxes[box];
 
-        int x = (b.minX + b.maxX) / 2 - t.x;
+        int x = (b.minX + b.maxX) / 2 - int(target->pos.x);
         if (abs(x) > STALK_BOX) return false;
 
-        int z = (b.minZ + b.maxZ) / 2 - t.z;
+        int z = (b.minZ + b.maxZ) / 2 - int(target->pos.z);
         if (abs(z) > STALK_BOX) return false;
 
         // TODO: check for some quadrant shit
@@ -457,17 +437,15 @@ struct Enemy : Character {
     }
 
     bool isEscapeBox(int box) {
-        TR::Entity &e = getEntity();
-        TR::Entity &t = target->getEntity();
         TR::Box    &b = game->getLevel()->boxes[box];
 
-        int x = (b.minX + b.maxX) / 2 - t.x;
+        int x = (b.minX + b.maxX) / 2 - int(target->pos.x);
         if (abs(x) < ESCAPE_BOX) return false;
 
-        int z = (b.minZ + b.maxZ) / 2 - t.z;
+        int z = (b.minZ + b.maxZ) / 2 - int(target->pos.z);
         if (abs(z) < ESCAPE_BOX) return false;
 
-        return !((e.x > t.x) ^ (x > 0)) || !((e.z > t.z) ^ (z > 0));
+        return !((pos.x > target->pos.x) ^ (x > 0)) || !((pos.z > target->pos.z) ^ (z > 0));
     }
 
     bool findPath(int ascend, int descend, bool big) {
@@ -487,7 +465,6 @@ struct Enemy : Character {
 
 #define WOLF_TURN_FAST   (DEG2RAD * 150)
 #define WOLF_TURN_SLOW   (DEG2RAD * 60)
-
 #define WOLF_DIST_STALK  STALK_BOX
 #define WOLF_DIST_BITE   345
 #define WOLF_DIST_ATTACK (1024 + 512)
@@ -525,12 +502,14 @@ struct Wolf : Enemy {
         dropHeight = -1024;
         jointChest = 2;
         jointHead  = 3;
+        hitSound   = TR::SND_HIT_WOLF;
         nextState  = STATE_NONE;
+        animation.time = animation.timeMax;
+        updateAnimation(false);
     }
 
     virtual int getStateGround() {
-        TR::Entity &e = getEntity();
-        if (!e.flags.active)
+        if (!flags.active)
             return (state == STATE_STOP || state == STATE_SLEEP) ? STATE_SLEEP : STATE_STOP;
 
         if (!think(false))
@@ -605,7 +584,7 @@ struct Wolf : Enemy {
             case STATE_ATTACK :
             case STATE_BITE   :
                 if (nextState == STATE_NONE && targetInView && (collide(target) & HIT_MASK)) {
-                    bite(animation.getJoints(getMatrix(), jointHead, true).pos, state == STATE_ATTACK ? 50.0f : 100.0f);
+                    bite(getJoint(jointHead).pos, state == STATE_ATTACK ? 50.0f : 100.0f);
                     nextState = state == STATE_ATTACK ? STATE_RUN : STATE_GROWL;
                 }
                 return state == STATE_ATTACK ? STATE_RUN : state;
@@ -638,9 +617,534 @@ struct Wolf : Enemy {
 
         Enemy::updatePosition();
         setOverrides(state != STATE_DEATH, jointChest, jointHead);
-        lookAt(target ? target->entity : -1, jointChest, jointHead);
+        lookAt(target);
     }
 };
+
+
+#define LION_DIST_ATTACK 1024
+#define LION_TURN_FAST   (DEG2RAD * 150)
+#define LION_TURN_SLOW   (DEG2RAD * 60)
+
+struct Lion : Enemy {
+
+    enum {
+        HIT_MASK = 0x380066,
+    };
+
+    enum {
+        ANIM_DEATH_LION = 7,
+        ANIM_DEATH_PUMA = 4,
+    };
+
+    enum {
+        STATE_NONE   ,
+        STATE_STOP   ,
+        STATE_WALK   ,
+        STATE_RUN    ,
+        STATE_ATTACK ,
+        STATE_DEATH  ,
+        STATE_ROAR   ,
+        STATE_BITE   ,
+    };
+
+    Lion(IGame *game, int entity) : Enemy(game, entity, 6, 341, 400.0f, 0.25f) {
+        dropHeight = -1024;
+        jointChest = 19;
+        jointHead  = 20;
+        switch (getEntity().type) {
+            case TR::Entity::ENEMY_LION_MALE :
+                hitSound   = TR::SND_HIT_LION;
+                health     = 30.0f;
+                aggression = 1.0f;
+                break;
+            case TR::Entity::ENEMY_LION_FEMALE :
+                hitSound = TR::SND_HIT_LION;
+                health   = 25.0f;
+                break;
+            case TR::Entity::ENEMY_PUMA :
+                health   = 45.0f;
+                break;
+            default : ;
+        }
+    }
+
+    virtual int getStateGround() {
+        if (!think(true))
+            return state;
+
+        float angle;
+        getTargetInfo(0, NULL, NULL, &angle, NULL);
+
+        if (nextState == state)
+            nextState = STATE_NONE;
+
+        switch (state) {
+            case STATE_STOP    :
+                if (nextState != STATE_NONE)
+                    return nextState;
+                if (mood == MOOD_SLEEP)
+                    return STATE_WALK;
+                if (targetInView && (collide(target) & HIT_MASK))
+                    return STATE_BITE;
+                if (targetInView && targetDist < LION_DIST_ATTACK)
+                    return STATE_ATTACK;
+                return STATE_RUN;
+            case STATE_WALK     : 
+                if (mood != MOOD_SLEEP)
+                    return STATE_STOP;
+                if (randf() < 0.0004f) {
+                    nextState = STATE_ROAR;
+                    return STATE_STOP;
+                }
+                break;
+            case STATE_RUN      :
+                if ((mood == MOOD_SLEEP) ||
+                    (targetInView && targetDist < LION_DIST_ATTACK) ||
+                    (targetInView && (collide(target) & HIT_MASK)))
+                    return STATE_STOP;
+                if (mood == MOOD_ESCAPE && randf() < 0.0004f) {
+                    nextState = STATE_ROAR;
+                    return STATE_STOP;
+                }
+                break;
+            case STATE_ATTACK :
+            case STATE_BITE   :
+                if (nextState == STATE_NONE && (collide(target) & HIT_MASK)) {
+                    bite(getJoint(jointHead).pos, state == STATE_ATTACK ? 150.0f : 250.0f);
+                    nextState = STATE_STOP;
+                }
+        }
+
+        return state;
+    }
+
+    virtual int getStateDeath() {
+        if (state == STATE_DEATH)
+            return state;
+        int deathAnim = (getEntity().type == TR::Entity::ENEMY_PUMA) ? ANIM_DEATH_PUMA : ANIM_DEATH_LION;
+        return animation.setAnim(deathAnim + rand() % 2);
+    }
+
+    virtual void updatePosition() {
+        float angleY = 0.0f;
+
+        if (state == STATE_RUN || state == STATE_WALK || state == STATE_ROAR)
+            getTargetInfo(0, NULL, NULL, &angleY, NULL);
+
+        turn(angleY, state == STATE_RUN ? LION_TURN_FAST : LION_TURN_SLOW);
+
+        if (state == STATE_DEATH) {
+            animation.overrideMask = 0;
+            return;
+        }
+
+        Enemy::updatePosition();
+        setOverrides(state != STATE_DEATH, jointChest, jointHead);
+        lookAt(target);
+    }
+};
+
+
+#define RAT_TURN_SLOW   (DEG2RAD * 90)
+#define RAT_TURN_FAST   (DEG2RAD * 180)
+#define RAT_DIST_BITE   341.0f
+#define RAT_DIST_ATTACK 1536.0f
+#define RAT_WAIT        0.01f
+#define RAT_DAMAGE      20
+
+struct Rat : Enemy {
+
+    enum {
+        HIT_MASK = 0x0300018F,
+    };
+
+    enum {
+        ANIM_DEATH_LAND  = 8,
+        ANIM_DEATH_WATER = 2,
+    };
+
+    enum {
+    // land
+        STATE_NONE   ,
+        STATE_STOP   ,
+        STATE_ATTACK ,
+        STATE_RUN    ,
+        STATE_BITE   ,
+        STATE_DEATH  ,
+        STATE_WAIT   ,
+    // water
+        STATE_WATER_SWIM = 1,
+        STATE_WATER_BITE    ,
+        STATE_WATER_DEATH   ,
+    };
+
+    int modelLand, modelWater;
+
+    Rat(IGame *game, int entity) : Enemy(game, entity, 5, 204, 200.0f, 0.25f) {
+        hitSound   = TR::SND_HIT_RAT;
+        jointChest = 1;
+        jointHead  = 2;
+
+        modelLand  = level->getModelIndex(TR::Entity::ENEMY_RAT_LAND)  - 1;
+        modelWater = level->getModelIndex(TR::Entity::ENEMY_RAT_WATER) - 1;
+    }
+
+    const virtual TR::Model* getModel() {
+        bool water = getRoom().flags.water;
+        int modelIndex = water ? modelWater : modelLand;
+
+        ASSERT(modelIndex > -1);
+        const TR::Model *model = &level->models[modelIndex];
+        if (animation.model != model) {
+            targetBox = -1;
+            animation.setModel(model);
+            stand = water ? STAND_ONWATER : STAND_GROUND;
+
+            int16 rIndex = getRoomIndex();
+            if (water) {
+                TR::Room::Sector *sector = level->getWaterLevelSector(rIndex, pos);
+                if (sector) {
+                    pos.y = float(sector->ceiling * 256);
+                    roomIndex = rIndex;
+                }
+            } else {
+                int16 rIndex = getRoomIndex();
+                TR::Room::Sector *sector = level->getSector(rIndex, pos);
+                if (sector) {
+                    pos.y = float(sector->floor * 256);
+                    roomIndex = rIndex;
+                }
+            }
+
+            nextState = STATE_NONE;
+            state     = STATE_NONE;
+
+            if (health <= 0.0f) {
+                getStateDeath();
+                animation.goEnd(false);
+            }
+
+            updateZone();
+        }
+        return animation.model;
+    }
+
+    virtual int getStateGround() {
+        if (!think(false))
+            return state;
+
+        float angle;
+        getTargetInfo(0, NULL, NULL, &angle, NULL);
+
+        if (nextState == state)
+            nextState = STATE_NONE;
+
+        bool isBite = targetInView && fabsf(target->pos.y - pos.y) < 256.0f;
+
+        switch (state) {
+            case STATE_STOP :
+                if (nextState != STATE_NONE)
+                    return nextState;
+                if (isBite && targetDist < RAT_DIST_BITE)
+                    return STATE_BITE;
+                return STATE_RUN;
+            case STATE_RUN :
+                if (targetInView && (collide(target) & HIT_MASK))
+                    return STATE_STOP;
+                if (isBite && targetDist < RAT_DIST_ATTACK)
+                    return STATE_ATTACK;
+                if (targetInView && randf() < RAT_WAIT) {
+                    nextState = STATE_WAIT;
+                    return STATE_STOP;
+                }
+                break;
+            case STATE_ATTACK :
+            case STATE_BITE   :
+                if (nextState == STATE_NONE && targetInView && (collide(target) & HIT_MASK)) {
+                    bite(getJoint(jointHead).pos, RAT_DAMAGE);
+                    nextState = state == STATE_ATTACK ? STATE_RUN : STATE_STOP;
+                }
+                break;
+            case STATE_WAIT :
+                if (mood == MOOD_SLEEP || randf() < RAT_WAIT)
+                    return STATE_STOP;
+            default : ;
+        }
+
+        return state;
+    }
+
+    virtual int getStateOnwater() {
+        if (!think(false))
+            return state;
+
+        float angle;
+        getTargetInfo(0, NULL, NULL, &angle, NULL);
+
+        if (nextState == state)
+            nextState = STATE_NONE;
+
+        if (animation.frameIndex % 4 == 0)
+            game->waterDrop(getJoint(jointHead).pos, 96.0f, 0.02f);
+
+        switch (state) {
+            case STATE_WATER_SWIM :
+                if (targetInView && (collide(target) & HIT_MASK))
+                    return STATE_WATER_BITE;
+                break;
+            case STATE_WATER_BITE :
+                if (nextState == STATE_NONE && targetInView && (collide(target) & HIT_MASK)) {
+                    game->waterDrop(getJoint(jointHead).pos, 256.0f, 0.2f);
+                    bite(getJoint(jointHead).pos, RAT_DAMAGE);
+                    nextState = STATE_WATER_SWIM;
+                }
+                return STATE_NONE;
+            default : ;
+        }
+
+        return state;
+    }
+
+    virtual void updatePosition() {
+        float angleY = 0.0f;
+
+        if ((stand == STAND_GROUND && state == STATE_RUN) || (stand == STAND_ONWATER && state == STATE_WATER_SWIM))
+            getTargetInfo(0, NULL, NULL, &angleY, NULL);
+
+        turn(angleY, RAT_TURN_FAST);
+
+        if (state == STATE_DEATH) {
+            animation.overrideMask = 0;
+            return;
+        }
+
+        Enemy::updatePosition();
+        setOverrides(state != STATE_DEATH, jointChest, jointHead);
+        lookAt(target);
+    }
+
+    virtual int getStateDeath() {
+        bool water = getRoom().flags.water;
+        if ((water && state == STATE_WATER_DEATH) || (!water && state == STATE_DEATH))
+            return state;
+        return animation.setAnim(water ? ANIM_DEATH_WATER : ANIM_DEATH_LAND);
+    }
+};
+
+
+#define CROCODILE_TURN_SLOW   (DEG2RAD * 90)
+#define CROCODILE_TURN_FAST   (DEG2RAD * 180)
+#define CROCODILE_DIST_BITE   435.0f
+#define CROCODILE_DIST_TURN   (1024 * 3)
+#define CROCODILE_LIFT_SPEED  960.0f
+#define CROCODILE_DAMAGE      25
+
+struct Crocodile : Enemy {
+
+    enum {
+        HIT_MASK = 0x000003FC,
+    };
+
+    enum {
+        ANIM_DEATH_LAND  = 11,
+        ANIM_DEATH_WATER = 4,
+    };
+
+    enum {
+    // land
+        STATE_NONE   ,
+        STATE_STOP   ,
+        STATE_RUN    ,
+        STATE_WALK   ,
+        STATE_TURN   ,
+        STATE_BITE   ,
+        STATE_UNUSED ,
+        STATE_DEATH  ,
+    // water
+        STATE_WATER_SWIM = 1,
+        STATE_WATER_BITE    ,
+        STATE_WATER_DEATH   ,
+    };
+
+    int modelLand, modelWater;
+
+    Crocodile(IGame *game, int entity) : Enemy(game, entity, 20, 341, 600.0f, 0.25f) {
+        jointChest = 1;
+        jointHead  = 8;
+
+        modelLand  = level->getModelIndex(TR::Entity::ENEMY_CROCODILE_LAND)  - 1;
+        modelWater = level->getModelIndex(TR::Entity::ENEMY_CROCODILE_WATER) - 1;
+
+        bool water = getRoom().flags.water;
+        flying     = water;
+        stand      = water ? STAND_UNDERWATER : STAND_GROUND;
+    }
+
+    const virtual TR::Model* getModel() {
+        bool water = getRoom().flags.water;
+        int modelIndex = water ? modelWater : modelLand;
+
+        ASSERT(modelIndex > -1);
+        const TR::Model *model = &level->models[modelIndex];
+        if (animation.model != model) {
+            targetBox = -1;
+            animation.setModel(model);
+            stand  = water ? STAND_UNDERWATER : STAND_GROUND;
+            flying = water;
+
+            int16 rIndex = getRoomIndex();
+            if (water) {
+                TR::Room::Sector *sector = level->getWaterLevelSector(rIndex, pos);
+                if (sector) {
+                    pos.y = float(sector->ceiling * 256);
+                    roomIndex = rIndex;
+                }
+            } else {
+                int16 rIndex = getRoomIndex();
+                TR::Room::Sector *sector = level->getSector(rIndex, pos);
+                if (sector) {
+                    pos.y = float(sector->floor * 256);
+                    roomIndex = rIndex;
+                }
+            }
+
+            nextState = STATE_NONE;
+            state     = STATE_NONE;
+
+            if (health <= 0.0f) {
+                getStateDeath();
+                animation.goEnd(false);
+            }
+
+            updateZone();
+        }
+        return animation.model;
+    }
+
+    virtual int getStateGround() {
+        if (!think(true))
+            return state;
+
+        float angle;
+        getTargetInfo(0, NULL, NULL, &angle, NULL);
+
+        if (nextState == state)
+            nextState = STATE_NONE;
+
+        bool isBite = targetInView && fabsf(target->pos.y - pos.y) < 256.0f;
+
+        switch (state) {
+            case STATE_STOP :
+                if (isBite && targetDist < CROCODILE_DIST_BITE)
+                    return STATE_BITE;
+                switch (mood) {
+                    case MOOD_ESCAPE : return STATE_RUN;
+                    case MOOD_ATTACK : return STATE_RUN; // TODO: turn
+                    case MOOD_STALK  : return STATE_WALK;
+                    default          : return state;
+                }
+            case STATE_RUN  :
+                if (targetInView && (collide(target) & HIT_MASK))
+                    return STATE_STOP;
+                switch (mood) {
+                    case MOOD_SLEEP  : return STATE_STOP;
+                    case MOOD_STALK  : return STATE_WALK;
+                    case MOOD_ATTACK : if (targetDist < CROCODILE_DIST_TURN) return STATE_STOP; // TODO: check turn angles
+                    default          : return state;
+                }
+            case STATE_WALK :
+                if (targetInView && (collide(target) & HIT_MASK))
+                    return STATE_STOP;
+                switch (mood) {
+                    case MOOD_SLEEP  : return STATE_STOP;
+                    case MOOD_ATTACK :
+                    case MOOD_ESCAPE : return STATE_RUN;
+                    default          : return state;
+                }
+            case STATE_TURN : // TODO turn
+                return STATE_WALK;
+            case STATE_BITE   :
+                if (nextState == STATE_NONE) {
+                    bite(getJoint(jointHead).pos, CROCODILE_DAMAGE);
+                    nextState = STATE_STOP;
+                }
+                break;
+            default : ;
+        }
+
+        return state;
+    }
+
+    virtual int getStateUnderwater() {
+        if (!think(false))
+            return state;
+
+        float angle;
+        getTargetInfo(0, NULL, NULL, &angle, NULL);
+
+        if (nextState == state)
+            nextState = STATE_NONE;
+
+        if (animation.frameIndex % 4 == 0)
+            game->waterDrop(getJoint(jointHead).pos, 96.0f, 0.02f);
+
+        switch (state) {
+            case STATE_WATER_SWIM :
+                if (targetInView && collide(target))
+                    return STATE_WATER_BITE;
+                break;
+            case STATE_WATER_BITE :
+                if (collide(target)) {
+                    if (nextState != STATE_NONE)
+                        return state;
+                    bite(getJoint(jointHead).pos, CROCODILE_DAMAGE);
+                    nextState = STATE_WATER_SWIM;
+                }
+                return STATE_WATER_SWIM;
+            default : ;
+        }
+
+        return state;
+    }
+
+    virtual void updatePosition() {
+        float angleY = 0.0f;
+
+        if ((stand == STAND_GROUND && (state == STATE_RUN || state == STATE_WALK)) || (stand == STAND_UNDERWATER && state == STATE_WATER_SWIM))
+            getTargetInfo(0, NULL, NULL, &angleY, NULL);
+
+        turn(angleY, RAT_TURN_FAST);
+
+        if (state == STATE_DEATH) {
+            animation.overrideMask = 0;
+            return;
+        }
+
+        if (flying) {
+            lift(waypoint.y - pos.y, CROCODILE_LIFT_SPEED);
+            int16 rIndex = getRoomIndex();
+            TR::Room::Sector *sector = level->getWaterLevelSector(rIndex, pos);
+            if (sector) {
+                float waterLevel = float(sector->ceiling * 256) + 256;
+                if (pos.y < waterLevel)
+                    pos.y = waterLevel;
+            }
+        }
+
+        Enemy::updatePosition();
+        setOverrides(state != STATE_DEATH, jointChest, jointHead);
+        lookAt(target);
+    }
+
+    virtual int getStateDeath() {
+        bool water = getRoom().flags.water;
+        if ((water && state == STATE_WATER_DEATH) || (!water && state == STATE_DEATH))
+            return state;
+        return animation.setAnim(water ? ANIM_DEATH_WATER : ANIM_DEATH_LAND);
+    }
+};
+
 
 #define BEAR_DIST_EAT    768
 #define BEAR_DIST_HOWL   2048
@@ -677,12 +1181,13 @@ struct Bear : Enemy {
 
     Bear(IGame *game, int entity) : Enemy(game, entity, 20, 341, 500.0f, 0.5f) {
         jointChest = 13;
-        jointHead  = 14;    
+        jointHead  = 14;
+        hitSound   = TR::SND_HIT_BEAR;
         nextState  = STATE_NONE;
     }
 
     virtual int getStateGround() {
-        if (!getEntity().flags.active)
+        if (!flags.active)
             return state;
 
         if (!think(true))
@@ -753,7 +1258,7 @@ struct Bear : Enemy {
             case STATE_BITE     :
             case STATE_ATTACK   :
                 if (nextState == STATE_NONE && (collide(target) & HIT_MASK)) {
-                    bite(animation.getJoints(getMatrix(), jointHead, true).pos, state == STATE_BITE ? 200.0f : 400.0f);
+                    bite(getJoint(jointHead).pos, state == STATE_BITE ? 200.0f : 400.0f);
                     nextState = state == STATE_BITE ? STATE_STOP : STATE_HOWL;
                 }
                 break;
@@ -787,7 +1292,7 @@ struct Bear : Enemy {
 
         Enemy::updatePosition();
         setOverrides(state == STATE_RUN || state == STATE_WALK || state == STATE_HIND, jointChest, jointHead);
-        lookAt(target ? target->entity : -1, jointChest, jointHead);
+        lookAt(target);
     }
 };
 
@@ -818,7 +1323,7 @@ struct Bat : Enemy {
     }
 
     virtual int getStateAir() {
-        if (!getEntity().flags.active) {
+        if (!flags.active) {
             animation.time = 0.0f;
             animation.dir  = 0.0f;
             return STATE_AWAKE;
@@ -834,7 +1339,7 @@ struct Bat : Enemy {
                     mood = MOOD_SLEEP;
                     return STATE_FLY;
                 } else
-                    bite(animation.getJoints(getMatrix(), jointHead, true).pos, 2);
+                    bite(getJoint(jointHead).pos, 2);
                 break;
             case STATE_FLY    : 
                 if (collide(target)) {
@@ -851,13 +1356,6 @@ struct Bat : Enemy {
         return state == STATE_DEATH ? state : animation.setAnim(ANIM_DEATH);
     }
 
-    virtual void updateVelocity() {
-        if (state != STATE_DEATH)
-            Enemy::updateVelocity();
-        else
-            velocity = vec3(0.0f, velocity.y + GRAVITY * Core::deltaTime, 0.0f);
-    }
-
     virtual void updatePosition() {
         float angleY = 0.0f;
         if (state == STATE_FLY || state == STATE_ATTACK)
@@ -867,6 +1365,17 @@ struct Bat : Enemy {
             lift(waypoint.y - pos.y, BAT_LIFT_SPEED);
         Enemy::updatePosition();
     }
+
+    virtual void deactivate(bool removeFromList = false) {
+        if (health <= 0.0f) {
+            TR::Level::FloorInfo info;
+            getFloorInfo(getRoomIndex(), pos, info);
+            if (info.floor > pos.y)
+                return;
+            pos.y = info.floor;
+        }
+        Enemy::deactivate(removeFromList);
+    }
 };
 
 
@@ -875,6 +1384,7 @@ struct Bat : Enemy {
 #define REX_DIST_WALK       5120
 #define REX_TURN_FAST       (DEG2RAD * 120)
 #define REX_TURN_SLOW       (DEG2RAD * 60)
+#define REX_DAMAGE          1000
 
 struct Rex : Enemy {
 
@@ -901,7 +1411,7 @@ struct Rex : Enemy {
     }
 
     virtual int getStateGround() {
-        if (!getEntity().flags.active)
+        if (!flags.active)
             return state;
 
         if (!think(true))
@@ -950,7 +1460,7 @@ struct Rex : Enemy {
                 break;
             case STATE_BITE :
                 if (mask & HIT_MASK) {
-                    target->hit(10000, this);
+                    target->hit(REX_DAMAGE, this, TR::HIT_REX);
                     return STATE_FATAL;
                 }
                 nextState = STATE_WALK;
@@ -979,7 +1489,7 @@ struct Rex : Enemy {
 
         Enemy::updatePosition();
         setOverrides(true, jointChest, jointHead);
-        lookAt(target ? target->entity : -1, jointChest, jointHead, targetInView && state != STATE_DEATH && state != STATE_FATAL);
+        lookAt(target);
     }
 };
 
@@ -1020,7 +1530,7 @@ struct Raptor : Enemy {
     }
 
     virtual int getStateGround() {
-        if (!getEntity().flags.active)
+        if (!flags.active)
             return state;
 
         if (!think(true))
@@ -1068,7 +1578,7 @@ struct Raptor : Enemy {
             case STATE_ATTACK_2 :
             case STATE_BITE     :
                 if (nextState == STATE_NONE && targetInView && (mask & HIT_MASK)) {
-                    bite(animation.getJoints(getMatrix(), jointHead, true).pos, 100);                    
+                    bite(getJoint(jointHead).pos, 100);                    
                     nextState = state == STATE_ATTACK_2 ? STATE_RUN : STATE_STOP;
                 }
                 break;
@@ -1097,7 +1607,514 @@ struct Raptor : Enemy {
         
         Enemy::updatePosition();
         setOverrides(true, jointChest, jointHead);
-        lookAt(target ? target->entity : -1, jointChest, jointHead, targetInView && state != STATE_DEATH);
+        lookAt(target);
+    }
+};
+
+struct Mutant : Enemy {
+    Mutant(IGame *game, int entity) : Enemy(game, entity, 50, 341, 150.0f, 1.0f) {
+        if (getEntity().type != TR::Entity::ENEMY_MUTANT_1) {
+            initMeshOverrides();
+            layers[0].mask = 0xffe07fff;
+            aggression     = 0.25f;
+        }
+
+        jointChest = 1;
+        jointHead  = 2;    
+        nextState  = 0;
+    }
+
+    virtual void update() {
+        bool exploded = explodeMask != 0;
+
+        if (health <= 0.0f && !exploded) {
+            game->playSound(TR::SND_MUTANT_DEATH, pos, 0);
+            explode(0xffffffff);
+        }
+
+        Enemy::update();
+
+        if (exploded && !explodeMask) {
+            deactivate(true);
+            flags.invisible = true;
+        }
+    }
+
+    virtual int getStateGround() {
+        if (!think(true))
+            return state;
+        return state;
+    }
+
+    virtual void updatePosition() {
+        Enemy::updatePosition();
+        setOverrides(true, jointChest, jointHead);
+        lookAt(target);
+    }
+};
+
+struct GiantMutant : Enemy {
+    enum {
+        STATE_STOP = 1,
+        STATE_BORN = 8,
+        STATE_FALL = 9,
+    };
+
+    GiantMutant(IGame *game, int entity) : Enemy(game, entity, 500, 341, 375.0f, 1.0f) {
+        hitSound = TR::SND_HIT_MUTANT;
+        stand = STAND_AIR;
+        jointChest = -1;
+        jointHead  = 3;
+        rangeHead  = vec4(-0.5f, 0.5f, -0.5f, 0.5f) * PI;
+        invertAim  = true;
+    }
+
+    virtual int getStateGround() {
+        if (!think(true))
+            return state;
+        return state;
+    }
+
+    void update() {
+        bool exploded = explodeMask != 0;
+
+        if (health <= 0.0f && !exploded) {
+            game->playSound(TR::SND_MUTANT_DEATH, pos, 0);
+            explode(0xffffffff);
+        }
+
+        switch (state) {
+            case STATE_BORN : animation.setState(STATE_FALL); break;
+            case STATE_FALL : 
+                if (stand == STAND_GROUND) {
+                    animation.setState(STATE_STOP);
+                    game->shakeCamera(5.0f);
+                }
+                break;
+        }
+
+        Enemy::update();
+
+        setOverrides(true, jointChest, jointHead);
+        lookAt(target);
+
+        if (exploded && !explodeMask) {
+            game->checkTrigger(this, true);
+            deactivate(true);
+            flags.invisible = true;
+        }
+    }
+};
+
+
+struct Centaur : Enemy {
+    Centaur(IGame *game, int entity) : Enemy(game, entity, 20, 341, 400.0f, 0.5f) {
+        jointChest = 10;
+        jointHead  = 17;
+    }
+
+    virtual int getStateGround() {
+        if (!think(true))
+            return state;
+        return state;
+    }
+
+    virtual void updatePosition() {
+        Enemy::updatePosition();
+        setOverrides(true, jointChest, jointHead);
+        lookAt(target);
+    }
+};
+
+
+struct Mummy : Enemy {
+    enum {
+        STATE_NONE,
+        STATE_IDLE,
+        STATE_FALL,
+    };
+
+    Mummy(IGame *game, int entity) : Enemy(game, entity, 18, 341, 150.0f, 0.0f) {
+        jointHead = 2;
+    }
+
+    virtual void update() {
+        if (state == STATE_IDLE && (health <= 0.0f || collide(game->getLara(pos)))) {
+            animation.setState(STATE_FALL);
+            health = 0.0f;
+        }
+        Enemy::update();
+    }
+
+    virtual int getStateGround() {
+        if (!think(true))
+            return state;
+        return state;
+    }
+
+    virtual void updatePosition() {
+        Enemy::updatePosition();
+        setOverrides(true, jointChest, jointHead);
+        lookAt(target);
+    }
+};
+
+
+#define DOPPELGANGER_ROOM_CENTER (vec3(36, 0, 60) * 1024.0f)
+
+struct Doppelganger : Enemy {
+    enum {
+        ANIM_FALL = 34,
+    };
+
+    Doppelganger(IGame *game, int entity) : Enemy(game, entity, 1000, 341, 150.0f, 0.0f) {
+        jointChest = 7;
+        jointHead  = 14;
+    }
+
+    virtual void hit(float damage, Controller *enemy = NULL, TR::HitType hitType = TR::HIT_DEFAULT) {
+        enemy->hit(damage * 10, this);
+    };
+
+    virtual void update() {
+        if (!target)
+            target = (Character*)game->getLara(pos);
+
+        if (stand != STAND_AIR) {
+            pos      = DOPPELGANGER_ROOM_CENTER * 2.0f - target->pos;
+            pos.y    = target->pos.y;
+            angle    = target->angle;
+            angle.y -= PI;
+        }
+
+        Enemy::checkRoom();
+
+        TR::Level::FloorInfo info;
+        getFloorInfo(getRoomIndex(), pos, info);
+
+        if (stand != STAND_AIR && target->stand == Character::STAND_GROUND && pos.y < info.floor - 1024) {
+            animation = Animation(level, target->getModel());
+            animation.setAnim(ANIM_FALL, 1);
+            stand = STAND_AIR;
+            velocity.x = velocity.y = 0.0f;
+        }
+
+        if (stand == STAND_AIR) {
+            if (pos.y > info.floor) {
+                game->checkTrigger(this, true);
+                flags.invisible = true;
+                deactivate(true);
+            } else {
+                updateAnimation(true);
+                applyGravity(velocity.y);
+                pos += velocity * (30.0f * Core::deltaTime);
+            }
+        } else {
+            animation.frameA = target->animation.frameA;
+            animation.frameB = target->animation.frameB;
+            animation.delta  = target->animation.delta;
+        }
+    }
+
+    virtual int getStateGround() {
+        if (!think(true))
+            return state;
+        return state;
+    }
+
+    virtual void updatePosition() {
+        Enemy::updatePosition();
+        setOverrides(true, jointChest, jointHead);
+        lookAt(target);
+    }
+};
+
+
+struct ScionTarget : Enemy {
+    ScionTarget(IGame *game, int entity) : Enemy(game, entity, 5, 0, 0, 0) {}
+
+    virtual void update() {
+        Controller::update();
+
+        if (health <= 0.0f) {
+            if (timer == 0.0f) {
+                flags.invisible = true;
+                game->checkTrigger(this, true);
+                timer = 3.0f;
+            }
+
+            if (timer > 0.0f) {
+                int index = int(timer / 0.3f);
+                timer -= Core::deltaTime;
+
+                if (index != int(timer / 0.3f)) {
+                    vec3 p = pos + vec3((randf() * 2.0f - 1.0f) * 512.0f, (randf() * 2.0f - 1.0f) * 64.0f - 500.0f, (randf() * 2.0f - 1.0f) * 512.0f);
+                    game->addEntity(TR::Entity::EXPLOSION, getRoomIndex(), p);
+                    game->shakeCamera(0.5f);
+                }
+
+                if (timer < 0.0f) 
+                    deactivate(true);
+            }
+        }
+    }
+};
+
+#define HUMAN_WAIT       0.01f
+#define HUMAN_DIST_WALK  (1024 * 3)
+#define HUMAN_DIST_SHOT  (1024 * 7)
+#define HUMAN_TURN_SLOW  (DEG2RAD * 90)
+#define HUMAN_TURN_FAST  (DEG2RAD * 180)
+
+struct Human : Enemy {
+    enum {
+        STATE_NONE,
+        STATE_STOP,
+        STATE_WALK,
+        STATE_RUN,
+        STATE_AIM,
+        STATE_DEATH,
+        STATE_WAIT,
+        STATE_FIRE
+    };
+
+    int   jointGun;
+    int   animDeath;
+
+    Human(IGame *game, int entity, float health) : Enemy(game, entity, health, 100, 375.0f, 1.0f), animDeath(-1) {
+        jointGun   = 0;
+        jointChest = 7;
+        jointHead  = 8;
+    }
+
+    virtual void deactivate(bool removeFromList = false) {
+        if (health <= 0.0f)
+            onDead();
+        Enemy::deactivate(removeFromList);
+        getRoom().removeDynLight(entity);
+    }
+
+    virtual int getStateDeath() {
+        return (animDeath == -1 || state == STATE_DEATH || state == STATE_NONE) ? STATE_DEATH : animation.setAnim(animDeath);
+    }
+
+    virtual int getStateGround() {
+        if (!think(true))
+            return state;
+        return state;
+    }
+
+    virtual void updatePosition() {
+        fullChestRotation = state == STATE_FIRE || state == STATE_AIM;
+
+        if (state == STATE_RUN || state == STATE_WALK) {
+            float angleY = 0.0f;
+            getTargetInfo(0, NULL, NULL, &angleY, NULL);
+            turn(angleY, state == STATE_RUN ? HUMAN_TURN_FAST : HUMAN_TURN_SLOW);
+        } else
+            turn(0, HUMAN_TURN_SLOW);
+        
+        Enemy::updatePosition();
+        setOverrides(true, jointChest, jointHead);
+        lookAt(target);
+    }
+
+    virtual void onDead() {}
+
+    bool targetIsVisible() {
+        if (targetInView && targetDist < HUMAN_DIST_SHOT && target->health > 0.0f) {
+            TR::Location from, to;
+            from.room = getRoomIndex();
+            from.pos  = pos;
+            to.pos    = target->pos;
+
+        // vertical offset to ~gun/head height
+            from.pos.y -= 768.0f;
+            if (target->stand != STAND_UNDERWATER && target->stand != STAND_ONWATER)
+                to.pos.y   -= 768.0f;
+
+            return trace(from, to);
+        }
+        return false;
+    }
+
+    bool doShot(float damage, const vec3 &muzzleOffset) {
+        game->addMuzzleFlash(this, jointGun, muzzleOffset, -1);
+
+        if (targetDist < HUMAN_DIST_SHOT && randf() < ((HUMAN_DIST_SHOT - targetDist) / HUMAN_DIST_SHOT - 0.25f)) {
+            bite(target->getJoint(rand() % target->getModel()->mCount).pos, damage);
+            game->playSound(target->stand == STAND_UNDERWATER ? TR::SND_HIT_UNDERWATER : TR::SND_HIT, target->pos, Sound::PAN);
+            return true;
+        }
+
+        int16 roomIndex = getRoomIndex();
+        TR::Room::Sector *sector = level->getSector(roomIndex, pos);
+        float floor = level->getFloor(sector, pos) - 64.0f;
+        vec3 p = vec3(target->pos.x + randf() * 512.0f - 256.0f, floor, target->pos.z + randf() * 512.0f - 256.0f);
+
+        target->addRicochet(p, true);
+        return false;
+    }
+};
+
+
+#define LARSON_DAMAGE 50
+
+struct Larson : Human {
+
+    Larson(IGame *game, int entity) : Human(game, entity, 50) {
+        animDeath = 15;
+        jointGun  = 14;
+    }
+
+    virtual int getStateGround() {
+        if (!think(false))
+            return state;
+
+        float angle;
+        getTargetInfo(0, NULL, NULL, &angle, NULL);
+
+        if (nextState == state)
+            nextState = STATE_NONE;
+
+        switch (state) {
+            case STATE_STOP :
+                if (nextState != STATE_NONE)
+                    return nextState;
+                if (mood == MOOD_SLEEP)
+                    return randf() < HUMAN_WAIT ? STATE_WAIT : STATE_WALK;
+                if (mood == MOOD_ESCAPE)
+                    return STATE_RUN;
+                return STATE_WALK;
+            case STATE_WAIT : 
+                if (mood != MOOD_SLEEP)
+                    return STATE_STOP;
+                if (randf() < HUMAN_WAIT) {
+                    nextState = STATE_WALK;
+                    return STATE_STOP;
+                }
+                break;
+            case STATE_WALK :
+                if (mood == MOOD_SLEEP && randf() < HUMAN_WAIT)
+                    nextState = STATE_WAIT;
+                else if (mood == MOOD_ESCAPE)
+                    nextState = STATE_RUN;
+                else if (targetIsVisible())
+                    nextState = STATE_AIM;
+                else if (!targetInView || targetDist > HUMAN_DIST_WALK)
+                    nextState = STATE_RUN;
+                else
+                    break;
+                return STATE_STOP;
+            case STATE_RUN :
+                if (mood == MOOD_SLEEP && randf() < HUMAN_WAIT)
+                    nextState = STATE_WAIT;
+                else if (targetIsVisible())
+                    nextState = STATE_AIM;
+                else if (targetInView && targetDist < HUMAN_DIST_WALK)
+                    nextState = STATE_WALK;
+                else
+                    break;
+                return STATE_STOP;
+            case STATE_AIM :
+                if (nextState != STATE_NONE)
+                    return nextState;
+                if (targetIsVisible())
+                    return STATE_FIRE;
+                return STATE_STOP;
+            case STATE_FIRE :
+                if (nextState == STATE_NONE) {
+                    doShot(LARSON_DAMAGE, vec3(-50, 0, 20));
+                    nextState = STATE_AIM;
+                }
+                if (mood == MOOD_ESCAPE || target->health <= 0.0f)
+                    nextState = STATE_STOP;
+                break;
+        }
+
+        return state;
+    }
+};
+
+
+struct Pierre : Human {
+
+    Pierre(IGame *game, int entity) : Human(game, entity, 70) {
+        animDeath = 12;
+    }
+
+    virtual void onDead() {
+        if (level->id == TR::LVL_TR1_7B) {
+            game->addEntity(TR::Entity::MAGNUMS,           getRoomIndex(), pos, 0);
+            game->addEntity(TR::Entity::SCION_PICKUP_DROP, getRoomIndex(), pos, 0);
+            game->addEntity(TR::Entity::KEY_ITEM_1,        getRoomIndex(), pos, 0);
+        }
+    }
+};
+
+
+struct SkaterBoy : Human {
+
+    SkaterBoy(IGame *game, int entity) : Human(game, entity, 125) {
+        animDeath = 13;
+    }
+
+    virtual void onDead() {
+        game->addEntity(TR::Entity::UZIS, getRoomIndex(), pos, 0);
+    }
+};
+
+
+struct Cowboy : Human {
+
+    Cowboy(IGame *game, int entity) : Human(game, entity, 150) {
+        animDeath = 7;
+    }
+
+    virtual void onDead() {
+        game->addEntity(TR::Entity::MAGNUMS, getRoomIndex(), pos, 0);
+    }
+};
+
+
+struct MrT : Human {
+
+    MrT(IGame *game, int entity) : Human(game, entity, 200) {
+        animDeath = 14;
+    }
+
+    virtual void onDead() {
+        game->addEntity(TR::Entity::SHOTGUN, getRoomIndex(), pos, 0);
+    }
+};
+
+
+struct Natla : Human {
+
+    Natla(IGame *game, int entity) : Human(game, entity, 400) {}
+};
+
+struct Dog : Enemy {
+
+    enum {
+        ANIM_SLEEP = 5,
+        ANIM_DEATH = 13,
+    };
+
+    enum {
+        STATE_DEATH = 10,
+    };
+
+    Dog(IGame *game, int entity) : Enemy(game, entity, 6, 10, 0.0f, 0.0f) {
+        jointChest = 19;
+        jointHead  = 20;
+        animation.setAnim(ANIM_SLEEP);
+    }
+
+    virtual int getStateDeath() {
+        if (state != STATE_DEATH)
+            return animation.setAnim(ANIM_DEATH);
+        return state;
     }
 };
 

@@ -1,81 +1,29 @@
 #ifndef H_INPUT
 #define H_INPUT
 
+#include "core.h"
 #include "utils.h"
 
-enum InputKey { ikNone,
-    // keyboard
-        ikLeft, ikRight, ikUp, ikDown, ikSpace, ikTab, ikEnter, ikEscape, ikShift, ikCtrl, ikAlt,
-        ik0, ik1, ik2, ik3, ik4, ik5, ik6, ik7, ik8, ik9,
-        ikA, ikB, ikC, ikD, ikE, ikF, ikG, ikH, ikI, ikJ, ikK, ikL, ikM,
-        ikN, ikO, ikP, ikQ, ikR, ikS, ikT, ikU, ikV, ikW, ikX, ikY, ikZ,
-    // mouse
-        ikMouseL, ikMouseR, ikMouseM,
-    // touch
-        ikTouchA, ikTouchB, ikTouchC, ikTouchD, ikTouchE, ikTouchF,
-    // gamepad
-        ikJoyA, ikJoyB, ikJoyX, ikJoyY, ikJoyLB, ikJoyRB, ikJoySelect, ikJoyStart, ikJoyL, ikJoyR, ikJoyLT, ikJoyRT, ikJoyPOV,
-        ikJoyLeft, ikJoyRight, ikJoyUp, ikJoyDown,
-        ikMAX };
-
-enum ControlKey { cLeft, cRight, cUp, cDown, cJump, cWalk, cAction, cWeapon, cLook, cStepLeft, cStepRight, cRoll, cInventory, cMAX };
+#define INPUT_JOY_COUNT 4
 
 namespace Input {
-
+    InputKey lastKey;
     bool down[ikMAX];
+    bool state[2][cMAX];
 
-    struct KeySet {
-        InputKey key, joy;
-    };
-
-    static const KeySet presets[1][cMAX] = {
-        {   { ikLeft,   ikJoyLeft   },
-            { ikRight,  ikJoyRight  },
-            { ikUp,     ikJoyUp     },
-            { ikDown,   ikJoyDown   },
-            { ikAlt,    ikJoyX      },
-            { ikShift,  ikJoyRB     },
-            { ikCtrl,   ikJoyA      },
-            { ikSpace,  ikJoyY      },
-            { ikC,      ikJoyLB     },
-            { ikZ,      ikJoyLT     },
-            { ikX,      ikJoyRT     },
-            { ikA,      ikJoyB      },
-            { ikTab,    ikJoySelect },
-        },
-        /*
-        {   { ikA,      ikJoyLeft   },
-            { ikD,      ikJoyRight  },
-            { ikW,      ikJoyUp     },
-            { ikS,      ikJoyDown   },
-            { ikSpace,  ikJoyX      },
-            { ikShift,  ikJoyRB     },
-            { ikP,      ikJoyA      },
-            { ikMouseM, ikJoyY      },
-            { ikMouseR, ikJoyLB     },
-            { ikLeft,   ikJoyLT     },
-            { ikRight,  ikJoyRT     },
-            { ikUp,     ikJoyB      },
-            { ikTab,    ikJoySelect },
-        },
-        */
-    };
-
-    KeySet  controls[cMAX];
-    bool    state[cMAX];
-
-    struct {
+    struct Mouse {
         vec2 pos;
         struct {
             vec2 L, R, M;
         } start;
     } mouse;
 
-    struct {
-        vec2  L, R;
-        float LT, RT;
-        int   POV;
-    } joy;
+    struct Joystick {
+        vec2   L, R;
+        float  LT, RT;
+        JoyKey lastKey;
+        bool   down[jkMAX];
+    } joy[INPUT_JOY_COUNT];
 
     struct Touch {
         int  id;
@@ -83,35 +31,30 @@ namespace Input {
         vec2 pos;
     } touch[6];
 
-    struct {
-        Basis pivot;
-        Basis basis;
-        bool  ready;
+    struct HMD {
+        mat4 head;
+        mat4 eye[2];
+        mat4 proj[2];
+        mat4 controllers[2];
+        vec3 zero;
+        bool ready;
 
-        void set() {
-            if (!ready) {
-                pivot = basis;
-                ready = true;
-            }
+        void setView(const mat4 &pL, const mat4 &pR, const mat4 &vL, const mat4 &vR) {
+            proj[0] = pL;
+            proj[1] = pR;
+            eye[0]  = vL;
+            eye[1]  = vR;
         }
 
         void reset() {
-            pivot.identity();
-            basis.identity();
-            ready = false;
+            eye[0].identity();
+            eye[1].identity();
+            proj[0].identity();
+            proj[1].identity();
         }
+    } hmd;
 
-        mat4 getMatrix() {
-            Basis b = pivot.inverse() * basis;
-            mat4 m;
-            m.identity();
-            m.setRot(b.rot);
-            m.setPos(b.pos);
-            return m;
-        }
-    } head;
-
-    enum TouchButton { bNone, bWeapon, bWalk, bAction, bJump, bMAX };
+    enum TouchButton { bNone, bWeapon, bWalk, bAction, bJump, bInventory, bMAX };
     enum TouchZone   { zMove, zLook, zButton, zMAX };
 
     float       touchTimerVis, touchTimerTap;
@@ -121,7 +64,7 @@ namespace Input {
     float       btnRadius;
     bool        doubleTap;
 
-    void setDown(InputKey key, bool value) {
+    void setDown(InputKey key, bool value, int index = 0) {
         if (down[key] == value)
             return;
 
@@ -139,18 +82,18 @@ namespace Input {
                 default       : ;
             }
         down[key] = value;
+
+        if (value && key <= ikZ) {
+            lastKey = key;
+            touchTimerVis = 0.0f;
+        }
     }
 
     void setPos(InputKey key, const vec2 &pos) {
         switch (key) {
             case ikMouseL :
             case ikMouseR :
-            case ikMouseM : mouse.pos = pos;         return;
-            case ikJoyL   : joy.L     = pos;         return;
-            case ikJoyR   : joy.R     = pos;         return;
-            case ikJoyLT  : joy.LT    = pos.x;       break;
-            case ikJoyRT  : joy.RT    = pos.x;       break;
-            case ikJoyPOV : joy.POV   = (int)pos.x;  break;
+            case ikMouseM : mouse.pos      = pos;         return;
             case ikTouchA :
             case ikTouchB :
             case ikTouchC :
@@ -159,7 +102,40 @@ namespace Input {
             case ikTouchF : touch[key - ikTouchA].pos = pos; return;
             default       : return;
         }
-        setDown(key, pos.x > 0.0f); // gamepad LT, RT, POV auto-down state
+    }
+
+    void setJoyDown(int index, JoyKey key, bool value) {
+        if (joy[index].down[key] == value)
+            return;
+
+        joy[index].down[key] = value;
+
+        if (value) {
+            joy[index].lastKey = key;
+            touchTimerVis = 0.0f;
+        }
+    }
+
+    void setJoyPos(int index, JoyKey key, const vec2 &pos) {
+        switch (key) {
+            case jkL   : joy[index].L   = pos;         return;
+            case jkR   : joy[index].R   = pos;         return;
+            case jkLT  : joy[index].LT  = pos.x;       break;
+            case jkRT  : joy[index].RT  = pos.x;       break;
+            default    : return;
+        }
+        setJoyDown(index, key, pos.x > 0.0f); // gamepad LT, RT auto-down state
+    }
+
+    void setJoyVibration(int playerIndex, float L, float R) {
+        if (!Core::settings.controls[playerIndex].vibration)
+            return;
+        osJoyVibrate(Core::settings.controls[playerIndex].joyIndex, L, R);
+    }
+    
+    void stopJoyVibration() {
+        osJoyVibrate(Core::settings.controls[0].joyIndex, 0.0f, 0.0f);
+        osJoyVibrate(Core::settings.controls[1].joyIndex, 0.0f, 0.0f);
     }
 
     InputKey getTouch(int id) {
@@ -181,14 +157,13 @@ namespace Input {
         memset(&mouse,  0, sizeof(mouse));
         memset(&joy,    0, sizeof(joy));
         memset(&touch,  0, sizeof(touch));
-        head.reset();
+        hmd.reset();
     }
 
     void init() {
         reset();
-        for (int i = 0; i < cMAX; i++)
-            controls[i] = presets[0][i];
-
+        hmd.ready        = false;
+        hmd.zero         = vec3(INF, INF, INF);
         touchTimerVis    = 0.0f;
         touchTimerTap    = 0.0f;
         doubleTap        = false;
@@ -219,15 +194,12 @@ namespace Input {
     }
 
     void update() {
-        int p = joy.POV;
-        setDown(ikJoyUp,    p == 8 || p == 1 || p == 2);
-        setDown(ikJoyRight, p == 2 || p == 3 || p == 4);
-        setDown(ikJoyDown,  p == 4 || p == 5 || p == 6);
-        setDown(ikJoyLeft,  p == 6 || p == 7 || p == 8);
-
-        for (int i = 0; i < cMAX; i++) {
-            KeySet &c = controls[i];
-            state[i] = (c.key != ikNone && down[c.key]) || (c.joy != ikNone && down[c.joy]);
+        for (int j = 0; j < COUNT(Core::settings.controls); j++) {
+            Core::Settings::Controls &ctrl = Core::settings.controls[j];
+            for (int i = 0; i < cMAX; i++) {
+                KeySet &c = ctrl.keys[i];
+                state[j][i] = (c.key != ikNone && down[c.key]) || (c.joy != jkNone && joy[ctrl.joyIndex].down[c.joy]);
+            }
         }
 
     // update touch controls
@@ -245,18 +217,23 @@ namespace Input {
         float radius = offset; 
         vec2  center = vec2(Core::width - offset * 0.7f, Core::height - offset * 0.7f);
 
-        btnPos[bWeapon] = center;
-        btnPos[bJump]   = center + vec2(cos(-PI * 0.5f), sin(-PI * 0.5f)) * radius;
-        btnPos[bAction] = center + vec2(cos(-PI * 3.0f / 4.0f), sin(-PI * 3.0f / 4.0f)) * radius;
-        btnPos[bWalk]   = center + vec2(cos(-PI), sin(-PI)) * radius;
-        btnRadius       = Core::height * (25.0f / 1080.0f);
+        btnRadius          = Core::height * (25.0f / 1080.0f);
+        btnPos[bWeapon]    = center;
+        btnPos[bJump]      = center + vec2(cosf(-PI * 0.5f), sinf(-PI * 0.5f)) * radius;
+        btnPos[bAction]    = center + vec2(cosf(-PI * 3.0f / 4.0f), sinf(-PI * 3.0f / 4.0f)) * radius;
+        btnPos[bWalk]      = center + vec2(cosf(-PI), sinf(-PI)) * radius;
+        btnPos[bInventory] = vec2(Core::width - btnRadius * 8.0f, btnRadius * 4.0f);
 
     // touch update
+        Joystick &joy = Input::joy[Core::settings.controls[0].joyIndex];
+
         if (checkTouchZone(zMove))
             joy.L = vec2(0.0f);
 
-        if (checkTouchZone(zLook))
-            joy.R = vec2(0.0f);
+        if (checkTouchZone(zLook)) {
+            joy.L = vec2(0.0f);
+            state[0][cLook] = false;
+        }
 
         if (checkTouchZone(zButton))
             btn = bNone;
@@ -284,6 +261,9 @@ namespace Input {
                     } else
                         touchTimerTap = 0.3f;
                 }
+
+                if (zone == zLook)
+                    state[0][cLook] = true;
             }
         }
 
@@ -305,16 +285,17 @@ namespace Input {
             }
 
             switch (btn) {
-                case bWeapon : state[cWeapon] = true; break;
-                case bWalk   : state[cWalk]   = true; break;
-                case bAction : state[cAction] = true; break;
-                case bJump   : state[cJump]   = true; break;
-                default      : ;
+                case bWeapon    : state[0][cWeapon]    = true; break;
+                case bWalk      : state[0][cWalk]      = true; break;
+                case bAction    : state[0][cAction]    = true; break;
+                case bJump      : state[0][cJump]      = true; break;
+                case bInventory : state[0][cInventory] = true; break;
+                default         : ;
             }
         }
 
         if (doubleTap)
-            state[cRoll] = true;
+            state[0][cRoll] = true;
     }
 }
 

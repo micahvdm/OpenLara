@@ -8,9 +8,10 @@
 			}
 			body {
 				margin: 0px;
+                overflow: hidden;
 			}
 			.game_fs {
-				position: absolute;
+                position: fixed;
 				top: 0px;
 				left: 0px;
 				margin: 0px;
@@ -22,16 +23,27 @@
 			</style>
 			<meta charset="utf-8">
 			<meta name="apple-mobile-web-app-capable" content="yes">
-			<meta name="viewport" content="width=854px, user-scalable=no">
-			
+			<meta name="viewport" content="width=854, user-scalable=no">
 		</head>
 		<body>
-			<canvas class="game" id="canvas" width="854px" height="480px" oncontextmenu="event.preventDefault()"></canvas><br>
+			<button id="goFS">Go fullscreen</button>
+			<canvas class="game" id="canvas" width="854" height="480" oncontextmenu="event.preventDefault()"></canvas><br>
 			<div id="status">Starting...</div>
 			<script type='text/javascript'>
 				var statusElement = document.getElementById('status');
 				var canvasElement = document.getElementById('canvas');
 				var proc;
+
+				function fullscreen(container) {
+					Module.ccall('change_fs_mode', 'null', [], []);
+					canvasElement.focus();
+				}
+
+				var goFS = document.getElementById("goFS");
+				document.getElementById("goFS").style.display = 'block';
+				goFS.addEventListener("click", function() { fullscreen(canvasElement); }, false);
+
+				window.onload = function() { window.focus(); }
 				
 				var Module = {
 					TOTAL_MEMORY: 64*1024*1024,
@@ -67,15 +79,17 @@
 					},
 				};
 
+				var audioContext = null;
+
 				function snd_init() {
 					var AudioContext = window.AudioContext || window.webkitAudioContext;
 					if (!AudioContext) return;
-					var ctx	   = new (window.AudioContext || window.webkitAudioContext)();
-					var count  = 2048;
-					var rate   = 44100 / ctx.sampleRate;
+					audioContext = new (window.AudioContext || window.webkitAudioContext)();
+					var count  = 4096;
+					var rate   = 44100 / audioContext.sampleRate;
 					var framesCount = Math.ceil(count * rate);
 					var frames = Module._malloc(framesCount * 4); // interleaved short L, R
-					proc   = ctx.createScriptProcessor(count, 2, 2);
+					proc = audioContext.createScriptProcessor(count, 2, 2);
 					proc.onaudioprocess = function(e) {
 						var L = e.outputBuffer.getChannelData(0),
 							R = e.outputBuffer.getChannelData(1);
@@ -86,10 +100,23 @@
 							R[i] = Module.getValue(index + 2, 'i16') / 0x8000;
 						}
 					}
-					proc.connect(ctx.destination);
+					proc.connect(audioContext.destination);
 				}
 
-				var gl = canvasElement.getContext("webgl", {antialias:false}) || canvasElement.getContext("experimental-webgl", {antialias:false});
+			// unlock audio context after user interaction
+				var userAction = function() {
+					if (audioContext && audioContext.state == "suspended") {
+						audioContext.resume().then(function() {
+							window.removeEventListener('touchstart', userAction, false);
+							window.removeEventListener('click', userAction, false);
+							console.log("resume playback");
+                        });
+					}
+				};
+				window.addEventListener('touchstart', userAction, false);
+				window.addEventListener('click', userAction, false);
+
+				var gl = canvasElement.getContext("webgl", {antialias:false, premultipliedAlpha: false}) || canvasElement.getContext("experimental-webgl", {antialias:false, premultipliedAlpha: false});
 
 				Module.setStatus('Downloading...');
 				window.onerror = function(event) {
@@ -101,27 +128,52 @@
 					};
 				};
 			</script>
-			<script>
-				(function() {
-					var memoryInitializer = 'OpenLara.js.mem';
-					if (typeof Module['locateFile'] === 'function') {
-						memoryInitializer = Module['locateFile'](memoryInitializer);
-					} else if (Module['memoryInitializerPrefixURL']) {
-						memoryInitializer = Module['memoryInitializerPrefixURL'] + memoryInitializer;
-					}
-					var xhr = Module['memoryInitializerRequest'] = new XMLHttpRequest();
-					xhr.open('GET', memoryInitializer, true);
-					xhr.responseType = 'arraybuffer';
-					xhr.send(null);
-				})();
 
+			<span id="info">
+				<input type="file" id="browseFile" style="display:none" accept=".phd,.psx, .tr2" onchange="readLevel(event)" />
+				<input type="button" value="Browse Level" onclick="document.getElementById('browseFile').click();" /> (.PHD, .PSX, .TR2)
+				<p style="margin:8px">
+				OpenLara on <a target="_blank" href="https://github.com/XProger/OpenLara">github</a> & <a target="_blank" href="https://www.facebook.com/OpenLaraTR">facebook</a><br>
+				<br><i>last update: 9.05.2018</i><br>
+				</p>
+			</span>
+
+			<script>
 				var script = document.createElement('script');
-				script.src = "OpenLara.js";
+
+				if ('WebAssembly' in window) {
+					console.log("Start WebAssembly!");
+					script.src = "OpenLara_wasm.js";
+				} else {
+					console.log("Start asm.js!");
+					script.src = "OpenLara.js";
+					(function() {
+						var memoryInitializer = 'OpenLara.js.mem';
+						if (typeof Module['locateFile'] === 'function') {
+							memoryInitializer = Module['locateFile'](memoryInitializer);
+						} else if (Module['memoryInitializerPrefixURL']) {
+							memoryInitializer = Module['memoryInitializerPrefixURL'] + memoryInitializer;
+						}
+						var xhr = Module['memoryInitializerRequest'] = new XMLHttpRequest();
+						xhr.open('GET', memoryInitializer, true);
+						xhr.responseType = 'arraybuffer';
+						xhr.send(null);
+					})();
+				}
+
 				document.body.appendChild(script);
 
 				window.onbeforeunload = function () { // Ctrl+W
 					return "Really want to quit the game?";
 				};
+
+				var isMobile = !!navigator.platform && /iPad|iPhone|iPod/.test(navigator.platform);
+
+				if (isMobile) {
+					canvasElement.className = "game_fs";
+					statusElement.style.display = 'none';
+					document.getElementById('info').style.display = 'none';
+				}
 
 				function readLevel(event, home) {
 					var reader = new FileReader();
@@ -129,28 +181,11 @@
 						var size = reader.result.byteLength;
 						var data = Module._malloc(size);
 						Module.writeArrayToMemory(new Uint8Array(reader.result), data);
-						Module.ccall('game_level_load', 'null', ['number', 'number', 'number'], [data, size, home]);
+						Module.ccall('game_level_load', 'null', ['number', 'number'], [data, size]);
 					};
 					reader.readAsArrayBuffer(event.target.files[0]);
 				}
 			</script>
-
-			<audio autoplay loop><source src="05.ogg" type="audio/ogg"></audio>
-			
-			<span id="info">
-				<input type="file" id="browseFile" style="display:none" accept=".phd,.psx" onchange="readLevel(event, document.getElementById('isHome').checked)" />
-				<!-- <label for="browseFile">Browse Level</label> -->
-				<input type="button" value="Browse Level" onclick="document.getElementById('browseFile').click();" /> (.PHD, .PSX)				  
-				<input type="checkbox" id="isHome"><label>alternative model (home suit, gold etc.)</label>
-				<p style="margin:8px">
-				OpenLara on <a target="_blank" href="https://github.com/XProger/OpenLara">github</a> & <a target="_blank" href="https://www.facebook.com/OpenLaraTR">facebook</a><br><br>
-				controls:<br>
-				keyboad: move - arrow keys, jump - Alt, action - Ctrl, draw weapon - Space, inventory - Tab, walk - Shift, side steps - ZX, change view - V)<br>
-				gamepad: PSX controls for Xbox controller<br>
-				Time Control: R - slow motion, T - fast motion<br>
-				FullScreen: Alt + Enter
-				</p>
-			</span>
 
 			<script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)})(window,document,'script','//www.google-analytics.com/analytics.js','ga');ga('create', 'UA-60009035-1', 'auto');ga('send', 'pageview');</script>
 		

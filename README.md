@@ -7,23 +7,30 @@ inspired by OpenTomb project http://opentomb.github.io/
 
 [![License](https://img.shields.io/badge/License-BSD%202--Clause-orange.svg)](https://opensource.org/licenses/BSD-2-Clause)  
 
-## Building
-
-### Linux
-
-Dependencies (Debian-based systems):
-```
-sudo apt-get install build-essential libgl1-mesa-dev
-```
-
-Building the core:
-```
-make -C src/platform/libretro 
-```
-
-The core will be build to `src/platform/libretro/openlara_libretro.so`
-
 ## Links
+* [YouTube channel](https://youtu.be/Rbl3NmKAZoM?list=PL7DiEQQWqCj79eodyi2R_vi87IdONIR-B)
 * [Discord channel](https://discord.gg/EF8JaQB)
 * [Tomb Raider Forums thread](http://www.tombraiderforums.com/showthread.php?t=216618)
-* [Libretro blog post "New Core: OpenLara"](https://www.libretro.com/index.php/new-core-openlara-windowslinux/)
+
+## Roadmap
+- enemies
+- save game crystals
+- PSP port
+- Wii port
+- PSV port
+- bug fixes
+- RELEASE beta-1
+- bug fixes
+- graphics improvements
+- RELEASE
+- OpenLara 2...
+
+## Screenshots
+![Waterfall](http://xproger.info/projects/OpenLara/shots/waterfall.jpg)
+![Double-aim](http://xproger.info/projects/OpenLara/shots/multi-aim.jpg)
+![Caustics](http://xproger.info/projects/OpenLara/shots/caustics.jpg)
+![Cutscene](http://xproger.info/projects/OpenLara/shots/cut1.jpg)
+![Cistern](http://xproger.info/projects/OpenLara/shots/flipmap.jpg)
+![Opera](http://xproger.info/projects/OpenLara/shots/tr2_opera.jpg)
+![Unwater](http://xproger.info/projects/OpenLara/shots/tr2_unwater1.jpg)
+![Temple](http://xproger.info/projects/OpenLara/shots/tr3_temple.jpg)

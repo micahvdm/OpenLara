@@ -2,8 +2,10 @@ INCFLAGS    := -I$(CORE_DIR) \
 					-I$(CORE_DIR)/../.. \
 					-I$(CORE_DIR)/glsym
 
+LIBS_DIR    := $(CORE_DIR)/../../libs
 SOURCES_C   := $(CORE_DIR)/glsym/rglgen.c \
-					$(CORE_DIR)/../../libs/stb_vorbis/stb_vorbis.c
+					$(LIBS_DIR)/stb_vorbis/stb_vorbis.c \
+					$(LIBS_DIR)/tinf/tinflate.c
 
 ifeq ($(GLES), 1)
 ifeq ($(GLES3), 1)
@@ -15,4 +17,5 @@ else
 SOURCES_C	+= $(CORE_DIR)/glsym/glsym_gl.c
 endif
 
-SOURCES_CXX := $(CORE_DIR)/main.cpp
+SOURCES_CXX := $(CORE_DIR)/main.cpp \
+					$(LIBS_DIR)/minimp3/minimp3.cpp

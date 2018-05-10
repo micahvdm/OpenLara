@@ -137,7 +137,7 @@ else ifeq ($(platform), emscripten)
 else
    CC = gcc
    TARGET := $(TARGET_NAME)_libretro.dll
-   SHARED := -shared -static-libgcc -static-libstdc++ -s -Wl,--version-script=link.T -Wl,--no-undefined
+   SHARED := -shared -static-libgcc -static-libstdc++ -s -Wl,--version-script=link.T -lwinmm -Wl,--no-undefined
    GL_LIB := -lopengl32
    CXXFLAGS += -I..
    CFLAGS += -I..
@@ -164,8 +164,8 @@ CXXFLAGS += $(fpic)
 CFLAGS += -Wall -pedantic $(fpic)
 
 CXXFLAGS += -std=c++11
-CFLAGS   += $(INCFLAGS)
-CXXFLAGS += $(INCFLAGS)
+CFLAGS   += $(INCFLAGS) $(FLAGS)
+CXXFLAGS += $(INCFLAGS) $(FLAGS)
 
 ifeq ($(GLES), 1)
    CXXFLAGS += -DHAVE_OPENGLES -DHAVE_OPENGLES2

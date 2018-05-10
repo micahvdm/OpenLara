@@ -13,8 +13,9 @@ struct Sprite : Controller {
     bool  instant;
     int   frame, flag;
     float time;
+    vec3  velocity;
 
-    Sprite(IGame *game, int entity, bool instant = true, int frame = FRAME_ANIMATED) : Controller(game, entity), instant(instant), flag(frame), time(0.0f) {
+    Sprite(IGame *game, int entity, bool instant = true, int frame = FRAME_ANIMATED) : Controller(game, entity), instant(instant), flag(frame), time(0), velocity(0) {
         if (frame >= 0) { // specific frame
             this->frame = frame;
         } else if (frame == FRAME_RANDOM) { // random frame
@@ -22,16 +23,6 @@ struct Sprite : Controller {
         } else if (frame == FRAME_ANIMATED) { // animated
             this->frame = 0;
         }
-    }
-
-    static int add(IGame *game, TR::Entity::Type type, int room, int x, int y, int z, int frame = -1, bool empty = false) {
-        TR::Level *level = game->getLevel();
-        int index = level->entityAdd(type, room, x, y, z, 0, -1);
-        if (index > -1) {
-            level->entities[index].intensity  = 0x1FFF - level->rooms[room].ambient;
-            level->entities[index].controller = empty ? NULL : new Sprite(game, index, true, frame);
-        }
-        return index;
     }
 
     TR::SpriteSequence& getSequence() {
@@ -50,21 +41,27 @@ struct Sprite : Controller {
             if (instant && frame >= seq.sCount)
                 remove = true;
             else
-                frame %= seq.sCount;
+                frame %= max(seq.sCount, int16(1));
         } else
             if (instant && time >= (1.0f / SPRITE_FPS))
                 remove = true;
 
-        if (remove) {
-            level->entityRemove(entity);
-            delete this;
-        }
+        pos += velocity * (30.0f * Core::deltaTime);
+
+        if (remove)
+            game->removeEntity(this);
     }
 
     virtual void render(Frustum *frustum, MeshBuilder *mesh, Shader::Type type, bool caustics) {
-        Basis basis(Core::basis);
-        basis.translate(pos);
-        Core::active.shader->setParam(uBasis, basis);
+        Basis b;
+        b.w   = 1.0f;
+        b.pos = pos;
+        #ifdef MERGE_SPRITES
+            b.rot = Core::mViewInv.getRot();
+        #else
+            b.rot = quat(0, 0, 0, 1);
+        #endif
+        Core::setBasis(&b, 1);
         mesh->renderSprite(-(getEntity().modelIndex + 1), frame);
     }
 };

@@ -1,49 +1,108 @@
 #include <stdio.h>
+#include <cstring>
+#include <pthread.h>
 #include <EGL/egl.h>
 
 #include "game.h"
 
-int lastTime, lastJoy = -1;
+int lastJoy = -1;
 EGLDisplay display;
 EGLSurface surface;
 EGLContext context;
 
-int getTime() {
+// timing
+int osGetTime() {
     return (int)emscripten_get_now();
 }
 
-extern "C" {
-    void EMSCRIPTEN_KEEPALIVE snd_fill(Sound::Frame *frames, int count) {
-        Sound::fill(frames, count);
-    }
-    
-    void EMSCRIPTEN_KEEPALIVE game_level_load(char *data, int size, int home) {
-        Game::startLevel(new Stream(data, size), NULL, false, home);
-    }
+// storage and data downloading
+const char *IDB = "db";
+
+void onError(void *arg) {
+    Stream *stream = (Stream*)arg;
+    LOG("! IDB error for %s\n", stream->name);
+    if (stream->callback)
+        stream->callback(NULL, stream->userData);
+    delete stream;
 }
 
-InputKey joyToInputKey(int code) {
-    static const int codes[] = { 0, 1, 2, 3, 4, 5, 8, 9, 10, 11, 6, 7 };
+void onLoad(void *arg, void *data, int size) {
+    Stream *stream = (Stream*)arg;
 
-    for (int i = 0; i < sizeof(codes) / sizeof(codes[0]); i++)
-        if (codes[i] == code)
-            return (InputKey)(ikJoyA + i);
-    
-    return ikNone;
+    FILE *f = fopen(stream->name, "wb");
+    fwrite(data, size, 1, f);
+    fclose(f);
+
+    stream->callback(new Stream(stream->name), stream->userData);   
+    delete stream;
 }
 
-int joyGetPOV(int mask) {
-    switch (mask) {
-        case 0b0001 : return 1;
-        case 0b1001 : return 2;
-        case 0b1000 : return 3;
-        case 0b1010 : return 4;
-        case 0b0010 : return 5;
-        case 0b0110 : return 6;
-        case 0b0100 : return 7;
-        case 0b0101 : return 8;
-    }
-    return 0;
+void onLoadAndStore(void *arg, void *data, int size) {
+    emscripten_idb_async_store(IDB, ((Stream*)arg)->name, data, size, NULL, NULL, onError);
+    onLoad(arg, data, size);
+}
+
+void onExists(void *arg, int exists) {
+    if (exists)
+        emscripten_idb_async_load(IDB, ((Stream*)arg)->name, arg, onLoad, onError);
+    else
+        emscripten_async_wget_data(((Stream*)arg)->name, arg, onLoadAndStore, onError);
+}
+
+void osDownload(Stream *stream) {
+    emscripten_idb_async_exists(IDB, stream->name, stream, onExists, onError);
+}
+
+void onCacheStore(void *arg) {
+    Stream *stream = (Stream*)arg;
+    LOG("cache stored: %s\n", stream->name);
+    if (stream->callback)    
+        stream->callback(new Stream(stream->name, NULL, 0), stream->userData);
+    delete stream;
+}
+
+void onCacheLoad(void *arg, void *data, int size) {
+    Stream *stream = (Stream*)arg;
+    LOG("cache loaded: %s\n", stream->name);
+    if (stream->callback)
+        stream->callback(new Stream(stream->name, data, size), stream->userData);   
+    delete stream;
+}
+
+void onCacheError(void *arg) {
+    Stream *stream = (Stream*)arg;
+    LOG("! cache error: %s\n", stream->name);
+    if (stream->callback)
+        stream->callback(NULL, stream->userData);
+    delete stream;
+}
+
+void osCacheWrite(Stream *stream) {
+    emscripten_idb_async_store(IDB, stream->name, stream->data, stream->size, stream, onCacheStore, onCacheError);
+}
+
+void osCacheRead(Stream *stream) {
+    emscripten_idb_async_load(IDB, stream->name, stream, onCacheLoad, onCacheError);
+}
+
+// memory card
+void osSaveGame(Stream *stream) {
+    return osCacheWrite(stream);
+}
+
+void osLoadGame(Stream *stream) {
+    return osCacheRead(stream);
+}
+
+JoyKey joyToInputKey(int code) {
+    static const JoyKey keys[16] = {
+        jkA, jkB, jkX, jkY, jkLB, jkRB, jkLT, jkRT, jkSelect, jkStart, jkL, jkR, jkUp, jkDown, jkLeft, jkRight,
+    };
+
+    if (code >= 0 && code < 16)
+        return keys[code];
+    
+    return jkNone;
 }
 
 #define JOY_DEAD_ZONE_STICK      0.3f
@@ -59,50 +118,55 @@ vec2 joyTrigger(float x) {
     return vec2(x > JOY_DEAD_ZONE_TRIGGER ? x : 0.0f, 0.0f);
 }
 
+bool joyReady[INPUT_JOY_COUNT] = { 0 };
+
+bool osJoyReady(int index) {
+    return joyReady[index];
+}
+
+void osJoyVibrate(int index, float L, float R) {
+    //
+}
+
 void joyUpdate() {
-    int count = emscripten_get_num_gamepads();
-    if (count <= 0)
-        return;
-    
-    EmscriptenGamepadEvent state;
-    if (lastJoy == -1 || emscripten_get_gamepad_status(lastJoy, &state) != EMSCRIPTEN_RESULT_SUCCESS)
-        for (int i = 0; i < count; i++)
-            if (i != lastJoy && emscripten_get_gamepad_status(i, &state) == EMSCRIPTEN_RESULT_SUCCESS && state.numButtons >= 12) {
-                lastJoy = i;
-                break;
-            }
-        
-    if (lastJoy == -1)
-        return;
+    int count = min(emscripten_get_num_gamepads(), INPUT_JOY_COUNT);
+    for (int j = 0; j < count; j++) {
+        EmscriptenGamepadEvent state;
 
-    for (int i = 0; i < max(state.numButtons, 12); i++) {
-        InputKey key = joyToInputKey(i);
-        Input::setDown(key, state.digitalButton[i]);
-        if (key == ikJoyLT || key == ikJoyRT)
-            Input::setPos(key, joyTrigger(state.analogButton[i]));
+        bool wasReady = joyReady[j];
+        joyReady[j] = emscripten_get_gamepad_status(j, &state) == EMSCRIPTEN_RESULT_SUCCESS;
+        if (!joyReady[j]) {
+            if (wasReady)
+                Input::reset();
+            continue;
+        }
+
+        for (int i = 0; i < state.numButtons; i++) {
+            JoyKey key = joyToInputKey(i);
+            Input::setJoyDown(j, key, state.digitalButton[i]);
+            if (key == jkLT || key == jkRT)
+                Input::setJoyPos(j, key, joyTrigger(state.analogButton[i]));
+        }
+
+        Input::setJoyPos(j, jkL, joyAxis(state.axis[0], state.axis[1]));
+        Input::setJoyPos(j, jkR, joyAxis(state.axis[2], state.axis[3]));
     }
-
-    if (state.numButtons > 15) { // get POV
-        auto &b = state.digitalButton;
-        int pov = joyGetPOV(b[12] | (b[13] << 1) | (b[14] << 2) | (b[15] << 3));
-        Input::setPos(ikJoyPOV, vec2((float)pov, 0.0f));
-    }
-
-    if (state.numAxes > 1) Input::setPos(ikJoyL, joyAxis(state.axis[0], state.axis[1]));
-    if (state.numAxes > 3) Input::setPos(ikJoyR, joyAxis(state.axis[2], state.axis[3]));
 }
 
 void main_loop() {
     joyUpdate();
 
-    int time = getTime();
-    if (time - lastTime <= 0)
-        return;
-    Game::update((time - lastTime) * 0.001f);
-    lastTime = time;
-    
-    Game::render();
-    eglSwapBuffers(display, surface);
+    if (Game::update()) {
+        Game::render();
+        
+    // clear backbuffer alpha by 1.0f to make opaque canvas layer
+        glColorMask(false, false, false, true);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glColorMask(true, true, true, true);
+        
+        eglSwapBuffers(display, surface);
+    }
 }
 
 bool initGL() {
@@ -141,12 +205,12 @@ void freeGL() {
 EM_BOOL resize() {
     //int f;
     //emscripten_get_canvas_size(&Core::width, &Core::height, &f);
-	double w, h;
-	emscripten_get_element_css_size(NULL, &w, &h);
-	Core::width  = int(w);
-	Core::height = int(h);
-	emscripten_set_canvas_size(Core::width, Core::height);
-	LOG("resize %d %d\n", Core::width, Core::height);
+    double w, h;
+    emscripten_get_element_css_size(NULL, &w, &h);
+    Core::width  = int(w);
+    Core::height = int(h);
+    emscripten_set_canvas_size(Core::width, Core::height);
+    LOG("resize %d %d\n", Core::width, Core::height);
     return 1;
 }
 
@@ -159,21 +223,36 @@ EM_BOOL fullscreenCallback(int eventType, const void *reserved, void *userData) 
 }
 
 bool isFullScreen() {
-	EmscriptenFullscreenChangeEvent status;
-	emscripten_get_fullscreen_status(&status);
-	return status.isFullscreen;
+    EmscriptenFullscreenChangeEvent status;
+    emscripten_get_fullscreen_status(&status);
+    return status.isFullscreen;
 }
 
-void changeWindowMode() {
-    if (!isFullScreen()) {
-        EmscriptenFullscreenStrategy s;
-        s.scaleMode                 = EMSCRIPTEN_FULLSCREEN_SCALE_STRETCH;
-        s.canvasResolutionScaleMode = EMSCRIPTEN_FULLSCREEN_CANVAS_SCALE_HIDEF;
-        s.filteringMode             = EMSCRIPTEN_FULLSCREEN_FILTERING_DEFAULT;
-        s.canvasResizedCallback     = fullscreenCallback;
-        emscripten_request_fullscreen_strategy(NULL, 1, &s);
-    } else
-        emscripten_exit_fullscreen();
+extern "C" {
+    void EMSCRIPTEN_KEEPALIVE snd_fill(Sound::Frame *frames, int count) {
+        Sound::fill(frames, count);
+    }
+    
+    void EMSCRIPTEN_KEEPALIVE game_level_load(char *data, int size) {
+        Game::startLevel(new Stream(NULL, data, size));
+    }
+    
+    void EMSCRIPTEN_KEEPALIVE change_fs_mode() {
+        EM_ASM(JSEvents.inEventHandler = true);
+        EM_ASM(JSEvents.currentEventHandler = {allowsDeferredCalls:true});
+        
+        if (!isFullScreen()) {
+            EmscriptenFullscreenStrategy s;
+            s.scaleMode                 = EMSCRIPTEN_FULLSCREEN_SCALE_STRETCH;
+            s.canvasResolutionScaleMode = EMSCRIPTEN_FULLSCREEN_CANVAS_SCALE_HIDEF;
+            s.filteringMode             = EMSCRIPTEN_FULLSCREEN_FILTERING_DEFAULT;
+            s.canvasResizedCallback     = fullscreenCallback;
+            emscripten_request_fullscreen_strategy(NULL, 0, &s);
+        } else {
+            LOG("exit fs\n");
+            emscripten_exit_fullscreen();
+        }
+    }
 }
 
 InputKey keyToInputKey(int code) {
@@ -195,7 +274,7 @@ EM_BOOL keyCallback(int eventType, const EmscriptenKeyboardEvent *e, void *userD
         case EMSCRIPTEN_EVENT_KEYDOWN:
         case EMSCRIPTEN_EVENT_KEYUP:
             if (eventType == EMSCRIPTEN_EVENT_KEYDOWN && e->altKey && e->keyCode == 0x0D) {  // Alt + Enter
-                changeWindowMode();
+                change_fs_mode();
                 break;
             }
             Input::setDown(keyToInputKey(e->keyCode), eventType == EMSCRIPTEN_EVENT_KEYDOWN);
@@ -214,7 +293,7 @@ EM_BOOL touchCallback(int eventType, const EmscriptenTouchEvent *e, void *userDa
         if (eventType == EMSCRIPTEN_EVENT_TOUCHSTART || eventType == EMSCRIPTEN_EVENT_TOUCHEND || eventType == EMSCRIPTEN_EVENT_TOUCHCANCEL) 
             Input::setDown(key, eventType == EMSCRIPTEN_EVENT_TOUCHSTART);
     }
-    return 1;
+    return 0;
 }
 
 EM_BOOL mouseCallback(int eventType, const EmscriptenMouseEvent *e, void *userData) {
@@ -258,11 +337,9 @@ int main() {
     emscripten_run_script("snd_init()");
     resize();
 
-    lastTime = getTime();
-
     emscripten_set_main_loop(main_loop, 0, true);
 
-    Game::free();
+    Game::deinit();
     freeGL();
 
     return 0;

@@ -1,19 +1,106 @@
 #ifdef _DEBUG
+    #define _CRTDBG_MAP_ALLOC
     #include "crtdbg.h"
+    #define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+    #define new DEBUG_NEW
 #endif
 
 #ifdef MINIMAL
     #if _MSC_VER >= 1900 // VS2015 (1900) VS2017 (1910)
+        #define _NO_CRT_STDIO_INLINE
         #include <malloc.h>
         void __cdecl operator delete(void *ptr, unsigned int size) { free(ptr); }
         // add "/d2noftol3" to compiler additional options
-        // add define _NO_CRT_STDIO_INLINE
     #endif
+#endif
+
+//#define VR_SUPPORT
+// TODO: fix depth precision
+// TODO: fix water surface rendering
+// TODO: fix clipping
+// TODO: add MSAA support for render targets
+// TODO: add IK for arms
+// TODO: controls
+
+#ifdef VR_SUPPORT
+   #include "libs/openvr/openvr.h"
 #endif
 
 #include "game.h"
 
-int getTime() {
+
+// multi-threading
+void* osMutexInit() {
+    CRITICAL_SECTION *CS = new CRITICAL_SECTION();
+    InitializeCriticalSection(CS);
+    return CS;
+}
+
+void osMutexFree(void *obj) {
+    DeleteCriticalSection((CRITICAL_SECTION*)obj);
+    delete (CRITICAL_SECTION*)obj;
+}
+
+void osMutexLock(void *obj) {
+    EnterCriticalSection((CRITICAL_SECTION*)obj);
+}
+
+void osMutexUnlock(void *obj) {
+    LeaveCriticalSection((CRITICAL_SECTION*)obj);
+}
+
+/*
+void* osMutexInit() {
+    HANDLE *mutex = new HANDLE();
+    *mutex = CreateMutex(NULL, FALSE, NULL);
+    return mutex;
+}
+
+void osMutexFree(void *obj) {
+    CloseHandle(*(HANDLE*)obj);
+    delete (HANDLE*)obj;
+}
+
+void osMutexLock(void *obj) {
+    WaitForSingleObject(*(HANDLE*)obj, INFINITE);
+}
+
+void osMutexUnlock(void *obj) {
+    ReleaseMutex(*(HANDLE*)obj);
+}
+*/
+
+void* osRWLockInit() {
+    SRWLOCK *lock = new SRWLOCK();
+    InitializeSRWLock(lock);
+    return lock;
+}
+
+void osRWLockFree(void *obj) {
+    delete (SRWLOCK*)obj;
+}
+
+void osRWLockRead(void *obj) {
+    AcquireSRWLockShared((SRWLOCK*)obj);
+}
+
+void osRWUnlockRead(void *obj) {
+    ReleaseSRWLockShared((SRWLOCK*)obj);
+}
+
+void osRWLockWrite(void *obj) {
+    AcquireSRWLockExclusive((SRWLOCK*)obj);
+}
+
+void osRWUnlockWrite(void *obj) {
+    ReleaseSRWLockExclusive((SRWLOCK*)obj);
+}
+
+
+// timing
+int osStartTime = 0;
+
+int osGetTime() {
 #ifdef DEBUG
     LARGE_INTEGER Freq, Count;
     QueryPerformanceFrequency(&Freq);
@@ -21,7 +108,7 @@ int getTime() {
     return int(Count.QuadPart * 1000L / Freq.QuadPart);
 #else
     timeBeginPeriod(0);
-    return int(timeGetTime());
+    return int(timeGetTime()) - osStartTime;
 #endif
 }
 
@@ -46,23 +133,102 @@ InputKey mouseToInputKey(int msg) {
 }
 
 // joystick
+typedef struct _XINPUT_GAMEPAD
+{
+    WORD                                wButtons;
+    BYTE                                bLeftTrigger;
+    BYTE                                bRightTrigger;
+    SHORT                               sThumbLX;
+    SHORT                               sThumbLY;
+    SHORT                               sThumbRX;
+    SHORT                               sThumbRY;
+} XINPUT_GAMEPAD, *PXINPUT_GAMEPAD;
+
+typedef struct _XINPUT_STATE
+{
+    DWORD                               dwPacketNumber;
+    XINPUT_GAMEPAD                      Gamepad;
+} XINPUT_STATE, *PXINPUT_STATE;
+
+typedef struct _XINPUT_VIBRATION
+{
+    WORD                                wLeftMotorSpeed;
+    WORD                                wRightMotorSpeed;
+} XINPUT_VIBRATION, *PXINPUT_VIBRATION;
+
+#define XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE  7849
+#define XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE 8689
+#define XINPUT_GAMEPAD_TRIGGER_THRESHOLD    30
+
+DWORD (WINAPI *XInputGetState) (DWORD dwUserIndex, XINPUT_STATE* pState) = NULL;
+DWORD (WINAPI *XInputSetState) (DWORD dwUserIndex, XINPUT_VIBRATION* pVibration) = NULL;
+void  (WINAPI *XInputEnable)   (BOOL enable) = NULL;
+#define XInputGetProc(x) (x = (decltype(x))GetProcAddress(h, #x))
+
 #define JOY_DEAD_ZONE_STICK      0.3f
 #define JOY_DEAD_ZONE_TRIGGER    0.01f
+#define JOY_MIN_UPDATE_FX_TIME   50
 
-bool joyReady;
+struct JoyDevice {
+    float vL, vR; // current value for left/right motor vibration
+    float oL, oR; // last applied value
+    int   time;   // time when we can send vibration update
+    bool  ready;
+} joyDevice[INPUT_JOY_COUNT];
+
+bool osJoyReady(int index) {
+    return joyDevice[index].ready;
+}
+
+void osJoyVibrate(int index, float L, float R) {
+        joyDevice[index].vL = L;
+        joyDevice[index].vR = R;
+}
+
+void joyRumble(int index) {
+    JoyDevice &joy = joyDevice[index];
+    if (XInputSetState && joy.ready && (joy.vL != joy.oL || joy.vR != joy.oR) && osGetTime() >= joy.time) {
+        XINPUT_VIBRATION vibration;
+        vibration.wLeftMotorSpeed  = int(joy.vL * 65535.0f);
+        vibration.wRightMotorSpeed = int(joy.vR * 65535.0f);
+        XInputSetState(index, &vibration);
+        joy.oL = joy.vL;
+        joy.oR = joy.vR;
+        joy.time = osGetTime() + JOY_MIN_UPDATE_FX_TIME;
+    }
+}
 
 void joyInit() {
-    JOYINFOEX info;
-    info.dwSize  = sizeof(info);
-    info.dwFlags = JOY_RETURNALL;
-    joyReady = joyGetPosEx(0, &info) == JOYERR_NOERROR;
+    memset(joyDevice, 0, sizeof(joyDevice));
+
+    HMODULE h = LoadLibrary("xinput1_3.dll");
+    if (h == NULL)
+        h = LoadLibrary("xinput9_1_0.dll");
+
+    XInputGetProc(XInputGetState);
+    XInputGetProc(XInputSetState);
+    XInputGetProc(XInputEnable);
+
+    for (int j = 0; j < INPUT_JOY_COUNT; j++) {
+        if (XInputGetState) { // XInput
+            XINPUT_STATE state;
+            int res = XInputGetState(j, &state);
+            joyDevice[j].ready = (XInputGetState(j, &state) == ERROR_SUCCESS);
+        } else { // mmSystem (legacy)
+            JOYINFOEX info;
+            info.dwSize  = sizeof(info);
+            info.dwFlags = JOY_RETURNALL;
+            joyDevice[j].ready = (joyGetPosEx(j, &info) == JOYERR_NOERROR);
+        }
+
+        if (joyDevice[j].ready)
+            LOG("Gamepad %d is ready\n", j + 1);
+    }
 }
 
 void joyFree() {
-    joyReady = false;
-    memset(&Input::joy, 0, sizeof(Input::joy));
-    for (int ik = ikJoyA; ik <= ikJoyPOV; ik++)
-        Input::down[ik] = false;
+    memset(joyDevice, 0, sizeof(joyDevice));
+    Input::reset();
 }
 
 float joyAxis(int x, int xMin, int xMax) {
@@ -77,56 +243,85 @@ vec2 joyDir(float ax, float ay) {
     return dir.normal() * dist;
 }
 
+int joyDeadZone(int value, int zone) {
+    return (value < -zone || value > zone) ? value : 0;
+}
+
 void joyUpdate() {
-    if (!joyReady) return;
+    for (int j = 0; j < INPUT_JOY_COUNT; j++) {
+        if (!joyDevice[j].ready) continue;
 
-    JOYINFOEX info;
-    info.dwSize  = sizeof(info);
-    info.dwFlags = JOY_RETURNALL;
+        joyRumble(j);
 
-    if (joyGetPosEx(0, &info) == JOYERR_NOERROR) {
-        JOYCAPS caps;
-        joyGetDevCaps(0, &caps, sizeof(caps));
+        if (XInputGetState) { // XInput
+            XINPUT_STATE state;
+            if (XInputGetState(j, &state) == ERROR_SUCCESS) {
+                //osJoyVibrate(j, state.Gamepad.bLeftTrigger / 255.0f, state.Gamepad.bRightTrigger / 255.0f); // vibration test
 
-        Input::setPos(ikJoyL, joyDir(joyAxis(info.dwXpos, caps.wXmin, caps.wXmax),
-                                     joyAxis(info.dwYpos, caps.wYmin, caps.wYmax)));
+                Input::setJoyPos(j, jkL,   joyDir(joyAxis(joyDeadZone( state.Gamepad.sThumbLX, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE),  -32768, 32767),
+                                                  joyAxis(joyDeadZone(-state.Gamepad.sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE),  -32768, 32767)));
+                Input::setJoyPos(j, jkR,   joyDir(joyAxis(joyDeadZone( state.Gamepad.sThumbRX, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE), -32768, 32767),
+                                                  joyAxis(joyDeadZone(-state.Gamepad.sThumbRY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE), -32768, 32767)));
+                Input::setJoyPos(j, jkLT,  vec2(joyDeadZone(state.Gamepad.bLeftTrigger,  XINPUT_GAMEPAD_TRIGGER_THRESHOLD) / 255.0f, 0.0f));
+                Input::setJoyPos(j, jkRT,  vec2(joyDeadZone(state.Gamepad.bRightTrigger, XINPUT_GAMEPAD_TRIGGER_THRESHOLD) / 255.0f, 0.0f));
 
-        if ((caps.wCaps & JOYCAPS_HASR) && (caps.wCaps & JOYCAPS_HASU))
-            Input::setPos(ikJoyR, joyDir(joyAxis(info.dwUpos, caps.wUmin, caps.wUmax),
-                                         joyAxis(info.dwRpos, caps.wRmin, caps.wRmax)));
-
-        if (caps.wCaps & JOYCAPS_HASZ) {
-            float z  = joyAxis(info.dwZpos, caps.wZmin, caps.wZmax);
-            InputKey key = z > JOY_DEAD_ZONE_TRIGGER ? ikJoyLT : (z < -JOY_DEAD_ZONE_TRIGGER ? ikJoyRT : ikNone);
-            if (key != ikNone) {
-                Input::setPos(key, vec2(fabsf(z), 0.0f));
-                Input::setPos(key == ikJoyLT ? ikJoyRT : ikJoyLT, vec2(0.0f)); // release opposite trigger
+                static const JoyKey keys[] = { jkUp, jkDown, jkLeft, jkRight, jkStart, jkSelect, jkL, jkR, jkLB, jkRB, jkNone, jkNone, jkA, jkB, jkX, jkY };
+                for (int i = 0; i < 16; i++)
+                    Input::setJoyDown(j, keys[i], (state.Gamepad.wButtons & (1 << i)) != 0);
             } else {
-                Input::setPos(ikJoyLT, vec2(0.0f));
-                Input::setPos(ikJoyRT, vec2(0.0f));
+                joyFree();
+                joyInit();
+                break;
+            }
+        } else { // mmSystem (legacy)
+            JOYINFOEX info;
+            info.dwSize  = sizeof(info);
+            info.dwFlags = JOY_RETURNALL;
+
+            if (joyGetPosEx(j, &info) == JOYERR_NOERROR) {
+                JOYCAPS caps;
+                joyGetDevCaps(j, &caps, sizeof(caps));
+
+                if (caps.wNumAxes > 0) {
+                    Input::setJoyPos(j, jkL, joyDir(joyAxis(info.dwXpos, caps.wXmin, caps.wXmax),
+                                                        joyAxis(info.dwYpos, caps.wYmin, caps.wYmax)));
+
+                    if ((caps.wCaps & JOYCAPS_HASR) && (caps.wCaps & JOYCAPS_HASU))
+                        Input::setJoyPos(j, jkR, joyDir(joyAxis(info.dwUpos, caps.wUmin, caps.wUmax),
+                                                            joyAxis(info.dwRpos, caps.wRmin, caps.wRmax)));
+
+                    if (caps.wCaps & JOYCAPS_HASZ) {
+                        float z = joyAxis(info.dwZpos, caps.wZmin, caps.wZmax);
+                        Input::setJoyPos(j, jkLT, vec2(0.0f));
+                        Input::setJoyPos(j, jkRT, vec2(0.0f));
+
+                        JoyKey key = z > JOY_DEAD_ZONE_TRIGGER ? jkLT : (z < -JOY_DEAD_ZONE_TRIGGER ? jkRT : jkNone);
+                        if (key != jkNone)
+                            Input::setJoyPos(j, key, vec2(fabsf(z), 0.0f));
+                    }
+                }
+
+                int p = ((caps.wCaps & JOYCAPS_HASPOV) && (info.dwPOV != JOY_POVCENTERED)) ? (1 + info.dwPOV / 4500) : 0;
+                Input::setJoyDown(j, jkUp,    p == 8 || p == 1 || p == 2);
+                Input::setJoyDown(j, jkRight, p == 2 || p == 3 || p == 4);
+                Input::setJoyDown(j, jkDown,  p == 4 || p == 5 || p == 6);
+                Input::setJoyDown(j, jkLeft,  p == 6 || p == 7 || p == 8);
+
+                for (int i = 0; i < 10; i++)
+                    Input::setJoyDown(j, JoyKey(jkA + i), (info.dwButtons & (1 << i)) > 0);
+            } else {
+                joyFree();
+                joyInit();
+                break;
             }
         }
-
-        if (caps.wCaps & JOYCAPS_HASPOV)
-            if (info.dwPOV == JOY_POVCENTERED)
-                Input::setPos(ikJoyPOV, vec2(0.0f));
-            else
-                Input::setPos(ikJoyPOV, vec2(float(1 + info.dwPOV / 4500), 0.0f));
-
-        for (int i = 0; i < 10; i++)
-            Input::setDown((InputKey)(ikJoyA + i), (info.dwButtons & (1 << i)) > 0);
-    } else
-        joyFree();
+    }
 }
 
 // touch
-typedef BOOL (__stdcall *PREGISTERTOUCHWINDOW)(HWND, ULONG);
-typedef BOOL (__stdcall *PGETTOUCHINPUTINFO)(HTOUCHINPUT, UINT, PTOUCHINPUT, int);
-typedef BOOL (__stdcall *PCLOSETOUCHINPUTHANDLE)(HTOUCHINPUT);
-
-PREGISTERTOUCHWINDOW    RegisterTouchWindowX;
-PGETTOUCHINPUTINFO      GetTouchInputInfoX;
-PCLOSETOUCHINPUTHANDLE  CloseTouchInputHandleX;
+BOOL (WINAPI *RegisterTouchWindowX)(HWND, ULONG);
+BOOL (WINAPI *GetTouchInputInfoX)(HTOUCHINPUT, UINT, PTOUCHINPUT, int);
+BOOL (WINAPI *CloseTouchInputHandleX)(HTOUCHINPUT);
 
 #define MAX_TOUCH_COUNT 6
 
@@ -134,9 +329,9 @@ void touchInit(HWND hWnd) {
     int value = GetSystemMetrics(SM_DIGITIZER);
     if (value) {
         HMODULE hUser32 = LoadLibrary("user32.dll");
-        RegisterTouchWindowX     =   (PREGISTERTOUCHWINDOW)GetProcAddress(hUser32, "RegisterTouchWindow");
-        GetTouchInputInfoX       =     (PGETTOUCHINPUTINFO)GetProcAddress(hUser32, "GetTouchInputInfo");
-        CloseTouchInputHandleX   = (PCLOSETOUCHINPUTHANDLE)GetProcAddress(hUser32, "CloseTouchInputHandle");
+        RegisterTouchWindowX     = (decltype(RegisterTouchWindowX))   GetProcAddress(hUser32, "RegisterTouchWindow");
+        GetTouchInputInfoX       = (decltype(GetTouchInputInfoX))     GetProcAddress(hUser32, "GetTouchInputInfo");
+        CloseTouchInputHandleX   = (decltype(CloseTouchInputHandleX)) GetProcAddress(hUser32, "CloseTouchInputHandle");
         if (RegisterTouchWindowX && GetTouchInputInfoX && CloseTouchInputHandleX)
             RegisterTouchWindowX(hWnd, 0);
     }
@@ -168,7 +363,6 @@ void touchUpdate(HWND hWnd, HTOUCHINPUT hTouch, int count) {
 
 bool sndReady;
 char *sndData;
-CRITICAL_SECTION sndCS;
 HWAVEOUT waveOut;
 WAVEFORMATEX waveFmt = { WAVE_FORMAT_PCM, 2, 44100, 44100 * 4, 4, 16, sizeof(waveFmt) };
 WAVEHDR waveBuf[2];
@@ -176,41 +370,30 @@ WAVEHDR waveBuf[2];
 void sndFree() {
     if (!sndReady) return;
     sndReady = false;
-    EnterCriticalSection(&sndCS);
     waveOutUnprepareHeader(waveOut, &waveBuf[0], sizeof(WAVEHDR));
     waveOutUnprepareHeader(waveOut, &waveBuf[1], sizeof(WAVEHDR));
     waveOutReset(waveOut);
     waveOutClose(waveOut);
     delete[] sndData;
-    LeaveCriticalSection(&sndCS);
-    DeleteCriticalSection(&sndCS);
 }
 
-void CALLBACK sndFill(HWAVEOUT waveOut, UINT uMsg, DWORD_PTR dwInstance, LPWAVEHDR waveBuf, DWORD dwParam2) {
+void sndFill(HWAVEOUT waveOut, LPWAVEHDR waveBuf) {
     if (!sndReady) return;
-    if (uMsg == MM_WOM_CLOSE) {
-        sndFree();
-        return;
-    }
-
-    EnterCriticalSection(&sndCS);
     waveOutUnprepareHeader(waveOut, waveBuf, sizeof(WAVEHDR));
     Sound::fill((Sound::Frame*)waveBuf->lpData, SND_SIZE / 4);
     waveOutPrepareHeader(waveOut, waveBuf, sizeof(WAVEHDR));
     waveOutWrite(waveOut, waveBuf, sizeof(WAVEHDR));
-    LeaveCriticalSection(&sndCS);
 }
 
 void sndInit(HWND hwnd) {
-    InitializeCriticalSection(&sndCS);
-    if (waveOutOpen(&waveOut, WAVE_MAPPER, &waveFmt, (INT_PTR)sndFill, 0, CALLBACK_FUNCTION) == MMSYSERR_NOERROR) {
+    if (waveOutOpen(&waveOut, WAVE_MAPPER, &waveFmt, (INT_PTR)hwnd, 0, CALLBACK_WINDOW) == MMSYSERR_NOERROR) {
         sndReady = true;
         sndData  = new char[SND_SIZE * 2];
         memset(&waveBuf, 0, sizeof(waveBuf));
         for (int i = 0; i < 2; i++) {
             waveBuf[i].dwBufferLength = SND_SIZE;
             waveBuf[i].lpData = sndData + SND_SIZE * i;
-            sndFill(waveOut, 0, 0, &waveBuf[i], 0);
+            sndFill(waveOut, &waveBuf[i]);
         }
     } else {
         sndReady = false;
@@ -223,6 +406,8 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
     switch (msg) {
         // window
         case WM_ACTIVATE :
+            if (XInputEnable)
+                XInputEnable(wParam != WA_INACTIVE);
             Input::reset();
             break;
         case WM_SIZE:
@@ -285,11 +470,16 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             break;
         // joystick
         case WM_DEVICECHANGE :
+            joyFree();
             joyInit();
             return 1;
         // touch
         case WM_TOUCH :
             touchUpdate(hWnd, (HTOUCHINPUT)lParam, wParam);
+            break;
+        // sound
+        case MM_WOM_DONE :
+            sndFill((HWAVEOUT)wParam, (WAVEHDR*)lParam);
             break;
         default :
             return DefWindowProc(hWnd, msg, wParam, lParam);
@@ -297,14 +487,19 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
     return 0;
 }
 
-HGLRC initGL(HDC hDC) {
+HGLRC glInit(HDC hDC) {
     PIXELFORMATDESCRIPTOR pfd;
     memset(&pfd, 0, sizeof(pfd));
-    pfd.nSize      = sizeof(pfd);
-    pfd.nVersion   = 1;
-    pfd.dwFlags    = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
-    pfd.cColorBits = 32;
-    pfd.cDepthBits = 24;
+    pfd.nSize        = sizeof(pfd);
+    pfd.nVersion     = 1;
+    pfd.dwFlags      = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+    pfd.cColorBits   = 32;
+    pfd.cRedBits     = 8;
+    pfd.cGreenBits   = 8;
+    pfd.cBlueBits    = 8;
+    pfd.cAlphaBits   = 8;
+    pfd.cDepthBits   = 24;
+    pfd.cStencilBits = 8;
 
     int format = ChoosePixelFormat(hDC, &pfd);
     SetPixelFormat(hDC, format, &pfd);
@@ -313,20 +508,128 @@ HGLRC initGL(HDC hDC) {
     return hRC;
 }
 
-void freeGL(HGLRC hRC) {
+void glFree(HGLRC hRC) {
     wglMakeCurrent(0, 0);
     wglDeleteContext(hRC);
 }
+
+#ifdef VR_SUPPORT
+vr::IVRSystem *hmd;
+vr::TrackedDevicePose_t tPose[vr::k_unMaxTrackedDeviceCount];
+
+void vrInit() {
+    vr::EVRInitError eError = vr::VRInitError_None;
+    hmd = vr::VR_Init(&eError, vr::VRApplication_Scene);
+
+    if (eError != vr::VRInitError_None) {
+        hmd = NULL;
+        LOG("! unable to init VR runtime: %s\n", vr::VR_GetVRInitErrorAsEnglishDescription(eError));
+        return;
+    }
+
+    if (!vr::VRCompositor()) {
+        vr::VR_Shutdown();
+        LOG("! compositor initialization failed\n");
+        return;
+    }
+}
+
+void vrInitTargets() {
+    uint32_t width, height;
+    hmd->GetRecommendedRenderTargetSize( &width, &height);
+    eyeTex[0] = new Texture(width, height, Texture::RGBA);
+    eyeTex[1] = new Texture(width, height, Texture::RGBA);
+}
+
+void vrFree() {
+    if (!hmd) return;
+    vr::VR_Shutdown();
+}
+
+mat4 convToMat4(const vr::HmdMatrix44_t &m) {
+    return mat4(m.m[0][0], m.m[1][0], m.m[2][0], m.m[3][0],
+                m.m[0][1], m.m[1][1], m.m[2][1], m.m[3][1], 
+                m.m[0][2], m.m[1][2], m.m[2][2], m.m[3][2], 
+                m.m[0][3], m.m[1][3], m.m[2][3], m.m[3][3]);
+}
+
+mat4 convToMat4(const vr::HmdMatrix34_t &m) {
+    return mat4(m.m[0][0], m.m[1][0], m.m[2][0], 0.0f, 
+                m.m[0][1], m.m[1][1], m.m[2][1], 0.0f,
+                m.m[0][2], m.m[1][2], m.m[2][2], 0.0f,
+                m.m[0][3], m.m[1][3], m.m[2][3], 1.0f);
+}
+
+void vrUpdateInput() {
+    if (!hmd) return;
+    vr::VREvent_t event;
+
+    while (hmd->PollNextEvent(&event, sizeof(event))) {
+        //ProcessVREvent( event );
+        switch (event.eventType) {
+            case vr::VREvent_TrackedDeviceActivated:
+                //SetupRenderModelForTrackedDevice( event.trackedDeviceIndex );
+                LOG( "Device %u attached. Setting up render model\n", event.trackedDeviceIndex);
+                break;
+            case vr::VREvent_TrackedDeviceDeactivated:
+                LOG("Device %u detached.\n", event.trackedDeviceIndex);
+                break;
+            case vr::VREvent_TrackedDeviceUpdated:
+                LOG("Device %u updated.\n", event.trackedDeviceIndex);
+                break;
+        }
+    }
+
+    for (vr::TrackedDeviceIndex_t unDevice = 0; unDevice < vr::k_unMaxTrackedDeviceCount; unDevice++) {
+        vr::VRControllerState_t state;
+        if (hmd->GetControllerState(unDevice, &state, sizeof(state))) {
+            //m_rbShowTrackedDevice[ unDevice ] = state.ulButtonPressed == 0;
+        }
+    }
+}
+
+void vrUpdateView() {
+    if (!hmd) return;
+    vr::VRCompositor()->WaitGetPoses(tPose, vr::k_unMaxTrackedDeviceCount, NULL, 0);
+
+    if (!tPose[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
+        return;
+
+    mat4 pL = convToMat4(hmd->GetProjectionMatrix(vr::Eye_Left,  8.0f, 45.0f * 1024.0f));
+    mat4 pR = convToMat4(hmd->GetProjectionMatrix(vr::Eye_Right, 8.0f, 45.0f * 1024.0f));
+
+    mat4 head = convToMat4(tPose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking);
+    if (Input::hmd.zero.x == INF)
+        Input::hmd.zero = head.getPos();
+    head.setPos(head.getPos() - Input::hmd.zero);
+    
+    mat4 vL = head * convToMat4(hmd->GetEyeToHeadTransform(vr::Eye_Left));
+    mat4 vR = head * convToMat4(hmd->GetEyeToHeadTransform(vr::Eye_Right));
+
+    vL.setPos(vL.getPos() * ONE_METER);
+    vR.setPos(vR.getPos() * ONE_METER);
+
+    Input::hmd.setView(pL, pR, vL, vR);
+}
+
+void vrCompose() {
+    if (!hmd) return;
+    vr::Texture_t LTex = {(void*)(uintptr_t)Core::eyeTex[0]->ID, vr::TextureType_OpenGL, vr::ColorSpace_Gamma};
+    vr::VRCompositor()->Submit(vr::Eye_Left, &LTex);
+    vr::Texture_t RTex = {(void*)(uintptr_t)Core::eyeTex[1]->ID, vr::TextureType_OpenGL, vr::ColorSpace_Gamma};
+    vr::VRCompositor()->Submit(vr::Eye_Right, &RTex);
+}
+#endif // #ifdef VR_SUPPORT
 
 char Stream::cacheDir[255];
 char Stream::contentDir[255];
 
 #ifdef _DEBUG
 int main(int argc, char** argv) {
-    _CrtMemState _ms;
-    _CrtMemCheckpoint(&_ms);
+    _CrtMemState _msBegin, _msEnd, _msDiff;
     _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
     _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDOUT);
+    _CrtMemCheckpoint(&_msBegin);
 //#elif PROFILE
 #else
 int main(int argc, char** argv) {
@@ -345,59 +648,78 @@ int main(int argc, char** argv) {
     HWND hWnd = CreateWindow("static", "OpenLara", WS_OVERLAPPEDWINDOW, 0, 0, r.right - r.left, r.bottom - r.top, 0, 0, 0, 0);
 
     HDC hDC = GetDC(hWnd);
-    HGLRC hRC = initGL(hDC);
-    
+    HGLRC hRC = glInit(hDC);
+
+#ifdef VR_SUPPORT
+    vrInit();
+#endif
+
     Sound::channelsCount = 0;
+
+    osStartTime = osGetTime();
 
     touchInit(hWnd);
     joyInit();
     sndInit(hWnd);
 
-    char *lvlName = argc > 1 ? argv[1] : NULL;
-    char *sndName = argc > 2 ? argv[2] : NULL;
+    Game::init(argc > 1 ? argv[1] : NULL);
 
-    Game::init(lvlName, sndName);
+#ifdef VR_SUPPORT
+    Input::hmd.ready = hmd != NULL;
+    vrInitTargets();
+#endif
 
     SetWindowLong(hWnd, GWL_WNDPROC, (LONG)&WndProc);
     ShowWindow(hWnd, SW_SHOWDEFAULT);
 
-    DWORD lastTime = getTime();
     MSG msg;
 
-    do {
+    while (!Core::isQuit) {
         if (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
+            if (msg.message == WM_QUIT)
+                Core::quit();
         } else {
             joyUpdate();
-
-            DWORD time = getTime();
-            if (time <= lastTime)
-                continue;
-
-            EnterCriticalSection(&sndCS);
-            Game::update((time - lastTime) * 0.001f);
-            LeaveCriticalSection(&sndCS);
-            lastTime = time;
-
-            Game::render();
-            SwapBuffers(hDC);
+        #ifdef VR_SUPPORT
+            vrUpdateInput();
+        #endif
+            if (Game::update()) {
+            #ifdef VR_SUPPORT
+                vrUpdateView();
+            #endif
+                Game::render();
+            #ifdef VR_SUPPORT
+                vrCompose();
+            #endif
+                Core::waitVBlank();
+                SwapBuffers(hDC);
+            }
             #ifdef _DEBUG
                 Sleep(20);
             #endif
         }
-    } while (msg.message != WM_QUIT);
+    };
 
     sndFree();
-    Game::free();
+    Game::deinit();
 
-    freeGL(hRC);
+#ifdef VR_SUPPORT
+    vrFree();
+#endif
+
+    glFree(hRC);
     ReleaseDC(hWnd, hDC);
 
     DestroyWindow(hWnd);
  #ifdef _DEBUG
-    _CrtMemDumpAllObjectsSince(&_ms);
-    system("pause");
+    _CrtMemCheckpoint(&_msEnd);
+
+    if (_CrtMemDifference(&_msDiff, &_msBegin, &_msEnd) > 0) {
+        _CrtDumpMemoryLeaks();
+        system("pause");
+    }
 #endif
 
     return 0;

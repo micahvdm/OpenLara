@@ -2,20 +2,11 @@ package org.xproger.openlara;
 
 import java.util.ArrayList;
 import javax.microedition.khronos.egl.EGLConfig;
-import javax.microedition.khronos.opengles.GL10;
-import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
-import android.opengl.GLSurfaceView;
-import android.opengl.GLSurfaceView.Renderer;
 import android.os.Bundle;
-import android.app.Activity;
-import android.content.res.AssetFileDescriptor;
-import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
+import android.os.Environment;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -25,28 +16,48 @@ import android.view.View.OnKeyListener;
 import android.view.View.OnTouchListener;
 import android.view.Window;
 import android.view.WindowManager;
-//import android.util.Log;
 
-public class MainActivity extends Activity implements OnTouchListener, OnKeyListener, OnGenericMotionListener, SensorEventListener {
+import com.google.vr.sdk.base.AndroidCompat;
+import com.google.vr.sdk.base.Eye;
+import com.google.vr.sdk.base.GvrActivity;
+import com.google.vr.sdk.base.GvrView;
+import com.google.vr.sdk.base.HeadTransform;
+import com.google.vr.sdk.base.Viewport;
+import android.app.Activity;
+
+public class MainActivity extends GvrActivity implements OnTouchListener, OnKeyListener, OnGenericMotionListener {
+    static GvrView gvrView;
+
     private Wrapper wrapper;
+    private ArrayList joyList = new ArrayList();
+
+    public static void toggleVR(boolean enable) {
+        gvrView.setStereoModeEnabled(enable);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        requestWindowFeature(Window.FEATURE_NO_TITLE);
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                WindowManager.LayoutParams.FLAG_FULLSCREEN);
-
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
-                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD |
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
-
         super.onCreate(savedInstanceState);
 
-        GLSurfaceView view = new GLSurfaceView(this);
+        //GLSurfaceView view = new GLSurfaceView(this);
+        final GvrView view = new GvrView(this);
         view.setEGLContextClientVersion(2);
         view.setEGLConfigChooser(8, 8, 8, 8, 16, 8);
-        view.setPreserveEGLContextOnPause(true);
+        //view.setPreserveEGLContextOnPause(true);
         view.setRenderer(wrapper = new Wrapper());
 
         view.setFocusable(true);
@@ -55,20 +66,32 @@ public class MainActivity extends Activity implements OnTouchListener, OnKeyList
         view.setOnTouchListener(this);
         view.setOnGenericMotionListener(this);
         view.setOnKeyListener(this);
-        //setAsyncReprojectionEnabled(true);
-        //setSustainedPerformanceMode(this, true);
-        setContentView(view);
-/*
-        SensorManager sm = (SensorManager)getSystemService(SENSOR_SERVICE);
-        sm.registerListener(this, sm.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR), SensorManager.SENSOR_DELAY_FASTEST);
-*/
-        try {
-            String packName = getPackageManager().getPackageInfo(getPackageName(), PackageManager.GET_ACTIVITIES).applicationInfo.sourceDir;
-            // hardcoded demo level and music
-            AssetFileDescriptor fLevel = this.getResources().openRawResourceFd(R.raw.level2);
-            AssetFileDescriptor fMusic = this.getResources().openRawResourceFd(R.raw.music);
+        view.setTransitionViewEnabled(false);
 
-            wrapper.onCreate(packName, getCacheDir().getAbsolutePath() + "/", (int)fLevel.getStartOffset(), (int)fMusic.getStartOffset());
+//        if (view.setAsyncReprojectionEnabled(true))
+//            AndroidCompat.setSustainedPerformanceMode(this, true);
+
+        //AndroidCompat.setVrModeEnabled(this, false);
+        view.setStereoModeEnabled(false);
+        view.setDistortionCorrectionEnabled(true);
+
+        view.setOnCloseButtonListener(new Runnable() {
+            @Override
+            public void run() {
+                view.setStereoModeEnabled(false);
+                wrapper.toggleVR = true;
+            }
+        });
+
+        setGvrView(view);
+
+        setContentView(view);
+
+        gvrView = view;
+
+        try {
+            String content = Environment.getExternalStorageDirectory().getAbsolutePath();
+            wrapper.onCreate(content + "/OpenLara/", getCacheDir().getAbsolutePath() + "/");
         } catch (Exception e) {
             e.printStackTrace();
             finish();
@@ -117,36 +140,38 @@ public class MainActivity extends Activity implements OnTouchListener, OnKeyList
         return true;
     }
 
-    @Override
-    public void onAccuracyChanged(Sensor arg0, int arg1) {
+    boolean isGamepad(int src) {
+        return (src & (InputDevice.SOURCE_GAMEPAD | InputDevice.SOURCE_JOYSTICK)) != 0;
     }
 
-    @Override
-    public void onSensorChanged(SensorEvent event) {
-        wrapper.onTouch(-100, 0, -event.values[1], event.values[0]);
-        wrapper.onTouch(-100, 1,  event.values[2], event.values[3]);
+    int getJoyIndex(int joyId) {
+        int joyIndex = joyList.indexOf(joyId);
+        if (joyIndex == -1) {
+            joyIndex = joyList.size();
+            joyList.add(joyId);
+        }
+        return joyIndex;
     }
 
     @Override
     public boolean onGenericMotion(View v, MotionEvent event) {
         int src = event.getDevice().getSources();
 
-        boolean isMouse = (src & (InputDevice.SOURCE_MOUSE)) != 0;
-        boolean isJoy   = (src & (InputDevice.SOURCE_GAMEPAD | InputDevice.SOURCE_JOYSTICK)) != 0;
+        if (isGamepad(event.getDevice().getSources())) {
+            int index = getJoyIndex(event.getDeviceId());
+        // axis
+            wrapper.onTouch(index, -3, event.getAxisValue(MotionEvent.AXIS_X), event.getAxisValue(MotionEvent.AXIS_Y));
+            wrapper.onTouch(index, -4, event.getAxisValue(MotionEvent.AXIS_Z), event.getAxisValue(MotionEvent.AXIS_RZ));
 
-        if (isMouse) {
-            return true;
-        }
-
-        if (isJoy) {
-            wrapper.onTouch(0, -3, event.getAxisValue(MotionEvent.AXIS_X),
-                    event.getAxisValue(MotionEvent.AXIS_Y));
-
-            wrapper.onTouch(0, -4, event.getAxisValue(MotionEvent.AXIS_Z),
-                    event.getAxisValue(MotionEvent.AXIS_RZ));
-
-            wrapper.onTouch(0, -5, event.getAxisValue(MotionEvent.AXIS_HAT_X),
-                    event.getAxisValue(MotionEvent.AXIS_HAT_Y));
+        // d-pad
+            if ((src & InputDevice.SOURCE_DPAD) != InputDevice.SOURCE_DPAD) {
+                float dx = event.getAxisValue(MotionEvent.AXIS_HAT_X);
+                float dy = event.getAxisValue(MotionEvent.AXIS_HAT_Y);
+                wrapper.onTouch(index, dx >  0.9 ? -2 : -1, -14, 0);
+                wrapper.onTouch(index, dy < -0.9 ? -2 : -1, -15, 0);
+                wrapper.onTouch(index, dy >  0.9 ? -2 : -1, -16, 0);
+                wrapper.onTouch(index, dx < -0.9 ? -2 : -1, -13, 0);
+            }
         }
 
         return true;
@@ -157,24 +182,32 @@ public class MainActivity extends Activity implements OnTouchListener, OnKeyList
         int btn;
 
         switch (keyCode) {
-            case KeyEvent.KEYCODE_BUTTON_A      : btn = -0;  break;
-            case KeyEvent.KEYCODE_BUTTON_B      : btn = -1;  break;
-            case KeyEvent.KEYCODE_BUTTON_X      : btn = -2;  break;
-            case KeyEvent.KEYCODE_BUTTON_Y      : btn = -3;  break;
-            case KeyEvent.KEYCODE_BUTTON_L1     : btn = -4;  break;
-            case KeyEvent.KEYCODE_BUTTON_R1     : btn = -5;  break;
-            case KeyEvent.KEYCODE_BUTTON_SELECT : btn = -6;  break;
-            case KeyEvent.KEYCODE_BUTTON_START  : btn = -7;  break;
-            case KeyEvent.KEYCODE_BUTTON_THUMBL : btn = -8;  break;
-            case KeyEvent.KEYCODE_BUTTON_THUMBR : btn = -9;  break;
-            case KeyEvent.KEYCODE_BUTTON_L2     : btn = -10; break;
-            case KeyEvent.KEYCODE_BUTTON_R2     : btn = -11; break;
+            case KeyEvent.KEYCODE_BUTTON_A      : btn = -1;  break;
+            case KeyEvent.KEYCODE_BUTTON_B      : btn = -2;  break;
+            case KeyEvent.KEYCODE_BUTTON_X      : btn = -3;  break;
+            case KeyEvent.KEYCODE_BUTTON_Y      : btn = -4;  break;
+            case KeyEvent.KEYCODE_BUTTON_L1     : btn = -5;  break;
+            case KeyEvent.KEYCODE_BUTTON_R1     : btn = -6;  break;
+            case KeyEvent.KEYCODE_BUTTON_SELECT : btn = -7;  break;
+            case KeyEvent.KEYCODE_BUTTON_START  : btn = -8;  break;
+            case KeyEvent.KEYCODE_BUTTON_THUMBL : btn = -9;  break;
+            case KeyEvent.KEYCODE_BUTTON_THUMBR : btn = -10; break;
+            case KeyEvent.KEYCODE_BUTTON_L2     : btn = -11; break;
+            case KeyEvent.KEYCODE_BUTTON_R2     : btn = -12; break;
+            case KeyEvent.KEYCODE_DPAD_LEFT     : btn = -13; break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT    : btn = -14; break;
+            case KeyEvent.KEYCODE_DPAD_UP       : btn = -15; break;
+            case KeyEvent.KEYCODE_DPAD_DOWN     : btn = -16; break;
             case KeyEvent.KEYCODE_BACK          : btn = KeyEvent.KEYCODE_ESCAPE; break;
+            case KeyEvent.KEYCODE_VOLUME_UP     :
+            case KeyEvent.KEYCODE_VOLUME_DOWN   :
+            case KeyEvent.KEYCODE_VOLUME_MUTE   : return false;
             default                             : btn = keyCode;
         }
 
         boolean isDown = event.getAction() == KeyEvent.ACTION_DOWN;
-        wrapper.onTouch(0, isDown ? -2 : -1, btn, 0);
+        int index = btn < 0 ? getJoyIndex(event.getDevice().getId()) : 0;
+        wrapper.onTouch(index, isDown ? -2 : -1, btn, 0);
         return true;
     }
 
@@ -215,9 +248,7 @@ class Sound {
             public void run() {
                 while ( audioTrack.getPlayState() != AudioTrack.PLAYSTATE_STOPPED ) {
                     if (audioTrack.getPlayState() == AudioTrack.PLAYSTATE_PLAYING && wrapper.ready) {
-                        synchronized (wrapper) {
-                            Wrapper.nativeSoundFill(buffer);
-                        }
+                        Wrapper.nativeSoundFill(buffer);
                         audioTrack.write(buffer, 0, buffer.length);
                         audioTrack.flush();
                     } else
@@ -269,29 +300,31 @@ class Touch {
     }
 }
 
-class Wrapper implements Renderer {
-    public static native void nativeInit(String packName, String cacheDir, int levelOffset, int musicOffset);
+class Wrapper implements GvrView.StereoRenderer {
+    public static native void nativeInit(String contentDir, String cacheDir);
     public static native void nativeFree();
     public static native void nativeReset();
-    public static native void nativeResize(int w, int h);
+    public static native void nativeResize(int x, int y, int w, int h);
     public static native void nativeUpdate();
-    public static native void nativeRender();
+    public static native void nativeSetVR(boolean enabled);
+    public static native void nativeSetHead(float head[]);
+    public static native void nativeSetEye(int eye, float proj[], float view[]);
+    public static native void nativeFrameBegin();
+    public static native void nativeFrameEnd();
+    public static native void nativeFrameRender();
     public static native void nativeTouch(int id, int state, float x, float y);
     public static native void nativeSoundFill(short buffer[]);
 
     Boolean ready = false;
-    private String packName;
+    Boolean toggleVR = false;
+    private String contentDir;
     private String cacheDir;
-    private int levelOffset;
-    private int musicOffset;
     private ArrayList<Touch> touch = new ArrayList<>();
     private Sound sound;
 
-    void onCreate(String packName, String cacheDir, int levelOffset, int musicOffset) {
-        this.packName = packName;
-        this.cacheDir = cacheDir;
-        this.levelOffset = levelOffset;
-        this.musicOffset = musicOffset;
+    void onCreate(String contentDir, String cacheDir) {
+        this.contentDir  = contentDir;
+        this.cacheDir    = cacheDir;
 
         sound = new Sound();
         sound.start(this);
@@ -318,29 +351,64 @@ class Wrapper implements Renderer {
     }
 
     @Override
-    public void onDrawFrame(GL10 gl) {
+    public void onSurfaceChanged(int width, int height) {
+        nativeResize(0, 0, width, height);
+    }
+
+    @Override
+    public void onSurfaceCreated(EGLConfig config) {
+        if (!ready) {
+            nativeInit(contentDir, cacheDir);
+            sound.play();
+            ready = true;
+        }
+    }
+
+    @Override
+    public void onRendererShutdown() {
+        //
+    }
+
+    @Override
+    public void onNewFrame(HeadTransform headTransform) {
         synchronized (this) {
             for (int i = 0; i < touch.size(); i++) {
                 Touch t = touch.get(i);
                 nativeTouch(t.id, t.state, t.x, t.y);
             }
             touch.clear();
-            nativeUpdate();
         }
-        nativeRender();
+
+        if (toggleVR) {
+            nativeSetVR(false);
+            toggleVR = false;
+        }
+
+        float view[] = headTransform.getHeadView();
+        nativeSetHead(view);
+
+        nativeUpdate();
+        nativeFrameBegin();
     }
 
     @Override
-    public void onSurfaceChanged(GL10 gl, int width, int height) {
-        nativeResize(width, height);
+    public void onDrawEye(Eye eye) {
+        float proj[] = eye.getPerspective(8.0f, 32.0f * 1024.0f);
+        float view[] = eye.getEyeView();
+
+        int index = 0;
+        if (eye.getType() == Eye.Type.LEFT)  index = -1;
+        if (eye.getType() == Eye.Type.RIGHT) index = +1;
+
+        nativeSetEye(index, proj, view);
+
+        nativeResize(eye.getViewport().x, eye.getViewport().y, eye.getViewport().width, eye.getViewport().height);
+        nativeFrameRender();
     }
 
     @Override
-    public void onSurfaceCreated(GL10 gl, EGLConfig config) {
-        if (!ready) {
-            nativeInit(packName, cacheDir, levelOffset, musicOffset);
-            sound.play();
-            ready = true;
-        }
+    public void onFinishFrame(Viewport viewport) {
+        nativeResize(viewport.x, viewport.y, viewport.width, viewport.height);
+        nativeFrameEnd();
     }
 }

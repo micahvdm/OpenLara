@@ -1,9 +1,10 @@
+#include <pthread.h>
 #include "game.h"
 
-bool isQuit = false;
 WindowRef window;
 AGLContext context;
 
+// sound
 #define SND_SIZE 8192
 
 static AudioQueueRef audioQueue;
@@ -14,7 +15,6 @@ void soundFill(void* inUserData, AudioQueueRef inAQ, AudioQueueBufferRef inBuffe
     Sound::fill((Sound::Frame*)frames, count);
     inBuffer->mAudioDataByteSize = count * 4;
     AudioQueueEnqueueBuffer(audioQueue, inBuffer, 0, NULL);
-	// TODO: mutex
 }
 
 void soundInit() {
@@ -63,6 +63,14 @@ InputKey mouseToInputKey(int btn) {
     return ikNone;
 }
 
+bool osJoyReady(int index) {
+    return false;
+}
+
+void osJoyVibrate(int index, float L, float R) {
+    // TODO
+}
+
 OSStatus eventHandler(EventHandlerCallRef handler, EventRef event, void* userData) {
     OSType eventClass   = GetEventClass(event);
     UInt32 eventKind    = GetEventKind(event);
@@ -71,7 +79,7 @@ OSStatus eventHandler(EventHandlerCallRef handler, EventRef event, void* userDat
         case kEventClassWindow :
             switch (eventKind) {
                 case kEventWindowClosed :
-                    isQuit = true;
+                    Core::quit();
                     break;
                 case kEventWindowBoundsChanged : {
                     aglUpdateContext(context);
@@ -138,7 +146,8 @@ OSStatus eventHandler(EventHandlerCallRef handler, EventRef event, void* userDat
     return CallNextEventHandler(handler, event);
 }
 
-int getTime() {
+// timing
+int osGetTime() {
     UInt64 t;
     Microseconds((UnsignedWide*)&t);
     return int(t / 1000);
@@ -197,22 +206,14 @@ int main() {
     SelectWindow(window);
     ShowWindow(window);
 
-    int lastTime = getTime(), fpsTime = lastTime + 1000, fps = 0;
-
     EventRecord event;
-    while (!isQuit)
-        if (!GetNextEvent(0xffff, &event)) {
-            int time = getTime();
-            if (time <= lastTime)
-                continue;
-            Game::update((time - lastTime) * 0.001f);
-            lastTime = time;
-
+    while (!Core::isQuit)
+        if (!GetNextEvent(0xffff, &event) && Game::update()) {
             Game::render();
             aglSwapBuffers(context);
         }
 
-    Game::free();
+    Game::deinit();
 	// TODO: sndFree
 
     aglSetCurrentContext(NULL);

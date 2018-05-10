@@ -4,306 +4,517 @@
 #include "core.h"
 #include "frustum.h"
 #include "controller.h"
-#include "lara.h"
+#include "character.h"
 
-#define CAMERA_OFFSET (1024.0f + 256.0f)
+#define CAM_OFFSET_FOLLOW (1024.0f + 512.0f)
+#define CAM_OFFSET_COMBAT (2048.0f + 512.0f)
 
-struct Camera : Controller {
-    Lara    *owner;
-    Frustum *frustum;
+#define CAM_SPEED_FOLLOW  12
+#define CAM_SPEED_COMBAT  8
 
-    float   fov, znear, zfar;
-    vec3    target, destPos, lastDest, advAngle;
-    float   advTimer;
-    mat4    mViewInv;
-    int     room;
+struct Camera : ICamera {
+    IGame      *game;
+    TR::Level  *level;
+    Character  *owner;
+    Frustum    *frustum;
 
-    float   timer;
-    int     actTargetEntity, actCamera;
+    float       fov, aspect, znear, zfar;
+    vec3        advAngle, targetAngle;
+    float       advTimer;
+    mat4        mViewInv;
 
-    Basis   prevBasis;
-    vec4    *reflectPlane;
+    float       timer;
 
-    bool    cutscene;
-    bool    firstPerson;
-    bool    isVR;
+    int         viewIndex;
+    int         viewIndexLast;
+    Controller* viewTarget;
+    Basis       fpHead;
+    int         speed;
+    bool        smooth;
 
-    float   shake;
-
-    Camera(IGame *game, Lara *owner) : Controller(game, owner ? owner->entity : 0), owner(owner), frustum(new Frustum()), timer(0.0f), actTargetEntity(-1), actCamera(-1), reflectPlane(NULL), isVR(false) {
+    Camera(IGame *game, Character *owner) : ICamera(), game(game), level(game->getLevel()), frustum(new Frustum()), timer(-1.0f), viewIndex(-1), viewIndexLast(-1), viewTarget(NULL) {
+        this->owner = owner;
         changeView(false);
-        cutscene = owner->getEntity().type != TR::Entity::LARA && level->cameraFrames;
+        if (level->isCutsceneLevel()) {
+            mode = MODE_CUTSCENE;
+//            room  = level->entities[level->cutEntity].room;
+            timer = 0.0f;
+        } else
+            mode = MODE_FOLLOW;
+
+        eye.pos     = owner->pos;
+        eye.room    = owner->getRoomIndex();
+        target.pos  = owner->pos;
+        target.room = eye.room;
+
+        target.pos.y -= 1024;
+        eye.pos.z  -= 100;
+
+        advTimer = -1.0f;
+
+        speed  = CAM_SPEED_FOLLOW;
+        smooth = false;
     }
 
     virtual ~Camera() {
         delete frustum;
     }
     
+    virtual Controller* getOwner() {
+        return owner;
+    }
+
     virtual int getRoomIndex() const {
-        return actCamera > -1 ? level->cameras[actCamera].room : room;
+        return eye.room;
     }
 
-    virtual void checkRoom() {
-        TR::Level::FloorInfo info;
-        level->getFloorInfo(room, (int)pos.x, (int)pos.y, (int)pos.z, info);
-
-        if (info.roomNext != TR::NO_ROOM) 
-            room = info.roomNext;
-        
-        if (pos.y < info.roomCeiling) {
-            if (info.roomAbove != TR::NO_ROOM)
-                room = info.roomAbove;
-            else
-                if (info.roomCeiling != 0xffff8100)
-                    pos.y = (float)info.roomCeiling;
+    void updateListener(const mat4 &matrix) {
+        Sound::flipped = level->state.flags.flipped;
+        Sound::listener[cameraIndex].matrix = matrix;
+        if (cameraIndex == 0) { // reverb effect only for main player
+            TR::Room &r = level->rooms[getRoomIndex()];
+            int h = (r.info.yBottom - r.info.yTop) / 1024;
+            Sound::reverb.setRoomSize(vec3(float(r.xSectors), float(h), float(r.zSectors)) * 2.419f); // convert cells size into meters
         }
-
-        if (pos.y > info.roomFloor) {
-            if (info.roomBelow != TR::NO_ROOM)
-                room = info.roomBelow;
-            else
-                if (info.roomFloor != 0xffff8100)
-                    pos.y = (float)info.roomFloor;
-        }
-    }
-
-    virtual bool activate(ActionCommand *cmd) {
-        Controller::activate(cmd);
-        this->timer = max(max(1.0f, this->timer), cmd->timer);
-        if (cmd->action == TR::Action::CAMERA_TARGET)
-            actTargetEntity = cmd->value;
-        if (cmd->action == TR::Action::CAMERA_SWITCH) {
-            actCamera = cmd->value;
-            lastDest = pos;
-        }
-        activateNext();
-        return true;
-    }
-
-    void updateListener() {
-        Sound::listener.matrix = mViewInv;
-        TR::Room &r = level->rooms[getRoomIndex()];
-        int h = (r.info.yBottom - r.info.yTop) / 1024;
-        Sound::reverb.setRoomSize(vec3(float(r.xSectors), float(h), float(r.zSectors)) * 2.419f); // convert cells size into meters
     }
 
     bool isUnderwater() {
         return level->rooms[getRoomIndex()].flags.water;
     }
 
-    virtual void update() {
-        if (shake > 0.0f)
-            shake = max(0.0f, shake - Core::deltaTime);
+    vec3 getViewPoint() {
+        Box box = owner->getBoundingBox();
+        vec3 pos = owner->pos;
+        vec3 center = box.center();
 
-    #ifndef LEVEL_EDITOR
-        if (cutscene) { // cutscene
-            timer += Core::deltaTime * 30;
-            float t = timer - int(timer);
-            int indexA = int(timer) % level->cameraFramesCount;
-            int indexB = min(indexA + 1, level->cameraFramesCount - 1);
-            TR::CameraFrame *frameA = &level->cameraFrames[indexA];
-            TR::CameraFrame *frameB = &level->cameraFrames[indexB];
-
-            const int eps = 512;
-
-            if (abs(frameA->pos.x - frameB->pos.x) > eps || abs(frameA->pos.y - frameB->pos.y) > eps || abs(frameA->pos.z - frameB->pos.z) > eps) {
-                pos    = frameA->pos;
-                target = frameA->target;
-                fov    = frameA->fov / 32767.0f * 120.0f;
-            } else {
-                pos    = vec3(frameA->pos).lerp(frameB->pos, t);
-                target = vec3(frameA->target).lerp(frameB->target, t);
-                fov    = lerp(frameA->fov / 32767.0f * 120.0f, frameB->fov / 32767.0f * 120.0f, t);
-            }
-
-            pos    = level->cutMatrix * pos;
-            target = level->cutMatrix * target;
-
-            // TODO: frame->roll
-        } else
-    #endif        
-        {
-            vec3 advAngleOld = advAngle;
-
-            if (Input::down[ikMouseL]) {
-                vec2 delta = Input::mouse.pos - Input::mouse.start.L;
-                advAngle.x -= delta.y * 0.01f;
-                advAngle.y += delta.x * 0.01f;
-                Input::mouse.start.L = Input::mouse.pos;
-            }
-
-            advAngle.x -= Input::joy.R.y * 2.0f * Core::deltaTime;
-            advAngle.y += Input::joy.R.x * 2.0f * Core::deltaTime;
-
-            if (advAngleOld == advAngle) {
-                if (advTimer > 0.0f) {
-                    advTimer -= Core::deltaTime;
-                    if (advTimer <= 0.0f)
-                        advTimer = 0.0f;
-                }
-            } else
-                advTimer = -1.0f;
-
-            if (owner->velocity != 0.0f && advTimer < 0.0f && !Input::down[ikMouseL])
-                advTimer = -advTimer;
-
-        #ifndef LEVEL_EDITOR
-            if (advTimer == 0.0f && advAngle != 0.0f) {
-                float t = 10.0f * Core::deltaTime;
-                advAngle.x = lerp(clampAngle(advAngle.x), 0.0f, t);
-                advAngle.y = lerp(clampAngle(advAngle.y), 0.0f, t);
-            }
-        #endif
-            if (owner->health > 0)
-                angle = owner->angle + advAngle;
-            angle.z = 0.0f;
-
-            if (owner->stand == Lara::STAND_ONWATER)
-                angle.x -= 22.0f * DEG2RAD;
-            if (owner->state == Lara::STATE_HANG || owner->state == Lara::STATE_HANG_LEFT || owner->state == Lara::STATE_HANG_RIGHT)
-                angle.x -= 60.0f * DEG2RAD;
-
-        #ifdef LEVEL_EDITOR
-            angle   = advAngle;
-            angle.x = min(max(angle.x, -80 * DEG2RAD), 80 * DEG2RAD);
-
-            vec3 d = vec3(sinf(angle.y) * cosf(angle.x), -sinf(angle.x), cosf(angle.y) * cosf(angle.x));
-            vec3 v = vec3(0);
-
-            if (Input::down[ikW]) v = v + d;
-            if (Input::down[ikS]) v = v - d;
-            if (Input::down[ikA]) v = v + d.cross(vec3(0, 1, 0));
-            if (Input::down[ikD]) v = v - d.cross(vec3(0, 1, 0));
-            pos = pos + v.normal() * (Core::deltaTime * 512.0f * 10.0f);
-
-            mViewInv.identity();
-            mViewInv.translate(pos);
-            mViewInv.rotateY(angle.y - PI);
-            mViewInv.rotateX(-angle.x);
-            mViewInv.rotateZ(PI);
-
-            updateListener();
-
-            return;
-        #endif
-            int lookAt = -1;
-            if (actTargetEntity > -1)   lookAt = actTargetEntity;
-            if (owner->arms[0].target > -1 && owner->arms[1].target > -1 && owner->arms[0].target != owner->arms[1].target) {
-                // two diff targets
-            } else if (owner->arms[0].target > -1)
-                lookAt = owner->arms[0].target;
-            else if (owner->arms[1].target > -1)
-                lookAt = owner->arms[1].target;
-            else if (owner->arms[0].tracking > -1)
-                lookAt = owner->arms[0].tracking;
-            else if (owner->arms[1].tracking > -1)
-                lookAt = owner->arms[1].tracking;
-
-            owner->viewTarget = lookAt;
-
-            if (timer > 0.0f) {
-                timer -= Core::deltaTime;
-                if (timer <= 0.0f) {
-                    timer = 0.0f;
-                    if (room != getRoomIndex())
-                        pos = lastDest;
-                    actTargetEntity = actCamera = -1;
-                    target = owner->getViewPoint();
-                }
-            }
-
-            if (firstPerson && actCamera == -1) {
-                Basis head = owner->animation.getJoints(owner->getMatrix(), 14, true);
-                Basis eye(quat(0.0f, 0.0f, 0.0f, 1.0f), vec3(0.0f, -40.0f, 10.0f));
-                eye = head * eye;
-                mViewInv.identity();
-
-                //prevBasis = prevBasis.lerp(eye, 15.0f * Core::deltaTime);
-
-                mViewInv.setRot(eye.rot);
-                mViewInv.setPos(eye.pos);
-                mViewInv.rotateY(advAngle.y);
-                mViewInv.rotateX(advAngle.x + PI);
-
-                pos = mViewInv.getPos();
-                checkRoom();
-                updateListener();
-                return;
-            }
-
-            float lerpFactor = (lookAt == -1) ? 6.0f : 10.0f;
-            vec3 dir;
-            target = target.lerp(owner->getViewPoint(), lerpFactor * Core::deltaTime);
-
-            if (actCamera > -1) {
-                TR::Camera &c = level->cameras[actCamera];
-                destPos = vec3(float(c.x), float(c.y), float(c.z));
-                if (room != getRoomIndex()) 
-                    pos = destPos;
-                if (lookAt > -1) {
-                    TR::Entity &e = level->entities[lookAt];
-                    target = ((Controller*)e.controller)->pos;
-                }
-            } else {
-                if (lookAt > -1) {
-                    TR::Entity &e = level->entities[lookAt];
-                    dir = (((Controller*)e.controller)->pos - target).normal();
-                } else
-                    dir = getDir();
-
-                int destRoom;
-                if ((!owner->emptyHands() || owner->state != Lara::STATE_BACK_JUMP) || lookAt > -1) {
-                    vec3 eye = target - dir * CAMERA_OFFSET;
-                    destPos = trace(owner->getRoomIndex(), target, eye, destRoom, true);
-                    lastDest = destPos;
-                } else {
-                    vec3 eye = lastDest + dir.cross(vec3(0, 1, 0)).normal() * 2048.0f - vec3(0.0f, 512.0f, 0.0f);
-                    destPos = trace(owner->getRoomIndex(), target, eye, destRoom, true);
-                }                
-                room = destRoom;
-            }
-            pos = pos.lerp(destPos, Core::deltaTime * lerpFactor);
-
-            if (actCamera <= -1)
-                checkRoom();
+        if (centerView) {
+            pos.x = center.x;
+            pos.z = center.z;
         }
 
-        mViewInv = mat4(pos, target, vec3(0, -1, 0));
-        if (isVR) {
-            mat4 head = Input::head.getMatrix();
-            mViewInv = mViewInv * head;
-        }
-        updateListener();
+        if (mode != MODE_STATIC)
+            pos.y = box.max.y + (box.min.y - box.max.y) * (3.0f / 4.0f);
+        else
+            pos.y = center.y;
+
+        if (owner->stand != Character::STAND_UNDERWATER)
+            pos.y -= 256;
+
+        return pos;
     }
 
-    mat4 getProjMatrix() {
-        return mat4(fov, float(Core::width) / float(Core::height), znear, zfar);
-        //return mat4(fov, Core::viewport.z / Core::viewport.w, znear, zfar);
+    void setView(int viewIndex, float timer, int speed) {
+        viewIndexLast   = viewIndex;
+        smooth          = speed > 0;
+        mode            = MODE_STATIC;
+        this->viewIndex = viewIndex;
+        this->timer     = timer;
+        this->speed     = speed * 8;
+    }
+
+    void resetTarget() {
+        smooth        = speed > 0;
+        mode          = MODE_FOLLOW;
+        viewIndex     = -1;
+        viewTarget    = NULL;
+        timer         = -1.0f;
+        speed         = CAM_SPEED_FOLLOW;
+    }
+
+    virtual void doCutscene(const vec3 &pos, float rotation) {
+        mode = Camera::MODE_CUTSCENE;
+        level->cutMatrix.identity();
+        level->cutMatrix.rotateY(rotation);
+        level->cutMatrix.setPos(pos);
+        owner->animation.overrideMask = 0;
+        timer = 0.0f;
+    }
+
+    bool updateFirstPerson() {
+        Basis &joint = owner->getJoint(owner->jointHead);
+
+        if (mode != MODE_CUTSCENE && !owner->useHeadAnimation()) {
+            targetAngle.x += PI;
+            targetAngle.z = -targetAngle.z;
+
+            vec3 pos = joint.pos - joint.rot * vec3(0, 48, -24);
+            quat rot = rotYXZ(targetAngle);
+
+            fpHead.pos = pos;
+            fpHead.rot = fpHead.rot.lerp(rot, smooth ? Core::deltaTime * 10.0f : 1.0f);
+        } else {
+            fpHead = joint;
+            fpHead.rot = fpHead.rot * quat(vec3(1, 0, 0), PI);
+            fpHead.pos -= joint.rot * vec3(0, 48, -24);
+        }
+
+        if (Core::settings.detail.stereo == Core::Settings::STEREO_VR)
+            fpHead.rot = quat(vec3(1, 0, 0), PI);
+
+        mViewInv.identity();
+        mViewInv.setRot(fpHead.rot);
+        mViewInv.setPos(fpHead.pos);
+
+        eye.pos  = mViewInv.getPos();
+        eye.room = owner->getRoomIndex();
+
+        return true;
+    }
+
+    void clipSlide(float offset, float *toX, float *toZ, float targetX, float targetZ, const TR::Box &box) {
+        TR::Box sqBox;
+        sqBox.minZ = SQR(int(targetZ) - box.minZ);
+        sqBox.maxZ = SQR(int(targetZ) - box.maxZ);
+        sqBox.minX = SQR(int(targetX) - box.minX);
+        sqBox.maxX = 0; // unused
+
+        offset *= offset;
+
+        int32 h = sqBox.minX + sqBox.minZ;
+        if (h > 256 * 256) {
+            *toX = float(box.minX);
+            if (offset > h || offset < sqBox.minX)
+                *toZ = float(box.minZ);
+            else
+                *toZ = targetZ + sqrtf(offset - sqBox.minX) * sign(box.minZ - box.maxZ);
+            return;
+        }
+    
+        h = sqBox.minX + sqBox.maxZ;
+        if (h > 256 * 256) {
+            *toX = float(box.minX);
+            if (offset > h || offset < sqBox.minX)
+                *toZ = float(box.maxZ);
+            else
+                *toZ = targetZ - sqrtf(offset - sqBox.minX) * sign(box.minZ - box.maxZ);
+            return;
+        }
+
+        h = sqBox.maxX + sqBox.minZ;
+        *toZ = float(box.minZ);
+        if (offset > h || offset < sqBox.minZ)
+            *toX = float(box.maxX);
+        else
+            *toX = targetX - sqrtf(offset - sqBox.minZ) * sign(box.minX - box.maxX);
+    }
+
+    void traceClip(float offset, TR::Location &to) {
+        owner->trace(target, to);
+
+        uint16 ownerBoxIndex  = level->getSector(target.room, target.pos)->boxIndex;
+        uint16 cameraBoxIndex = level->getSector(to.room, to.pos)->boxIndex;
+
+        if (ownerBoxIndex == TR::NO_BOX) {
+            ASSERT(false);
+            return;
+        }
+
+        TR::Box cBox = level->boxes[ownerBoxIndex];
+        if (cameraBoxIndex != TR::NO_BOX && !level->boxes[ownerBoxIndex].contains(int(to.pos.x), int(to.pos.z)))
+            cBox = level->boxes[cameraBoxIndex];
+
+        clipBox(to.room, to.pos, cBox);
+        cBox.expand(-256);
+
+        // transform coord system by clipping direction
+        float *toX    = &to.pos.x, 
+              *toZ    = &to.pos.z,
+              targetX = target.pos.x, 
+              targetZ = target.pos.z;
+
+        if (to.pos.z < cBox.minZ || to.pos.z > cBox.maxZ) {
+            swap(toX, toZ);
+            swap(targetX, targetZ);
+            swap(cBox.minX, cBox.minZ);
+            swap(cBox.maxX, cBox.maxZ);
+        }
+
+        if (*toX >= cBox.minX && *toX <= cBox.maxX)
+            return;
+
+        if (*toX > cBox.maxX)
+            swap(cBox.minX, cBox.maxX);
+    
+        if (*toZ > targetZ)
+            swap(cBox.minZ, cBox.maxZ);
+
+        clipSlide(offset, toX, toZ, targetX, targetZ, cBox);
+        level->getSector(to.room, to.pos);
+    }
+
+    void clipBox(int16 roomIndex, const vec3 &pos, TR::Box &box) {
+        const TR::Room &room = level->rooms[roomIndex];
+    
+        int dx = int(pos.x) / 1024 * 1024;
+        int dz = int(pos.z) / 1024 * 1024;
+
+        TR::Box border;
+        border.minX = dx - 1;
+        border.minZ = dz - 1;
+        border.maxX = dx + 1024;
+        border.maxZ = dz + 1024;
+
+        for (int i = 0; i < 4; i++) {
+            vec3 p = pos;
+
+            if (i / 2)
+                p.x = float(border.sides[i]);
+            else
+                p.z = float(border.sides[i]);
+
+            int16 index = roomIndex;
+            if (level->isBlocked(index, p)) {
+                box.sides[i] = border.sides[i];
+                continue;
+            }
+
+            int sx = clamp((int(p.x) - room.info.x) / 1024, 0, room.xSectors - 1);
+            int sz = clamp((int(p.z) - room.info.z) / 1024, 0, room.zSectors - 1);
+
+            int boxIndex = room.sectors[sz + sx * room.zSectors].boxIndex;
+        
+            if (boxIndex != TR::NO_BOX) {
+                if (i % 2)
+                    box.sides[i] = max(box.sides[i], level->boxes[boxIndex].sides[i]);
+                else
+                    box.sides[i] = min(box.sides[i], level->boxes[boxIndex].sides[i]);
+            }
+        }
+    }
+
+    void move(const TR::Location &to) {
+        float t = (smooth && speed) ? (30.0f / speed * Core::deltaTime) : 1.0f;
+
+        eye.pos  = eye.pos.lerp(to.pos, t);
+        eye.room = to.room;
+
+        TR::Room::Sector *sector = level->getSector(eye.room, eye.pos);
+
+        float floor = level->getFloor(sector, eye.pos) - 256;
+
+        if (to.pos.y >= floor && eye.pos.y >= floor) {
+            owner->trace(target, eye);
+            sector = level->getSector(eye.room, eye.pos);
+            floor  = level->getFloor(sector, eye.pos) - 256;
+        }
+    
+        float ceiling = level->getCeiling(sector, eye.pos) + 256;
+        if (floor < ceiling)
+            floor = ceiling = (floor + ceiling) * 0.5f;
+
+        if (eye.pos.y > floor)   eye.pos.y = floor;
+        if (eye.pos.y < ceiling) eye.pos.y = ceiling;
+    }
+
+    virtual void update() {
+        if (shake > 0.0f) {
+            shake = max(0.0f, shake - Core::deltaTime);
+            Input::setJoyVibration(cameraIndex,  clamp(shake, 0.0f, 1.0f), 0);
+        }
+
+        if (mode == MODE_CUTSCENE) {
+            timer += Core::deltaTime * 30.0f;
+            float t = timer - int(timer);
+            int indexA = min(int(timer), level->cameraFramesCount - 1);
+            int indexB = min((indexA + 1), level->cameraFramesCount - 1);
+
+            if (indexA == level->cameraFramesCount - 1) {
+                if (level->isCutsceneLevel())
+                    game->loadNextLevel();
+                else {
+                    Character *lara = (Character*)owner;
+                    if (lara->health > 0.0f)
+                        mode = MODE_FOLLOW;
+                }
+            }
+
+            if (!firstPerson) {
+                TR::CameraFrame *frameA = &level->cameraFrames[indexA];
+                TR::CameraFrame *frameB = &level->cameraFrames[indexB];
+
+                const float maxDelta = 512 * 512;
+
+                float dp = (vec3(frameA->pos) - vec3(frameB->pos)).length2();
+                float dt = (vec3(frameA->target) - vec3(frameB->target)).length2();
+
+                if (dp > maxDelta || dt > maxDelta) {
+                    eye.pos    = frameA->pos;
+                    target.pos = frameA->target;
+                    fov        = frameA->fov / 32767.0f * 120.0f;
+                } else {
+                    eye.pos    = vec3(frameA->pos).lerp(frameB->pos, t);
+                    target.pos = vec3(frameA->target).lerp(frameB->target, t);
+                    fov        = lerp(frameA->fov / 32767.0f * 120.0f, frameB->fov / 32767.0f * 120.0f, t);
+                }
+
+                eye.pos    = level->cutMatrix * eye.pos;
+                target.pos = level->cutMatrix * target.pos;
+
+                mViewInv   = mat4(eye.pos, target.pos, vec3(0, -1, 0));
+            } else
+                updateFirstPerson();
+        } else {
+            Controller *lookAt = NULL;
+
+            if (mode != MODE_STATIC) {
+                if (!owner->viewTarget) {
+                    if (viewTarget && !viewTarget->flags.invisible) {
+                        vec3 targetVec = (viewTarget->pos - owner->pos).normal();
+                        if (targetVec.dot(owner->getDir()) > 0.5f)
+                            lookAt = viewTarget;
+                    }
+                } else
+                    lookAt = owner->viewTarget;
+
+                owner->lookAt(lookAt);
+            } else {
+                lookAt = viewTarget;
+                owner->lookAt(NULL);
+            }
+
+            if (Core::settings.detail.stereo == Core::Settings::STEREO_VR) {
+                advAngle = vec3(0.0f);
+            } else {
+                vec3 advAngleOld = advAngle;
+
+                if (Input::down[ikMouseL]) {
+                    vec2 delta = Input::mouse.pos - Input::mouse.start.L;
+                    advAngle.x -= delta.y * 0.01f;
+                    advAngle.y += delta.x * 0.01f;
+                    advAngle.y = clamp(advAngle.y, -PI, PI);
+                    Input::mouse.start.L = Input::mouse.pos;
+                }
+
+                // TODO: use player index
+                if (Input::state[cameraIndex][cLook]) {
+                    float d = 2.0f * Core::deltaTime;
+
+                    advAngle.x += Input::joy[cameraIndex].L.y * d;
+                    advAngle.y += Input::joy[cameraIndex].L.x * d;
+
+                    if (Input::state[cameraIndex][cUp])    advAngle.x -= d;
+                    if (Input::state[cameraIndex][cDown])  advAngle.x += d;
+                    if (Input::state[cameraIndex][cLeft])  advAngle.y += d;
+                    if (Input::state[cameraIndex][cRight]) advAngle.y -= d;
+                }
+
+                if (advAngleOld == advAngle) {
+                    if (advTimer > 0.0f) {
+                        advTimer = max(0.0f, advTimer - Core::deltaTime);
+                    }
+                } else
+                    advTimer = -1.0f;
+
+                if (owner->velocity != 0.0f && advTimer < 0.0f && !Input::down[ikMouseL])
+                    advTimer = -advTimer;
+
+                if (advTimer == 0.0f && advAngle != 0.0f) {
+                    float t = 10.0f * Core::deltaTime;
+                    advAngle.x = lerp(clampAngle(advAngle.x), 0.0f, t);
+                    advAngle.y = lerp(clampAngle(advAngle.y), 0.0f, t);
+                }
+            }
+
+            targetAngle = owner->angle + advAngle;
+            if (!firstPerson && (mode == MODE_FOLLOW || mode == MODE_COMBAT))
+                targetAngle += angle;
+
+            targetAngle.x = clamp(targetAngle.x, -85 * DEG2RAD, +85 * DEG2RAD);
+
+            if (!firstPerson || viewIndex != -1) {
+
+                if (timer > 0.0f) {
+                    timer -= Core::deltaTime;
+                    if (timer <= 0.0f)
+                        resetTarget();
+                }
+
+                TR::Location to;
+
+                target.box  = TR::NO_BOX;
+                if (viewIndex > -1) {
+                    TR::Camera &cam = level->cameras[viewIndex];
+                    to.room = cam.room;
+                    to.pos  = vec3(float(cam.x), float(cam.y), float(cam.z));
+                    if (lookAt) {
+                        target.room = lookAt->getRoomIndex();
+                        target.pos  = lookAt->getBoundingBox().center();
+                    } else {
+                        target.room = owner->getRoomIndex();
+                        target.pos  = owner->pos;
+                        target.pos.y -= 512.0f;
+                    }
+                } else {
+                    vec3 p = getViewPoint();
+                    target.room = owner->getRoomIndex();
+                    target.pos.x = p.x;
+                    target.pos.z = p.z;
+                    if (smooth)
+                        target.pos.y += (p.y - target.pos.y) * Core::deltaTime * 5.0f;
+                    else
+                        target.pos.y = p.y;
+
+                    float offset = (mode == MODE_COMBAT ? CAM_OFFSET_COMBAT : CAM_OFFSET_FOLLOW) * cosf(targetAngle.x);
+
+                    vec3 dir = vec3(targetAngle.x, targetAngle.y) * offset;
+                    to.pos  = target.pos - dir;
+                    to.room = target.room;
+
+                    traceClip(offset, to);
+                }
+
+                move(to);
+
+                if (timer <= 0.0f)
+                    resetTarget();
+
+                mViewInv = mat4(eye.pos, target.pos, vec3(0, -1, 0));
+            } else
+                updateFirstPerson();
+        }
+
+        level->getSector(eye.room, eye.pos);
+
+        if (Core::settings.detail.stereo == Core::Settings::STEREO_VR)
+            updateListener(mViewInv * Input::hmd.head);
+        else
+            updateListener(mViewInv);
+
+        smooth = true;
     }
 
     virtual void setup(bool calcMatrices) {
         if (calcMatrices) {
-            if (reflectPlane) {
-                Core::mViewInv = mat4(*reflectPlane) * mViewInv;
-                Core::mViewInv.scale(vec3(1.0f, -1.0f, 1.0f));
-            } else
-                Core::mViewInv = mViewInv;
+            Core::mViewInv = mViewInv;
 
-            Core::mView = Core::mViewInv.inverse();
+            if (Core::settings.detail.stereo == Core::Settings::STEREO_VR)
+                Core::mViewInv = Core::mViewInv * Input::hmd.eye[Core::eye == -1.0f ? 0 : 1];
+
             if (shake > 0.0f)
-                Core::mView.translate(vec3(0.0f, sinf(shake * PI * 7) * shake * 48.0f, 0.0f));
+                Core::mViewInv.setPos(Core::mViewInv.getPos() + vec3(0.0f, sinf(shake * PI * 7) * shake * 48.0f, 0.0f));
 
-            if (isVR)
-                Core::mView.translate(Core::mViewInv.right.xyz * (-Core::eye * 32.0f));
+            if (Core::settings.detail.stereo == Core::Settings::STEREO_ON)
+                Core::mViewInv.setPos(Core::mViewInv.getPos() + Core::mViewInv.right().xyz() * (Core::eye * (firstPerson ? 8.0f : 32.0f) ));
 
-            Core::mProj = getProjMatrix();
+            if (reflectPlane) {
+                Core::mViewInv = mat4(*reflectPlane) * Core::mViewInv;
+                Core::mViewInv.scale(vec3(1.0f, -1.0f, 1.0f));
+            }
 
-        // TODO: temporal anti-aliasing
-        //    Core::mProj.e02 = (randf() - 0.5f) * 32.0f / Core::width;
-        //    Core::mProj.e12 = (randf() - 0.5f) * 32.0f / Core::height;
+            Core::mView = Core::mViewInv.inverseOrtho();
+
+            if (Core::settings.detail.stereo == Core::Settings::STEREO_VR)
+                Core::mProj = Input::hmd.proj[Core::eye == -1.0f ? 0 : 1];
+            else
+                Core::mProj = mat4(fov, aspect, znear, zfar);
         }
-        Core::mViewProj = Core::mProj * Core::mView;
-        Core::viewPos   = Core::mViewInv.offset.xyz;
+
+        Core::setViewProj(Core::mView, Core::mProj);
+        Core::viewPos = Core::mViewInv.getPos();
+
+        // update room for eye (with HMD offset)
+        if (Core::settings.detail.stereo == Core::Settings::STEREO_VR)
+            level->getSector(eye.room, Core::viewPos);
 
         frustum->pos = Core::viewPos;
         frustum->calcPlanes(Core::mViewProj);
@@ -312,15 +523,18 @@ struct Camera : Controller {
     void changeView(bool firstPerson) {
         this->firstPerson = firstPerson;
 
-        room     = owner->getRoomIndex();
-        pos      = owner->pos - owner->getDir() * 1024.0f;
-        target   = owner->getViewPoint();
+        if (firstPerson)
+            smooth = false;
+
         advAngle = vec3(0.0f);
         advTimer = 0.0f;
 
         fov   = firstPerson ? 90.0f : 65.0f;
-        znear = firstPerson ? 8.0f  : 128.0f;
-        zfar  = 40.0f * 1024.0f;
+        znear = firstPerson ? 8.0f  : 32.0f;
+        #ifdef _OS_PSP
+            znear = 256.0f;
+        #endif
+        zfar  = 45.0f * 1024.0f;
     }
 };
 

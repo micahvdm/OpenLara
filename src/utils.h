@@ -2,36 +2,56 @@
 #define H_UTILS
 
 #include <stdlib.h>
-#include <cstring>
 #include <math.h>
 #include <float.h>
 
 #ifdef _DEBUG
-    #ifdef LINUX
+    #ifdef _OS_LINUX
         #define debugBreak() raise(SIGTRAP);
     #else
         #define debugBreak() _asm { int 3 }
     #endif
 
-    #define ASSERT(expr) if (expr) {} else { LOG("ASSERT %s in %s:%d\n", #expr, __FILE__, __LINE__); debugBreak(); }
+    #define ASSERT(expr) if (expr) {} else { LOG("ASSERT:\n  %s:%d\n  %s => %s\n", __FILE__, __LINE__, __FUNCTION__, #expr); debugBreak(); }
 
-    #ifndef ANDROID
+    #ifndef _OS_ANDROID
         #define LOG(...) printf(__VA_ARGS__)
     #endif
 
 #else
     #define ASSERT(expr)
-//    #ifdef PROFILE
+    #ifdef _OS_LINUX
+        #define LOG(...) printf(__VA_ARGS__); fflush(stdout)
+    #else
         #define LOG(...) printf(__VA_ARGS__)
-//    #else
-//        #define LOG(...) 0
-//    #endif
+    //    #define LOG(...) 0
+    #endif
 #endif
 
-#if defined(ANDROID) && !defined(__LIBRETRO__)
-        #include <android/log.h>
-        #undef LOG
-        #define LOG(...) __android_log_print(ANDROID_LOG_INFO,"OpenLara",__VA_ARGS__)
+#ifdef _OS_ANDROID
+    #include <android/log.h>
+    #undef LOG
+    #define LOG(...) __android_log_print(ANDROID_LOG_INFO,"OpenLara",__VA_ARGS__)
+#endif
+
+#ifdef _OS_PSP
+    extern "C" {
+    // pspmath.h
+        extern float vfpu_sinf(float x);
+        extern float vfpu_cosf(float x);
+        extern float vfpu_atan2f(float x, float y);
+        extern void  vfpu_sincos(float r, float *s, float *c);
+    }
+
+    #define sinf(x)         vfpu_sinf(x)
+    #define cosf(x)         vfpu_cosf(x)
+    #define atan2f(x, y)    vfpu_atan2f(x, y)
+    #define sincos(a, s, c) vfpu_sincos(a, s, c)
+#else
+    void sincos(float r, float *s, float *c) {
+        *s = sinf(r);
+        *c = cosf(r);
+    }
 #endif
 
 #define DECL_ENUM(v) v,
@@ -43,6 +63,7 @@
 #define PI2     (PI * 2.0f)
 #define DEG2RAD (PI / 180.0f)
 #define RAD2DEG (180.0f / PI)
+#define SQR(x)  ((x)*(x))
 #define randf() ((float)rand()/RAND_MAX)
 
 typedef signed char     int8;
@@ -52,18 +73,30 @@ typedef unsigned char   uint8;
 typedef unsigned short  uint16;
 typedef unsigned int    uint32;
 
-#define FOURCC(str)     (*((uint32*)str))
+#define FOURCC(str)        uint32(((uint8*)(str))[0] | (((uint8*)(str))[1] << 8) | (((uint8*)(str))[2] << 16) | (((uint8*)(str))[3] << 24) )
 
-#define COUNT(arr)      (sizeof(arr) / sizeof(arr[0]))
+#define COUNT(arr)         (sizeof(arr) / sizeof(arr[0]))
+#define OFFSETOF(T, E)     ((size_t)&(((T*)0)->E))
+#define TEST_BIT(arr, bit) ((arr[bit / 32] >> (bit % 32)) & 1)
 
 template <typename T>
 inline const T& min(const T &a, const T &b) {
     return a < b ? a : b;
 }
 
+template <typename T>
+inline const T& min(const T &a, const T &b, const T &c) {
+    return (a < b && a < c) ? a : ((b < a && b < c) ? b : c);
+}
+
 template <class T>
 inline const T& max(const T &a, const T &b) {
     return a > b ? a : b;
+}
+
+template <typename T>
+inline const T& max(const T &a, const T &b, const T &c) {
+    return (a > b && a > c) ? a : ((b > a && b > c) ? b : c);
 }
 
 template <class T>
@@ -81,6 +114,14 @@ inline void swap(T &a, T &b) {
     T tmp = a;
     a = b;
     b = tmp;
+}
+
+inline uint16 swap16(uint16 x) {
+    return ((x & 0x00FF) << 8) | ((x & 0xFF00) >> 8);
+}
+
+inline uint32 swap32(uint32 x) {
+    return ((x & 0x000000FF) << 24) | ((x & 0x0000FF00) << 8) | ((x & 0x00FF0000) >> 8) | ((x & 0xFF000000) >> 24);
 }
 
 float clampAngle(float a) {
@@ -140,9 +181,33 @@ int nextPow2(uint32 x) {
 }
 
 uint32 fnv32(const char *data, int32 size, uint32 hash = 0x811c9dc5) {
-	for (int i = 0; i < size; i++)
-		hash = (hash ^ data[i]) * 0x01000193;
-	return hash;
+    for (int i = 0; i < size; i++)
+        hash = (hash ^ data[i]) * 0x01000193;
+    return hash;
+}
+
+template <class T>
+void qsort(T* v, int L, int R) {
+    int i = L;
+    int j = R;
+    const T m = v[(L + R) / 2];
+
+    while (i <= j) {
+        while (T::cmp(v[i], m) < 0) i++;
+        while (T::cmp(m, v[j]) < 0) j--;
+
+        if (i <= j)
+            swap(v[i++], v[j--]);
+    }
+
+    if (L < j) qsort(v, L, j);
+    if (i < R) qsort(v, i, R);
+}
+
+template <class T>
+void sort(T *items, int count) {
+    if (count)
+        qsort(items, 0, count - 1);
 }
 
 struct vec2 {
@@ -188,20 +253,20 @@ struct vec2 {
     vec2  normal()  const { float s = length(); return s == 0.0 ? (*this) : (*this)*(1.0f/s); }
     float angle()   const { return atan2f(y, x); }
     vec2& rotate(const vec2 &cs) { *this = vec2(x*cs.x - y*cs.y, x*cs.y + y*cs.x); return *this; }
-    vec2& rotate(float angle)    { return rotate(vec2(cosf(angle), sinf(angle))); }
+    vec2& rotate(float angle)    { vec2 cs; sincos(angle, &cs.y, &cs.x); return rotate(cs); }
 };
 
 struct vec3 {
-    union {
-       vec2 xy;
-       struct { float x, y, z; };
-    };
+    float x, y, z;
 
     vec3() {}
     vec3(float s) : x(s), y(s), z(s) {}
     vec3(float x, float y, float z) : x(x), y(y), z(z) {}
     vec3(const vec2 &xy, float z = 0.0f) : x(xy.x), y(xy.y), z(z) {}
     vec3(float lng, float lat) : x(sinf(lat) * cosf(lng)), y(-sinf(lng)), z(cosf(lat) * cosf(lng)) {}
+
+    vec2& xy() const { return *((vec2*)&x); }
+    vec2& yz() const { return *((vec2*)&y); }
 
     inline float& operator [] (int index) const { ASSERT(index >= 0 && index <= 2); return ((float*)this)[index]; }
 
@@ -240,6 +305,10 @@ struct vec3 {
     vec3  normal()  const { float s = length(); return s == 0.0f ? (*this) : (*this)*(1.0f/s); }
     vec3  axisXZ()  const { return (fabsf(x) > fabsf(z)) ? vec3(float(sign(x)), 0, 0) : vec3(0, 0, float(sign(z))); }
 
+    vec3 reflect(const vec3 &n) const {
+        return *this - n * (dot(n) * 2.0f);
+    }
+
     vec3 lerp(const vec3 &v, const float t) const {
         if (t <= 0.0f) return *this;
         if (t >= 1.0f) return v;
@@ -247,7 +316,8 @@ struct vec3 {
     }
 
     vec3 rotateY(float angle) const {
-        float s = sinf(angle), c = cosf(angle); 
+        float s, c;
+        sincos(angle, &s, &c);
         return vec3(x*c - z*s, y, x*s + z*c);
     }
 
@@ -255,20 +325,24 @@ struct vec3 {
         return dot(v) / (length() * v.length());
     }
 
+    float angleX() const { return atan2f(sqrtf(x * x + z * z), y); }
     float angleY() const { return atan2f(z, x); }
 };
 
 struct vec4 {
-    union {
-       vec3 xyz;
-        struct { float x, y, z, w; };
-    };
+    float x, y, z, w;
+
+    vec3& xyz() const { return *((vec3*)&x); }
 
     vec4() {}
     vec4(float s) : x(s), y(s), z(s), w(s) {}
     vec4(float x, float y, float z, float w) : x(x), y(y), z(z), w(w) {}
+    vec4(const vec3 &xyz) : x(xyz.x), y(xyz.y), z(xyz.z), w(0) {}
     vec4(const vec3 &xyz, float w) : x(xyz.x), y(xyz.y), z(xyz.z), w(w) {}
     vec4(const vec2 &xy, const vec2 &zw) : x(xy.x), y(xy.y), z(zw.x), w(zw.y) {}
+
+    inline bool operator == (const vec4 &v) const { return x == v.x && y == v.y && z == v.z && w == v.w; }
+    inline bool operator != (const vec4 &v) const { return !(*this == v); }
 
     vec4 operator + (const vec4 &v) const { return vec4(x + v.x, y + v.y, z + v.z, w + v.w); }
     vec4 operator - (const vec4 &v) const { return vec4(x - v.x, y - v.y, z - v.z, w - v.w); }
@@ -283,21 +357,20 @@ struct vec4 {
 };
 
 struct quat {
-    union {
-        struct { float x, y, z, w; };
-        vec3 xyz;
-    };
+    float x, y, z, w;
+
+    vec3& xyz() const { return *((vec3*)&x); }
 
     quat() {}
     quat(float x, float y, float z, float w) : x(x), y(y), z(z), w(w) {}
 
     quat(const vec3 &axis, float angle) {
-        angle *= 0.5f;
-        float s = sinf(angle);
+        float s, c;
+        sincos(angle * 0.5f, &s, &c);
         x = axis.x * s;
         y = axis.y * s;
         z = axis.z * s;
-        w = cosf(angle);
+        w = c;
     }
 
     quat operator - () const {
@@ -324,8 +397,8 @@ struct quat {
     }
 
     vec3 operator * (const vec3 &v) const {
-    //	return v + xyz.cross(xyz.cross(v) + v * w) * 2.0f;
-	    return (*this * quat(v.x, v.y, v.z, 0) * inverse()).xyz;
+        //return v + xyz.cross(xyz.cross(v) + v * w) * 2.0f;
+        return (*this * quat(v.x, v.y, v.z, 0) * inverse()).xyz();
     }
 
     float dot(const quat &q) const {
@@ -393,23 +466,15 @@ struct quat {
 };
 
 struct mat4 {
+    float e00, e10, e20, e30,
+          e01, e11, e21, e31,
+          e02, e12, e22, e32,
+          e03, e13, e23, e33;
 
-    union {
-       struct {float e00, e10, e20, e30; };
-       vec4 right;
-    };
-    union {
-       struct {float e01, e11, e21, e31;};
-       vec4 up;
-    };
-    union {
-       struct {float e02, e12, e22, e32;};
-       vec4 dir;
-    };
-    union {
-       struct {float e03, e13, e23, e33;};
-       vec4 offset;
-    };
+    vec4& right()  const { return *((vec4*)&e00); }
+    vec4& up()     const { return *((vec4*)&e01); }
+    vec4& dir()    const { return *((vec4*)&e02); }
+    vec4& offset() const { return *((vec4*)&e03); }
 
     mat4() {}
 
@@ -461,10 +526,10 @@ struct mat4 {
         r = up.cross(d).normal();
         u = d.cross(r);
 
-        this->right     = vec4(r, 0.0f);
-        this->up        = vec4(u, 0.0f);
-        this->dir       = vec4(d, 0.0f);
-        this->offset    = vec4(from, 1.0f);
+        this->right()   = vec4(r, 0.0f);
+        this->up()      = vec4(u, 0.0f);
+        this->dir()     = vec4(d, 0.0f);
+        this->offset()  = vec4(from, 1.0f);
     }
 
     mat4(const vec4 &reflectPlane) {
@@ -473,10 +538,10 @@ struct mat4 {
               c = reflectPlane.z, 
               d = reflectPlane.w;
 
-        right  = vec4(1 - 2*a*a,   - 2*b*a,   - 2*c*a, 0);
-        up     = vec4(  - 2*a*b, 1 - 2*b*b,   - 2*c*b, 0);
-        dir    = vec4(  - 2*a*c,   - 2*b*c, 1 - 2*c*c, 0);
-        offset = vec4(  - 2*a*d,   - 2*b*d,   - 2*c*d, 1);
+        right()  = vec4(1 - 2*a*a,   - 2*b*a,   - 2*c*a, 0);
+        up()     = vec4(  - 2*a*b, 1 - 2*b*b,   - 2*c*b, 0);
+        dir()    = vec4(  - 2*a*c,   - 2*b*c, 1 - 2*c*c, 0);
+        offset() = vec4(  - 2*a*d,   - 2*b*d,   - 2*c*d, 1);
     }
 
 
@@ -540,7 +605,8 @@ struct mat4 {
     void rotateX(float angle) {
         mat4 m;
         m.identity();
-        float s = sinf(angle), c = cosf(angle);
+        float s, c;
+        sincos(angle, &s, &c);
         m.e11 = c;  m.e21 = s;
         m.e12 = -s; m.e22 = c;
         *this = *this * m;
@@ -549,7 +615,8 @@ struct mat4 {
     void rotateY(float angle) {
         mat4 m;
         m.identity();
-        float s = sinf(angle), c = cosf(angle);
+        float s, c;
+        sincos(angle, &s, &c);
         m.e00 = c;  m.e20 = -s;
         m.e02 = s;  m.e22 = c;
         *this = *this * m;
@@ -558,10 +625,89 @@ struct mat4 {
     void rotateZ(float angle) {
         mat4 m;
         m.identity();
-        float s = sinf(angle), c = cosf(angle);
+        float s, c;
+        sincos(angle, &s, &c);
         m.e00 = c;  m.e01 = -s;
         m.e10 = s;  m.e11 = c;
         *this = *this * m;
+    }
+
+    void rotateYXZ(const vec3 &angle) {
+        float s, c, a, b;
+
+        if (angle.y != 0.0f) {
+            sincos(angle.y, &s, &c);
+
+            a = e00 * c - e02 * s;
+            b = e02 * c + e00 * s;
+            e00 = a;
+            e02 = b;
+
+            a = e10 * c - e12 * s;
+            b = e12 * c + e10 * s;
+            e10 = a;
+            e12 = b;
+
+            a = e20 * c - e22 * s;
+            b = e22 * c + e20 * s;
+            e20 = a;
+            e22 = b;
+        }
+
+        if (angle.x != 0.0f) {
+            sincos(angle.x, &s, &c);
+
+            a = e01 * c + e02 * s;
+            b = e02 * c - e01 * s;
+            e01 = a;
+            e02 = b;
+
+            a = e11 * c + e12 * s;
+            b = e12 * c - e11 * s;
+            e11 = a;
+            e12 = b;
+
+            a = e21 * c + e22 * s;
+            b = e22 * c - e21 * s;
+            e21 = a;
+            e22 = b;
+        }
+
+        if (angle.z != 0.0f) {
+            sincos(angle.z, &s, &c);
+
+            a = e00 * c + e01 * s;
+            b = e01 * c - e00 * s;
+            e00 = a;
+            e01 = b;
+
+            a = e10 * c + e11 * s;
+            b = e11 * c - e10 * s;
+            e10 = a;
+            e11 = b;
+
+            a = e20 * c + e21 * s;
+            b = e21 * c - e20 * s;
+            e20 = a;
+            e21 = b;
+        }
+    }
+
+    void lerp(const mat4 &m, float t) {
+        e00 += (m.e00 - e00) * t;
+        e01 += (m.e01 - e01) * t;
+        e02 += (m.e02 - e02) * t;
+        e03 += (m.e03 - e03) * t;
+
+        e10 += (m.e10 - e10) * t;
+        e11 += (m.e11 - e11) * t;
+        e12 += (m.e12 - e12) * t;
+        e13 += (m.e13 - e13) * t;
+
+        e20 += (m.e20 - e20) * t;
+        e21 += (m.e21 - e21) * t;
+        e22 += (m.e22 - e22) * t;
+        e23 += (m.e23 - e23) * t;
     }
 
     float det() const {
@@ -593,6 +739,18 @@ struct mat4 {
         return r;
     }
 
+    mat4 inverseOrtho() const {
+        mat4 r;
+        r.e00 =  e00; r.e10 = e01; r.e20 = e02; r.e30 = 0;
+        r.e01 =  e10; r.e11 = e11; r.e21 = e12; r.e31 = 0;
+        r.e02 =  e20; r.e12 = e21; r.e22 = e22; r.e32 = 0;
+        r.e03 = -(e03 * e00 + e13 * e10 + e23 * e20); // -dot(pos, right)
+        r.e13 = -(e03 * e01 + e13 * e11 + e23 * e21); // -dot(pos, up)
+        r.e23 = -(e03 * e02 + e13 * e12 + e23 * e22); // -dot(pos, dir)
+        r.e33 = 1;
+        return r;
+    }
+
     mat4 transpose() const {
         mat4 r;
         r.e00 = e00; r.e10 = e01; r.e20 = e02; r.e30 = e03;
@@ -605,7 +763,7 @@ struct mat4 {
     quat getRot() const {
         float t, s;
         t = 1.0f + e00 + e11 + e22;
-        if (t > EPS) {
+        if (t > 0.0001f) {
             s = 0.5f / sqrtf(t);
             return quat((e21 - e12) * s, (e02 - e20) * s, (e10 - e01) * s, 0.25f / s);
         } else
@@ -651,16 +809,16 @@ struct mat4 {
     }
 
     vec3 getPos() const {
-        return offset.xyz;
+        return offset().xyz();
     }
 
     void setPos(const vec3 &pos) {
-        offset.xyz = pos;
+        offset().xyz() = pos;
     }
 };
 
 struct Basis {
-	quat    rot;
+    quat    rot;
     vec3    pos;
     float   w;
 
@@ -696,6 +854,8 @@ struct Basis {
     }
 
     Basis lerp(const Basis &basis, float t) {
+        if (t <= 0.0f) return *this;
+        if (t >= 1.0f) return basis;
         Basis b;
         b.rot = rot.lerp(basis.rot, t);
         b.pos = pos.lerp(basis.pos, t);
@@ -709,33 +869,55 @@ struct ubyte2 {
 
 struct ubyte4 {
     uint8 x, y, z, w;
+
+    ubyte4() {}
+    ubyte4(uint8 x, uint8 y, uint8 z, uint8 w) : x(x), y(y), z(z), w(w) {}
 };
 
 struct short2 {
     int16 x, y;
+
+    short2() {}
+    short2(int16 x, int16 y) : x(x), y(y) {}
 };
 
 struct short3 {
     int16 x, y, z;
+
+    short3() {}
+    short3(int16 x, int16 y, int16 z) : x(x), y(y), z(z) {}
+
+    operator vec3() const { return vec3((float)x, (float)y, (float)z); };
+
+    short3 operator + (const short3 &v) const { return short3(x + v.x, y + v.y, z + v.z); }
+    short3 operator - (const short3 &v) const { return short3(x - v.x, y - v.y, z - v.z); }
 };
 
 struct short4 {
     int16 x, y, z, w;
 
-    operator vec3() const { return vec3((float)x, (float)y, (float)z); };
+    short4() {}
+    short4(int16 x, int16 y, int16 z, int16 w) : x(x), y(y), z(z), w(w) {}
+
+    operator vec3()   const { return vec3((float)x, (float)y, (float)z); };
+    operator short3() const { return *((short3*)this); }
+
+    inline bool operator == (const short4 &v) const { return x == v.x && y == v.y && z == v.z && w == v.w; }
+    inline bool operator != (const short4 &v) const { return !(*this == v); }
+
+    inline int16& operator [] (int index) const { ASSERT(index >= 0 && index <= 3); return ((int16*)this)[index]; }
 };
 
-quat rotYXZ(const vec3 &a) {
+quat rotYXZ(const vec3 &angle) {
     mat4 m;
     m.identity();
-    m.rotateY(a.y);
-    m.rotateX(a.x);
-    m.rotateZ(a.z);
+    m.rotateYXZ(angle);
     return m.getRot();
 }
 
 quat lerpAngle(const vec3 &a, const vec3 &b, float t) { // TODO: optimization
-    return rotYXZ(a).slerp(rotYXZ(b), t).normal();
+
+    return rotYXZ(a).lerp(rotYXZ(b), t);//.normal();
 }
 
 vec3 boxNormal(int x, int z) {
@@ -747,6 +929,41 @@ vec3 boxNormal(int x, int z) {
     else
         return x < z ? vec3(-1, 0, 0) : vec3(0, 0, -1);
 }
+
+
+struct Sphere {
+    vec3  center;
+    float radius;
+
+    Sphere() {}
+    Sphere(const vec3 &center, float radius) : center(center), radius(radius) {}
+
+    bool intersect(const Sphere &s) const {
+        float d = (center - s.center).length2();
+        float r = (radius + s.radius);
+        return d < r * r;
+    }
+
+    bool intersect(const vec3 &rayPos, const vec3 &rayDir, float &t) const {
+        vec3 v = rayPos - center;
+        float h = -v.dot(rayDir);
+        float d = h * h + radius * radius - v.length2();
+
+        if (d > 0.0f) {
+            d = sqrtf(d);
+            float tMin = h - d;
+            float tMax = h + d;
+            if (tMax > 0.0f) {
+                if (tMin < 0.0f)
+                    tMin = 0.0f;
+                t = tMin;
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
 
 struct Box {
     vec3 min, max;
@@ -814,7 +1031,7 @@ struct Box {
         Box res(vec3(+INF), vec3(-INF));
         for (int i = 0; i < 8; i++) {
             vec4 v = m * vec4((*this)[i], 1.0f);            
-            res += v.xyz /= v.w;
+            res += v.xyz() /= v.w;
         }
         return res;
     }
@@ -845,6 +1062,12 @@ struct Box {
     void translate(const vec3 &offset) {
         min += offset;
         max += offset;
+    }
+
+    vec3 closestPoint(const vec3 &p) const {
+        return vec3(clamp(p.x, min.x, max.x),
+                    clamp(p.y, min.y, max.y),
+                    clamp(p.z, min.z, max.z));
     }
 
     bool contains(const vec3 &v) const {
@@ -893,6 +1116,13 @@ struct Box {
         return !((max.x < box.min.x || min.x > box.max.x) || (max.y < box.min.y || min.y > box.max.y) || (max.z < box.min.z || min.z > box.max.z));
     }
 
+    bool intersect(const Sphere &sphere) const {
+        if (contains(sphere.center))
+            return true;
+        vec3 dir = sphere.center - closestPoint(sphere.center);
+        return (dir.length2() < sphere.radius * sphere.radius);
+    }
+
     bool intersect(const vec3 &rayPos, const vec3 &rayDir, float &t) const {
         float tMax = INF, tMin = -tMax;
 
@@ -910,56 +1140,47 @@ struct Box {
     }
 
     bool intersect(const mat4 &matrix, const vec3 &rayPos, const vec3 &rayDir, float &t) const {
-        mat4 mInv = matrix.inverse();
-        return intersect(mInv * rayPos, (mInv * vec4(rayDir, 0)).xyz, t);
+        mat4 mInv = matrix.inverseOrtho();
+        return intersect(mInv * rayPos, (mInv * vec4(rayDir, 0)).xyz(), t);
     }
 };
 
-struct Sphere {
-    vec3  center;
-    float radius;
+struct Stream;
 
-    Sphere() {}
-    Sphere(const vec3 &center, float radius) : center(center), radius(radius) {}
+extern void osCacheWrite (Stream *stream);
+extern void osCacheRead  (Stream *stream);
 
-    bool intersect(const Sphere &s) const {
-        float d = (center - s.center).length2();
-        float r = (radius + s.radius);
-        return d < r * r;
-    }
+extern void osSaveGame   (Stream *stream);
+extern void osLoadGame   (Stream *stream);
 
-    bool intersect(const vec3 &rayPos, const vec3 &rayDir, float &t) const {
-        vec3 v = rayPos - center;
-        float h = -v.dot(rayDir);
-        float d = h * h + radius * radius - v.length2();
-
-        if (d > 0.0f) {
-            d = sqrtf(d);
-            float tMin = h - d;
-            float tMax = h + d;
-            if (tMax > 0.0f) {
-                if (tMin < 0.0f)
-                    tMin = 0.0f;
-                t = tMin;
-                return true;
-            }
-        }
-        return false;
-    }
-};
+#ifdef _OS_WEB
+extern void osDownload   (Stream *stream);
+#endif
 
 struct Stream {
     static char cacheDir[255];
     static char contentDir[255];
 
+    typedef void (Callback)(Stream *stream, void *userData);
+    Callback    *callback;
+    void        *userData;
+
     FILE        *f;
-    const char	*data;
+    char        *data;
+    char        *name;
     int         size, pos;
 
-    Stream(const void *data, int size) : f(NULL), data((char*)data), size(size), pos(0) {}
+    enum Endian { eLittle, eBig } endian;
 
-    Stream(const char *name) : data(NULL), size(-1), pos(0) {
-        if (contentDir[0]) {
+    Stream(const char *name, const void *data, int size) : callback(NULL), userData(NULL), f(NULL), data((char*)data), name(NULL), size(size), pos(0), endian(eLittle) {
+        if (name) {
+            this->name = new char[strlen(name) + 1];
+            strcpy(this->name, name);
+        }
+    }
+
+    Stream(const char *name, Callback *callback = NULL, void *userData = NULL) : callback(callback), userData(userData), data(NULL), name(NULL), size(-1), pos(0), endian(eLittle) {
+        if (contentDir[0] && (!cacheDir[0] || !strstr(name, cacheDir))) {
             char path[255];
             path[0] = 0;
             strcat(path, contentDir);
@@ -968,19 +1189,57 @@ struct Stream {
         } else
             f = fopen(name, "rb");
 
-        if (!f) LOG("error loading file \"%s\"\n", name);
-        ASSERT(f != NULL);
+        if (!f) {
+            #ifdef _OS_WEB
+                if (name) {
+                    this->name = new char[strlen(name) + 1];
+                    strcpy(this->name, name);
+                }
+                osDownload(this);
+            #else
+                LOG("error loading file \"%s\"\n", name);
+                if (callback) {
+                    callback(NULL, userData);
+                    delete this;
+                } else {
+                    ASSERT(false);
+                }
+            #endif
+        } else {
+            fseek(f, 0, SEEK_END);
+            size = ftell(f);
+            fseek(f, 0, SEEK_SET);
 
-        fseek(f, 0, SEEK_END);
-        size = ftell(f);
-        fseek(f, 0, SEEK_SET);
+            if (name) {
+                this->name = new char[strlen(name) + 1];
+                strcpy(this->name, name);
+            }
+
+            if (callback)
+                callback(this, userData);
+        }
     }
 
     ~Stream() {
+        delete[] name;
         if (f) fclose(f);
     }
 
-    static bool fileExists(const char *name) {
+    static void cacheRead(const char *name, Callback *callback = NULL, void *userData = NULL) {
+        Stream *stream = new Stream(name, NULL, 0);
+        stream->callback = callback;
+        stream->userData = userData;
+        osCacheRead(stream);
+    }
+
+    static void cacheWrite(const char *name, const char *data, int size, Callback *callback = NULL, void *userData = NULL) {
+        Stream *stream = new Stream(name, data, size);
+        stream->callback = callback;
+        stream->userData = userData;
+        osCacheWrite(stream);
+    }
+
+    static bool exists(const char *name) {
         FILE *f = fopen(name, "rb");
         if (!f)
             return false;
@@ -989,11 +1248,11 @@ struct Stream {
         return true;
     }
 
-    static void write(const char *name, const void *data, int size) {
-        FILE *f = fopen(name, "wb");
-        if (!f) return;
-        fwrite(data, size, 1, f);
-        fclose(f);
+    static bool existsContent(const char *name) {
+        char fileName[1024];
+        strcpy(fileName, Stream::contentDir);
+        strcat(fileName, name);
+        return exists(fileName);
     }
 
     void setPos(int pos) {
@@ -1019,6 +1278,12 @@ struct Stream {
     template <typename T>
     inline T& read(T &x) {
         raw(&x, sizeof(x));
+    /*
+        if (endian == eBig) {
+            if (sizeof(T) == 2) x = T(swap16(x));
+            if (sizeof(T) == 4) x = T(swap32(x));
+        }
+    */
         return x;
     }
 
@@ -1033,4 +1298,158 @@ struct Stream {
     }
 };
 
-#endif 
+
+#ifdef OS_FILEIO_CACHE
+void osCacheWrite(Stream *stream) {
+    char path[255];
+    strcpy(path, Stream::cacheDir);
+    strcat(path, stream->name);
+    FILE *f = fopen(path, "wb");
+    if (f) {
+        fwrite(stream->data, 1, stream->size, f);
+        fclose(f);
+        if (stream->callback)
+            stream->callback(new Stream(stream->name, NULL, 0), stream->userData);
+    } else
+        if (stream->callback)
+            stream->callback(NULL, stream->userData);
+
+    delete stream;
+}
+
+void osCacheRead(Stream *stream) {
+    char path[255];
+    strcpy(path, Stream::cacheDir);
+    strcat(path, stream->name);
+    FILE *f = fopen(path, "rb");
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        int size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        char *data = new char[size];
+        fread(data, 1, size, f);
+        fclose(f);
+        if (stream->callback)
+            stream->callback(new Stream(stream->name, data, size), stream->userData);
+        delete[] data;
+    } else
+        if (stream->callback)
+            stream->callback(NULL, stream->userData);
+    delete stream;
+}
+
+void osSaveGame(Stream *stream) {
+    return osCacheWrite(stream);
+}
+
+void osLoadGame(Stream *stream) {
+    return osCacheRead(stream);
+}
+#endif
+
+
+#ifdef OS_PTHREAD_MT
+// multi-threading
+void* osMutexInit() {
+    pthread_mutex_t *mutex = new pthread_mutex_t();
+    pthread_mutex_init(mutex, NULL);
+    return mutex;
+}
+
+void osMutexFree(void *obj) {
+    pthread_mutex_destroy((pthread_mutex_t*)obj);
+    delete (pthread_mutex_t*)obj;
+}
+
+void osMutexLock(void *obj) {
+    pthread_mutex_lock((pthread_mutex_t*)obj);
+}
+
+void osMutexUnlock(void *obj) {
+    pthread_mutex_unlock((pthread_mutex_t*)obj);
+}
+
+void* osRWLockInit() {
+    pthread_rwlock_t *lock = new pthread_rwlock_t();
+    pthread_rwlock_init(lock, NULL);
+    return lock;
+}
+
+void osRWLockFree(void *obj) {
+    pthread_rwlock_destroy((pthread_rwlock_t*)obj);
+    delete (pthread_rwlock_t*)obj;
+}
+
+void osRWLockRead(void *obj) {
+    pthread_rwlock_rdlock((pthread_rwlock_t*)obj);
+}
+
+void osRWUnlockRead(void *obj) {
+    pthread_rwlock_unlock((pthread_rwlock_t*)obj);
+}
+
+void osRWLockWrite(void *obj) {
+    pthread_rwlock_wrlock((pthread_rwlock_t*)obj);
+}
+
+void osRWUnlockWrite(void *obj) {
+    pthread_rwlock_unlock((pthread_rwlock_t*)obj);
+}
+#endif
+
+
+struct BitStream {
+    uint8 *data;
+    uint8 *end;
+    uint8 index;
+    uint8 value;
+
+    BitStream(uint8 *data, int size) : data(data), end(data + size), index(0), value(0) {}
+
+    uint8 readBits(int count) {
+        uint32 bits = 0;
+
+        while (count--) {
+            if (!index) {
+                ASSERT(data < end);
+                value = *data++;
+                index = 8;
+            }
+
+            bits <<= 1;
+
+            if (value & 0x80)
+                bits |= 1;
+
+            value <<= 1;
+            index--;
+        }
+
+        return bits;
+    }
+
+    uint8 readBit() {
+        return readBits(1);
+    }
+
+    uint8 readByte() {
+        ASSERT(data < end);
+        return *data++;
+    }
+};
+
+
+namespace String {
+
+    void toLower(char *str) {
+        if (!str) return;
+
+        while (char &c = *str++) {
+            if (c >= 'A' && c <= 'Z')
+                c -= 'Z' - 'z';
+        }
+    }
+
+}
+
+#endif

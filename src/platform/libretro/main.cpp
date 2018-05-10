@@ -40,7 +40,6 @@ static unsigned SND_RATE      = 44100;
 static unsigned width         = BASE_WIDTH;
 static unsigned height        = BASE_HEIGHT;
 
-static bool force_linear      = true;
 static bool disable_water     = false;
 
 Sound::Frame *sndData;
@@ -57,6 +56,74 @@ static retro_environment_t environ_cb;
 static retro_input_poll_t input_poll_cb;
 static retro_input_state_t input_state_cb;
 
+#ifdef _WIN32
+#include <windows.h>
+#include <mmsystem.h>
+
+// multi-threading
+void* osMutexInit() {
+    CRITICAL_SECTION *CS = new CRITICAL_SECTION();
+    InitializeCriticalSection(CS);
+    return CS;
+}
+
+void osMutexFree(void *obj) {
+    DeleteCriticalSection((CRITICAL_SECTION*)obj);
+    delete (CRITICAL_SECTION*)obj;
+}
+
+void osMutexLock(void *obj) {
+    EnterCriticalSection((CRITICAL_SECTION*)obj);
+}
+
+void osMutexUnlock(void *obj) {
+    LeaveCriticalSection((CRITICAL_SECTION*)obj);
+}
+
+int osGetTime() {
+    LARGE_INTEGER Freq, Count;
+    QueryPerformanceFrequency(&Freq);
+    QueryPerformanceCounter(&Count);
+    return int(Count.QuadPart * 1000L / Freq.QuadPart);
+}
+#elif defined(__linux__)
+unsigned int startTime;
+
+int osGetTime() {
+    timeval t;
+    gettimeofday(&t, NULL);
+    return int((t.tv_sec - startTime) * 1000 + t.tv_usec / 1000);
+}
+#endif
+
+void* osRWLockInit() {
+   return osMutexInit();
+}
+
+void osRWLockFree(void *obj) {
+   osMutexFree(obj);
+}
+
+void osRWLockRead(void *obj) {
+   osMutexLock(obj);
+}
+
+void osRWUnlockRead(void *obj) {
+   osMutexUnlock(obj);
+}
+
+void osRWUnlockWrite(void *obj) {
+   osMutexUnlock(obj);
+}
+
+void osJoyVibrate(int index, float L, float R) {
+}
+
+
+
+void osRWLockWrite(void *obj) {
+   osMutexUnlock(obj);
+}
 
 void retro_init(void)
 {
@@ -95,8 +162,8 @@ void retro_get_system_info(struct retro_system_info *info)
    memset(info, 0, sizeof(*info));
    info->library_name     = "OpenLara";
    info->library_version  = "v1";
-   info->need_fullpath    = false;
-   info->valid_extensions = "phd|psx"; // Anything is fine, we don't care.
+   info->need_fullpath    = true;
+   info->valid_extensions = "phd|psx|tr2"; // Anything is fine, we don't care.
 }
 
 void retro_get_system_av_info(struct retro_system_av_info *info)
@@ -127,10 +194,6 @@ void retro_set_environment(retro_environment_t cb)
       {
          "openlara_resolution",
          "Internal resolution (restart); 320x240|360x480|480x272|512x384|512x512|640x240|640x448|640x480|720x576|800x600|960x720|1024x768|1024x1024|1280x720|1280x960|1600x1200|1920x1080|1920x1440|1920x1600|2048x2048|2560x1440|3840x2160|7680x4320|15360x8640|16000x9000",
-      },
-      {
-         "openlara_texture_filtering",
-         "Texture filtering (restart); Bilinear filtering|Nearest",
       },
       {
          "openlara_water_effects",
@@ -222,102 +285,106 @@ static void update_variables(bool first_startup)
       }
       else
          disable_water     = false;
-
-      var.key = "openlara_texture_filtering";
-
-      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-      {
-         if (!strcmp(var.value, "Bilinear filtering"))
-            force_linear     = true;
-         else if (!strcmp(var.value, "Nearest"))
-            force_linear     = false;
-      }
-      else
-         force_linear     = true;
    }
 }
 
 void retro_run(void)
 {
+   unsigned i;
    bool updated = false;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
       update_variables(false);
 
    input_poll_cb();
 
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP))
-      Input::setDown(InputKey::ikUp, true);
-   else
-      Input::setDown(InputKey::ikUp, false);
+   for (i = 0; i < 1; i++)
+   {
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP))
+         Input::setDown(InputKey::ikUp, true, i);
+      else
+         Input::setDown(InputKey::ikUp, false, i);
 
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN))
-      Input::setDown(InputKey::ikDown, true);
-   else
-      Input::setDown(InputKey::ikDown, false);
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN))
+         Input::setDown(InputKey::ikDown, true, i);
+      else
+         Input::setDown(InputKey::ikDown, false, i);
 
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT))
-      Input::setDown(InputKey::ikLeft, true);
-   else
-      Input::setDown(InputKey::ikLeft, false);
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT))
+         Input::setDown(InputKey::ikLeft, true, i);
+      else
+         Input::setDown(InputKey::ikLeft, false, i);
 
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT))
-      Input::setDown(InputKey::ikRight, true);
-   else
-      Input::setDown(InputKey::ikRight, false);
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT))
+         Input::setDown(InputKey::ikRight, true, i);
+      else
+         Input::setDown(InputKey::ikRight, false, i);
 
-   /* Draw weapon */
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X))
-      Input::setDown(InputKey::ikSpace, true);
-   else
-      Input::setDown(InputKey::ikSpace, false);
+      /* Draw weapon */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X))
+         Input::setDown(InputKey::ikSpace, true, i);
+      else
+         Input::setDown(InputKey::ikSpace, false, i);
 
-   /* Grab/shoot - Action button */
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B))
-      Input::setDown(InputKey::ikCtrl, true);
-   else
-      Input::setDown(InputKey::ikCtrl, false);
+      /* Grab/shoot - Action button */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B))
+         Input::setDown(InputKey::ikCtrl, true, i);
+      else
+         Input::setDown(InputKey::ikCtrl, false, i);
 
-   /* Roll */
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A))
-      Input::setDown(InputKey::ikA, true);
-   else
-      Input::setDown(InputKey::ikA, false);
+      /* Roll */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A))
+         Input::setDown(InputKey::ikA, true, i);
+      else
+         Input::setDown(InputKey::ikA, false, i);
 
-   /* Jump */
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y))
-      Input::setDown(InputKey::ikAlt, true);
-   else
-      Input::setDown(InputKey::ikAlt, false);
+      /* Jump */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y))
+         Input::setDown(InputKey::ikAlt, true, i);
+      else
+         Input::setDown(InputKey::ikAlt, false, i);
 
-   /* Walk */
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R))
-      Input::setDown(InputKey::ikShift, true);
-   else
-      Input::setDown(InputKey::ikShift, false);
+      /* Walk */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R))
+         Input::setDown(InputKey::ikShift, true, i);
+      else
+         Input::setDown(InputKey::ikShift, false, i);
 
-   /* Sidestep left */
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2))
-      Input::setDown(InputKey::ikZ, true);
-   else
-      Input::setDown(InputKey::ikZ, false);
+      /* Sidestep left */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2))
+         Input::setDown(InputKey::ikZ, true, i);
+      else
+         Input::setDown(InputKey::ikZ, false, i);
 
-   /* Sidestep right */
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2))
-      Input::setDown(InputKey::ikX, true);
-   else
-      Input::setDown(InputKey::ikX, false);
+      /* Sidestep right */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2))
+         Input::setDown(InputKey::ikX, true, i);
+      else
+         Input::setDown(InputKey::ikX, false, i);
 
-   /* Inventory screen */
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START))
-      Input::setDown(InputKey::ikTab, true);
-   else
-      Input::setDown(InputKey::ikTab, false);
+      /* Inventory screen */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT))
+         Input::setDown(InputKey::ikTab, true, i);
+      else
+         Input::setDown(InputKey::ikTab, false, i);
 
-   /* First-person view toggle */
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT))
-      Input::setDown(InputKey::ikV, true);
-   else
-      Input::setDown(InputKey::ikV, false);
+      /* Start */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START))
+         Input::setDown(InputKey::ikEnter, true, i);
+      else
+         Input::setDown(InputKey::ikEnter, false, i);
+
+      /* Look */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L))
+         Input::setDown(InputKey::ikC, true, i);
+      else
+         Input::setDown(InputKey::ikC, false, i);
+
+      /* First-person view toggle */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT))
+         Input::setDown(InputKey::ikV, true, i);
+      else
+         Input::setDown(InputKey::ikV, false, i);
+   }
 
    int audio_frames = SND_RATE / FRAMERATE;
    int16_t *samples = (int16_t*)sndData;
@@ -332,10 +399,12 @@ void retro_run(void)
    }
    audio_batch_cb(samples, audio_frames);
 
-   Game::update(1.0 / FRAMERATE);
-   Core::defaultFBO = hw_render.get_current_framebuffer();
-   Game::render();
+   Core::deltaTime             = 1.0 / FRAMERATE;
+   Core::settings.detail.vsync = false;
 
+   updated = Game::update();
+   if (updated)
+      Game::render();
    video_cb(RETRO_HW_FRAME_BUFFER_VALID, width, height, 0);
 }
 
@@ -353,14 +422,14 @@ static void context_reset(void)
    sndData = new Sound::Frame[SND_RATE * 2 * sizeof(int16_t) / FRAMERATE];
    snprintf(musicpath, sizeof(musicpath), "%s%c05.ogg",
          basedir, slash);
-   Game::init(levelpath, musicpath, disable_water, false);
+   Game::init(levelpath/*, musicpath, disable_water, false */);
 }
 
 static void context_destroy(void)
 {
    fprintf(stderr, "Context destroy!\n");
    delete[] sndData;
-   Game::free();
+   Game::deinit();
 }
 
 #ifdef HAVE_OPENGLES
@@ -477,7 +546,6 @@ bool retro_load_game(const struct retro_game_info *info)
 
    Core::width  = width;
    Core::height = height;
-   Core::support.force_linear  = force_linear;
 
    return true;
 }

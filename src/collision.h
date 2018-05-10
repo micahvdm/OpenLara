@@ -4,17 +4,19 @@
 #include "core.h"
 #include "utils.h"
 #include "format.h"
+#include "controller.h"
 
 struct Collision {
     enum Side { NONE, LEFT, RIGHT, FRONT, BACK, TOP, BOTTOM } side;
 
     struct Info {
-        int room, roomAbove, roomBelow, floor, ceiling;
+        int room, roomAbove, roomBelow;
+        float floor, ceiling;
     } info[4];
 
     Collision() : side(NONE) {}
 
-    Collision(TR::Level *level, int roomIndex, vec3 &pos, const vec3 &offset, const vec3 &velocity, float radius, float angle, int minHeight, int maxHeight, int maxAscent, int maxDescent) {
+    Collision(Controller *controller, int roomIndex, vec3 &pos, const vec3 &offset, const vec3 &velocity, float radius, float angle, int minHeight, int maxHeight, int maxAscent, int maxDescent) {
         if (velocity.x > 0.0f || velocity.z > 0.0f)
             angle = normalizeAngle(PI2 + vec2(velocity.z, velocity.x).angle());
         pos += velocity;
@@ -22,10 +24,10 @@ struct Collision {
         int q = angleQuadrant(angle);
 
         const vec2 v[] = {
-            { -radius,  radius },
-            {  radius,  radius },
-            {  radius, -radius },
-            { -radius, -radius },
+            vec2( -radius,  radius ),
+            vec2(  radius,  radius ),
+            vec2(  radius, -radius ),
+            vec2( -radius, -radius ),
         };
 
         const vec2 &l = v[q], &r = v[(q + 1) % 4];
@@ -38,31 +40,40 @@ struct Collision {
 
         int height = maxHeight - minHeight;
 
-        getFloor(level, roomIndex, vec3(pos.x, hpos.y, pos.z));
+        getFloor(controller->level, roomIndex, vec3(pos.x, hpos.y, pos.z));
 
-        if (checkHeight(level, roomIndex, hpos, vec2(0.0f), height, 0xFFFFFF, 0xFFFFFF, side = NONE)) {
-            pos -= velocity;
+        if (checkHeight(controller, roomIndex, hpos, vec2(0.0f), height, 0xFFFFFF, 0xFFFFFF, side = NONE)) {
+            pos.x -= velocity.x;
+            pos.z -= velocity.z;
             side = FRONT;
             return;
         }
 
-        if (info[NONE].ceiling > hpos.y - maxHeight) {
-            pos.y = info[NONE].ceiling + maxHeight - offset.y;
-            side  = TOP;
+        float hCell = info[NONE].ceiling - (hpos.y - maxHeight);
+        if (hCell > 0) {
+            if (hCell > 128) {
+                pos.x -= velocity.x;
+                pos.z -= velocity.z;
+                side = FRONT;
+            } else {
+                pos.y = info[NONE].ceiling + maxHeight - offset.y;
+                side  = TOP;
+            }
         }
 
-        if (info[NONE].floor < hpos.y + minHeight) {
+        float hFloor = info[NONE].floor - (hpos.y + minHeight);
+        if (hFloor < 0 && hFloor > -256) {
             pos.y = info[NONE].floor - minHeight - offset.y;
             side  = BOTTOM;
         }
 
-        if (checkHeight(level, roomIndex, hpos, f, height, maxAscent, maxDescent, FRONT)) {
+        if (checkHeight(controller, roomIndex, hpos, f, height, maxAscent, maxDescent, FRONT)) {
             d = vec2(-velocity.x, -velocity.z);
             q ^= 1;
             d[q] = getOffset(p[q] + f[q], p[q]);
-        } else if (checkHeight(level, roomIndex, hpos, l, height, maxAscent, maxDescent, LEFT)) {
+        } else if (checkHeight(controller, roomIndex, hpos, l, height, maxAscent, maxDescent, LEFT)) {
             d[q] = getOffset(p[q] + l[q], p[q] + f[q]);
-        } else if (checkHeight(level, roomIndex, hpos, r, height, maxAscent, maxDescent, RIGHT)) {
+        } else if (checkHeight(controller, roomIndex, hpos, r, height, maxAscent, maxDescent, RIGHT)) {
             d[q] = getOffset(p[q] + r[q], p[q] + f[q]);
         } else
             return;
@@ -70,10 +81,9 @@ struct Collision {
         pos += vec3(d.x, 0.0f, d.y);
     }
 
-    inline bool checkHeight(TR::Level *level, int roomIndex, const vec3 &pos, const vec2 &offset, int height, int maxAscent, int maxDescent, Side side) {
+    inline bool checkHeight(Controller *controller, int roomIndex, const vec3 &pos, const vec2 &offset, int height, int maxAscent, int maxDescent, Side side) {
         TR::Level::FloorInfo info;
-        int py = int(pos.y);
-        level->getFloorInfo(roomIndex, int(pos.x + offset.x), py, int(pos.z + offset.y), info);
+        controller->getFloorInfo(roomIndex, pos + vec3(offset.x, 0.0f, offset.y), info);
 
         Info &inf = this->info[side];
         inf.room      = info.roomNext != TR::NO_ROOM ? info.roomNext : roomIndex;
@@ -82,7 +92,8 @@ struct Collision {
         inf.floor     = info.floor;
         inf.ceiling   = info.ceiling;
 
-        if ((info.ceiling == info.floor) ||  (info.floor - info.ceiling < height) || (py - info.floor > maxAscent) || (info.floor - py > maxDescent) || (info.ceiling > py)) {
+        if ((info.ceiling == info.floor) ||  (info.floor - info.ceiling < height) || (pos.y - info.floor > maxAscent) || (info.floor - pos.y > maxDescent) || (info.ceiling > pos.y) ||
+            (maxAscent == maxDescent && (maxAscent <= 256 + 128) && (abs(info.slantX) > 2 || abs(info.slantZ) > 2))) {
             this->side = side;
             return true;
         }
