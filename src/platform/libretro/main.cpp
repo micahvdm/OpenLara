@@ -113,12 +113,16 @@ void osRWLockWrite(void *obj) {
 }
 
 #elif defined(__linux__)
-#include <time.h>
 #include <pthread.h>
 
+#endif
+
+#if defined(__linux__) || defined(__MACH__)
+#include <time.h>
 unsigned int startTime;
 
-int osGetTime() {
+int osGetTime(void)
+{
     timeval t;
     gettimeofday(&t, NULL);
     return int((t.tv_sec - startTime) * 1000 + t.tv_usec / 1000);
