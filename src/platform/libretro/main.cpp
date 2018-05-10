@@ -86,15 +86,6 @@ int osGetTime() {
     QueryPerformanceCounter(&Count);
     return int(Count.QuadPart * 1000L / Freq.QuadPart);
 }
-#elif defined(__linux__)
-unsigned int startTime;
-
-int osGetTime() {
-    timeval t;
-    gettimeofday(&t, NULL);
-    return int((t.tv_sec - startTime) * 1000 + t.tv_usec / 1000);
-}
-#endif
 
 void* osRWLockInit() {
    return osMutexInit();
@@ -116,13 +107,25 @@ void osRWUnlockWrite(void *obj) {
    osMutexUnlock(obj);
 }
 
-void osJoyVibrate(int index, float L, float R) {
-}
-
-
 
 void osRWLockWrite(void *obj) {
    osMutexUnlock(obj);
+}
+
+#elif defined(__linux__)
+#include <time.h>
+#include <pthread.h>
+
+unsigned int startTime;
+
+int osGetTime() {
+    timeval t;
+    gettimeofday(&t, NULL);
+    return int((t.tv_sec - startTime) * 1000 + t.tv_usec / 1000);
+}
+#endif
+
+void osJoyVibrate(int index, float L, float R) {
 }
 
 void retro_init(void)
@@ -611,3 +614,5 @@ void retro_cheat_set(unsigned index, bool enabled, const char *code)
    (void)code;
 }
 
+void osToggleVR(bool enable) {
+}

@@ -28,7 +28,7 @@
     #endif
 #endif
 
-#ifdef _OS_ANDROID
+#if defined(_OS_ANDROID) && !defined(__LIBRETRO__)
     #include <android/log.h>
     #undef LOG
     #define LOG(...) __android_log_print(ANDROID_LOG_INFO,"OpenLara",__VA_ARGS__)
@@ -1349,6 +1349,8 @@ void osLoadGame(Stream *stream) {
 
 
 #ifdef OS_PTHREAD_MT
+#include <pthread.h>
+
 // multi-threading
 void* osMutexInit() {
     pthread_mutex_t *mutex = new pthread_mutex_t();
