@@ -114,10 +114,6 @@ void osRWLockWrite(void *obj) {
 
 #elif defined(__linux__)
 #include <pthread.h>
-
-#endif
-
-#if defined(__linux__) || defined(__MACH__)
 #include <time.h>
 unsigned int startTime;
 
@@ -126,6 +122,21 @@ int osGetTime(void)
     timeval t;
     gettimeofday(&t, NULL);
     return int((t.tv_sec - startTime) * 1000 + t.tv_usec / 1000);
+}
+#endif
+
+#if defined(__MACH__)
+#include <mach/mach_time.h>
+
+int osGetTime(void)
+{
+    const int64_t kOneMillion = 1000 * 1000;
+    static mach_timebase_info_data_t info;
+
+    if (info.denom == 0)
+        mach_timebase_info(&info);
+
+    return (int)((mach_absolute_time() * info.numer) / (kOneMillion * info.denom));
 }
 #endif
 
