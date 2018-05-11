@@ -527,9 +527,11 @@ namespace UI {
         // TODO: Core::eye offset
         if (showHelp)
             textOut(vec2(32, 32), STR_HELP_TEXT, aLeft, width - 32, 255, UI::SHADE_GRAY);
+#if 0
         else
             if (helpTipTime > 0.0f)
                 textOut(vec2(0, height - 32), STR_HELP_PRESS, aCenter, width, 255, UI::SHADE_ORANGE);
+#endif
     }
 };
 

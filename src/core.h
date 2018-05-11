@@ -12,8 +12,12 @@
 
 #ifdef WIN32
     #define _OS_WIN      1
+#ifdef __LIBRETRO__
+    #define _GAPI_GL     1
+#else
     //#define _GAPI_GL     1
     #define _GAPI_D3D9   1
+#endif
     //#define _GAPI_VULKAN 1
 
     #include <windows.h>

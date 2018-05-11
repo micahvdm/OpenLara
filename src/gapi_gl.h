@@ -368,7 +368,7 @@ namespace GAPI {
             sprintf(defines, "#define PASS_%s\n", passNames[pass]);
 
             for (int i = 0; i < defCount; i++) {
-                #ifdef _GAPI_GLES
+                #if defined(_GAPI_GLES) && !defined(__LIBRETRO__)
                     if (def[i] == SD_SHADOW_SAMPLER)
                         strcat(ext, "#extension GL_EXT_shadow_samplers : require\n");
                 #endif
