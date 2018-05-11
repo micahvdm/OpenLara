@@ -707,11 +707,13 @@ namespace Core {
 
     bool update() {
         resetState = false;
+#ifndef __LIBRETRO__
         int time = getTime();
         if (time - lastTime <= 0)
             return false;
         deltaTime = (time - lastTime) * 0.001f;
         lastTime = time;
+#endif
         return true;
     }
 
@@ -896,11 +898,15 @@ namespace Core {
     }
 
     void beginFrame() {
+#ifndef __LIBRETRO__
         Core::stats.start();
+#endif
     }
 
     void endFrame() {
+#ifndef __LIBRETRO__
         Core::stats.stop();
+#endif
     }
 
     void setViewProj(const mat4 &mView, const mat4 &mProj) {
