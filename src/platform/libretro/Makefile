@@ -164,7 +164,6 @@ OBJECTS := $(SOURCES_C:.c=.o) $(SOURCES_CXX:.cpp=.o)
 CXXFLAGS += $(fpic)
 CFLAGS += -Wall -pedantic $(fpic)
 
-CXXFLAGS += -std=c++11
 CFLAGS   += $(INCFLAGS) $(FLAGS)
 CXXFLAGS += $(INCFLAGS) $(FLAGS)
 
