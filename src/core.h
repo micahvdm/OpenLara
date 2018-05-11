@@ -655,9 +655,7 @@ namespace Core {
 
 #ifdef __LIBRETRO__
         settings.controls[0].keys[ cInventory ].key = ikTab;
-        settings.controls[1].keys[ cInventory ].key = ikTab;
         settings.controls[0].keys[ cStart ].key     = ikEnter;
-        settings.controls[1].keys[ cStart ].key     = ikEnter;
 #endif
 
     // use D key for jump in browsers
