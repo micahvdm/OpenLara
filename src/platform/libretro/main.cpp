@@ -315,23 +315,29 @@ void retro_run(void)
 
    input_poll_cb();
 
-   for (i = 0; i < 1; i++)
+   /* Player 1 */
    {
+      i = 0;
+
+      /* Up */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP))
          Input::setDown(InputKey::ikUp, true, i);
       else
          Input::setDown(InputKey::ikUp, false, i);
 
+      /* Down */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN))
          Input::setDown(InputKey::ikDown, true, i);
       else
          Input::setDown(InputKey::ikDown, false, i);
 
+      /* Left */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT))
          Input::setDown(InputKey::ikLeft, true, i);
       else
          Input::setDown(InputKey::ikLeft, false, i);
 
+      /* Right */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT))
          Input::setDown(InputKey::ikRight, true, i);
       else
@@ -402,6 +408,11 @@ void retro_run(void)
          Input::setDown(InputKey::ikX, true, i);
       else
          Input::setDown(InputKey::ikX, false, i);
+   }
+
+   /* Player 2 */
+   {
+      i = 1;
    }
 
    int audio_frames = SND_RATE / FRAMERATE;
