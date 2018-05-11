@@ -40,8 +40,6 @@ static unsigned SND_RATE      = 44100;
 static unsigned width         = BASE_WIDTH;
 static unsigned height        = BASE_HEIGHT;
 
-static bool disable_water     = false;
-
 Sound::Frame *sndData;
 
 char levelpath[255];
@@ -213,10 +211,6 @@ void retro_set_environment(retro_environment_t cb)
          "openlara_resolution",
          "Internal resolution (restart); 320x240|360x480|480x272|512x384|512x512|640x240|640x448|640x480|720x576|800x600|960x720|1024x768|1024x1024|1280x720|1280x960|1600x1200|1920x1080|1920x1440|1920x1600|2048x2048|2560x1440|3840x2160|7680x4320|15360x8640|16000x9000",
       },
-      {
-         "openlara_water_effects",
-         "Water effects (restart); enabled|disabled",
-      },
       { NULL, NULL },
    };
 
@@ -291,18 +285,6 @@ static void update_variables(bool first_startup)
       }
       else
          FRAMERATE     = 60;
-
-      var.key = "openlara_water_effects";
-
-      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-      {
-         if (!strcmp(var.value, "enabled"))
-            disable_water     = false;
-         else if (!strcmp(var.value, "disabled"))
-            disable_water     = true;
-      }
-      else
-         disable_water     = false;
    }
 }
 
@@ -454,7 +436,7 @@ static void context_reset(void)
    sndData = new Sound::Frame[SND_RATE * 2 * sizeof(int16_t) / FRAMERATE];
    snprintf(musicpath, sizeof(musicpath), "%s%c05.ogg",
          basedir, slash);
-   Game::init(levelpath/*, musicpath, disable_water, false */);
+   Game::init(levelpath/*, musicpath */);
 }
 
 static void context_destroy(void)
