@@ -306,6 +306,11 @@ static void update_variables(bool first_startup)
    }
 }
 
+static float DeadZone(float x)
+{
+   return x = fabsf(x) < 0.2f ? 0.0f : x;
+}
+
 void retro_run(void)
 {
    unsigned i;
@@ -324,6 +329,16 @@ void retro_run(void)
    /* Player 1 */
    for (i = 0; i < 2; i++)
    {
+#if 0
+      int lsx = input_state_cb(i, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X);
+      int lsy = input_state_cb(i, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y);
+      int rsx = input_state_cb(i, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X);
+      int rsy = input_state_cb(i, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y);
+
+      Input::setJoyPos(i, jkL, vec2(DeadZone(lsx), DeadZone(lsy)));
+      Input::setJoyPos(i, jkR, vec2(DeadZone(rsx), DeadZone(rsy)));
+#endif
+
       /* Up */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP))
          Input::setJoyDown(i, JoyKey::jkUp, true);
