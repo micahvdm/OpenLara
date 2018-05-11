@@ -315,104 +315,92 @@ void retro_run(void)
 
    input_poll_cb();
 
-   /* Player 1 */
-   {
-      i = 0;
+   /* Start */
+   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START))
+      Input::setDown(InputKey::ikEnter, true, 0);
+   else
+      Input::setDown(InputKey::ikEnter, false, 0);
 
+   /* Player 1 */
+   for (i = 0; i < 2; i++)
+   {
       /* Up */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP))
-         Input::setDown(InputKey::ikUp, true, i);
+         Input::setJoyDown(i, JoyKey::jkUp, true);
       else
-         Input::setDown(InputKey::ikUp, false, i);
+         Input::setJoyDown(i, JoyKey::jkUp, false);
 
       /* Down */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN))
-         Input::setDown(InputKey::ikDown, true, i);
+         Input::setJoyDown(i, JoyKey::jkDown, true);
       else
-         Input::setDown(InputKey::ikDown, false, i);
+         Input::setJoyDown(i, JoyKey::jkDown, false);
 
       /* Left */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT))
-         Input::setDown(InputKey::ikLeft, true, i);
+         Input::setJoyDown(i, JoyKey::jkLeft, true);
       else
-         Input::setDown(InputKey::ikLeft, false, i);
+         Input::setJoyDown(i, JoyKey::jkLeft, false);
 
       /* Right */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT))
-         Input::setDown(InputKey::ikRight, true, i);
+         Input::setJoyDown(i, JoyKey::jkRight, true);
       else
-         Input::setDown(InputKey::ikRight, false, i);
-
-      /* Draw weapon */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X))
-         Input::setDown(InputKey::ikSpace, true, i);
-      else
-         Input::setDown(InputKey::ikSpace, false, i);
-
-      /* Grab/shoot - Action button */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B))
-         Input::setDown(InputKey::ikCtrl, true, i);
-      else
-         Input::setDown(InputKey::ikCtrl, false, i);
-
-      /* Roll */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A))
-         Input::setDown(InputKey::ikA, true, i);
-      else
-         Input::setDown(InputKey::ikA, false, i);
-
-      /* Jump */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y))
-         Input::setDown(InputKey::ikAlt, true, i);
-      else
-         Input::setDown(InputKey::ikAlt, false, i);
-
-      /* Walk */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R))
-         Input::setDown(InputKey::ikShift, true, i);
-      else
-         Input::setDown(InputKey::ikShift, false, i);
+         Input::setJoyDown(i, JoyKey::jkRight, false);
 
       /* Inventory screen */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT))
-         Input::setDown(InputKey::ikTab, true, i);
+         Input::setJoyDown(i, JoyKey::jkSelect, true);
       else
-         Input::setDown(InputKey::ikTab, false, i);
+         Input::setJoyDown(i, JoyKey::jkSelect, false);
 
-      /* Start */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START))
-         Input::setDown(InputKey::ikEnter, true, i);
+      /* Draw weapon */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X))
+         Input::setJoyDown(i, JoyKey::jkY, true);
       else
-         Input::setDown(InputKey::ikEnter, false, i);
+         Input::setJoyDown(i, JoyKey::jkY, false);
+
+      /* Grab/shoot - Action button */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B))
+         Input::setJoyDown(i, JoyKey::jkA, true);
+      else
+         Input::setJoyDown(i, JoyKey::jkA, false);
+
+      /* Roll */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A))
+         Input::setJoyDown(i, JoyKey::jkB, true);
+      else
+         Input::setJoyDown(i, JoyKey::jkB, false);
+
+      /* Jump */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y))
+         Input::setJoyDown(i, JoyKey::jkX, true);
+      else
+         Input::setJoyDown(i, JoyKey::jkX, false);
+
+      /* Walk */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R))
+         Input::setJoyDown(i, JoyKey::jkRB, true);
+      else
+         Input::setJoyDown(i, JoyKey::jkRB, false);
 
       /* Look */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L))
-         Input::setDown(InputKey::ikC, true, i);
+         Input::setJoyDown(i, JoyKey::jkLB, true);
       else
-         Input::setDown(InputKey::ikC, false, i);
-
-      /* First-person view toggle */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT))
-         Input::setDown(InputKey::ikV, true, i);
-      else
-         Input::setDown(InputKey::ikV, false, i);
+         Input::setJoyDown(i, JoyKey::jkLB, false);
 
       /* Duck/Crouch */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2))
-         Input::setDown(InputKey::ikZ, true, i);
+         Input::setJoyDown(i, JoyKey::jkLT, true);
       else
-         Input::setDown(InputKey::ikZ, false, i);
+         Input::setJoyDown(i, JoyKey::jkLT, false);
 
       /* Dash */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2))
-         Input::setDown(InputKey::ikX, true, i);
+         Input::setJoyDown(i, JoyKey::jkRT, true);
       else
-         Input::setDown(InputKey::ikX, false, i);
-   }
-
-   /* Player 2 */
-   {
-      i = 1;
+         Input::setJoyDown(i, JoyKey::jkRT, false);
    }
 
    int audio_frames = SND_RATE / FRAMERATE;
