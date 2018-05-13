@@ -368,7 +368,7 @@ namespace GAPI {
             defines[0] = 0;
 
             for (int i = 0; i < defCount; i++) {
-                #if defined(_GAPI_GLES) && !defined(__LIBRETRO__)
+                #if defined(_GAPI_GLES)
                     if (def[i] == SD_SHADOW_SAMPLER)
                         strcat(defines, "#extension GL_EXT_shadow_samplers : require\n"); // ACHTUNG! must be first in the list
                 #endif
