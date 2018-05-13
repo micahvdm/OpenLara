@@ -342,7 +342,7 @@ namespace GAPI {
 
     struct Shader {
     #ifdef FFP
-        void init(Core::Pass pass, int *def, int defCount) {}
+        void init(Core::Pass pass, int type, int *def, int defCount) {}
         void deinit() {}
         void bind() {}
         void setParam(UniformType uType, const vec4  &value, int count = 1) {}
@@ -352,7 +352,7 @@ namespace GAPI {
         uint32  ID;
         int32   uID[uMAX];
 
-        void init(Core::Pass pass, int *def, int defCount) {
+        void init(Core::Pass pass, int type, int *def, int defCount) {
             const char *source;
             switch (pass) {
                 case Core::passCompose :
@@ -365,15 +365,16 @@ namespace GAPI {
             }
 
             char defines[1024];
-            sprintf(defines, "#define PASS_%s\n", passNames[pass]);
+            defines[0] = 0;
 
             for (int i = 0; i < defCount; i++) {
                 #if defined(_GAPI_GLES) && !defined(__LIBRETRO__)
                     if (def[i] == SD_SHADOW_SAMPLER)
-                        strcat(ext, "#extension GL_EXT_shadow_samplers : require\n");
+                        strcat(defines, "#extension GL_EXT_shadow_samplers : require\n"); // ACHTUNG! must be first in the list
                 #endif
                 sprintf(defines, "%s#define %s\n", defines, DefineName[def[i]]);
             }
+            sprintf(defines, "%s#define PASS_%s\n", defines, passNames[pass]);
 
             char fileName[255];
         // generate shader file path
@@ -986,7 +987,9 @@ namespace GAPI {
                 glDeleteRenderbuffers(1, &rtCache[b].items[i].ID);
     }
 
-    void beginFrame() {}
+    bool beginFrame() {
+        return true;
+    }
 
     void endFrame() {}
 
