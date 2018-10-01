@@ -164,9 +164,7 @@ OBJECTS := $(SOURCES_C:.c=.o) $(SOURCES_CXX:.cpp=.o)
 CXXFLAGS += $(fpic)
 CFLAGS += -Wall -pedantic $(fpic)
 
-ifneq (,$(findstring osx,$(platform)))
 CXXFLAGS += -std=c++11
-endif
 CFLAGS   += $(INCFLAGS) $(FLAGS)
 CXXFLAGS += $(INCFLAGS) $(FLAGS)
 
