@@ -139,10 +139,9 @@ void sndInit() {
     pspAudioSetChannelCallback(0, sndFill, NULL);
 }
 
-char Stream::cacheDir[255];
-char Stream::contentDir[255];
-
 int main() {
+    cacheDir[0] = saveDir[0] = contentDir[0] = 0;
+
     scePowerSetClockFrequency(333, 333, 166);
     setupCallbacks();
 
@@ -170,7 +169,7 @@ int main() {
     sceDisplayWaitVblankStart();
     sceGuDisplay(GU_TRUE);
 
-    Core::curBackBuffer = 0;
+    GAPI::curBackBuffer = 0;
 
     while (!Core::isQuit) {
         GAPI::beginCmdBuf();
@@ -180,7 +179,7 @@ int main() {
         Game::render();
         GAPI::submitCmdBuf();
         Core::waitVBlank();
-        Core::curBackBuffer = sceGuSwapBuffers();
+        GAPI::curBackBuffer = sceGuSwapBuffers();
     }
 
     Game::deinit();

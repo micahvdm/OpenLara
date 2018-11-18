@@ -22,6 +22,14 @@
 // TODO: add IK for arms
 // TODO: controls
 
+// hint to the driver to use discrete GPU
+extern "C" {
+// NVIDIA
+  __declspec(dllexport) int NvOptimusEnablement = 1;
+// AMD
+  __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+}
+
 #ifdef VR_SUPPORT
    #include "libs/openvr/openvr.h"
 #endif
@@ -429,7 +437,7 @@ HWND hWnd;
         memset(&d3dpp, 0, sizeof(d3dpp));
         d3dpp.Windowed                  = TRUE;
         d3dpp.BackBufferCount           = 1;
-        d3dpp.BackBufferFormat          = D3DFMT_X8R8G8B8;
+        d3dpp.BackBufferFormat          = D3DFMT_A8R8G8B8;
         d3dpp.SwapEffect                = D3DSWAPEFFECT_DISCARD;
         d3dpp.hDeviceWindow             = hWnd;
         d3dpp.EnableAutoDepthStencil    = TRUE;
@@ -659,9 +667,6 @@ void vrCompose() {
 }
 #endif // #ifdef VR_SUPPORT
 
-char Stream::cacheDir[255];
-char Stream::contentDir[255];
-
 #ifdef _DEBUG
 int main(int argc, char** argv) {
     _CrtMemState _msBegin, _msEnd, _msDiff;
@@ -674,11 +679,12 @@ int main(int argc, char** argv) {
 //#else
 //int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
 #endif
-    Stream::contentDir[0] = Stream::cacheDir[0] = 0;
+    cacheDir[0] = saveDir[0] = contentDir[0] = 0;
 
-    strcat(Stream::cacheDir, getenv("APPDATA"));
-    strcat(Stream::cacheDir, "\\OpenLara\\");
-    CreateDirectory(Stream::cacheDir, NULL);
+    strcat(cacheDir, getenv("APPDATA"));
+    strcat(cacheDir, "\\OpenLara\\");
+    strcpy(saveDir, cacheDir);
+    CreateDirectory(cacheDir, NULL);
 
     RECT r = { 0, 0, 1280, 720 };
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, false);

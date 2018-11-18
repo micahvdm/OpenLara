@@ -51,16 +51,16 @@ struct IGame {
     virtual ~IGame() {}
     virtual void         loadLevel(TR::LevelID id) {}
     virtual void         loadNextLevel() {}
+    virtual void         saveGame(TR::LevelID id, bool checkpoint, bool updateStats) {}
     virtual void         loadGame(int slot) {}
-    virtual void         saveGame(int slot) {}
     virtual void         applySettings(const Core::Settings &settings)  {}
 
     virtual TR::Level*   getLevel()     { return NULL; }
     virtual MeshBuilder* getMesh()      { return NULL; }
     virtual Texture*     getAtlas()     { return NULL; }
-    virtual ICamera*     getCamera()    { return NULL; }
-    virtual Controller*  getLara(int index = 0)   { return NULL; }
-    virtual Controller*  getLara(const vec3 &pos) { return NULL; }
+    virtual ICamera*     getCamera(int index = -1)  { return NULL; }
+    virtual Controller*  getLara(int index = 0)     { return NULL; }
+    virtual Controller*  getLara(const vec3 &pos)   { return NULL; }
     virtual bool         isCutscene()   { return false; }
     virtual uint16       getRandomBox(uint16 zone, uint16 *zones) { return 0; }
     virtual uint16       findPath(int ascend, int descend, bool big, int boxStart, int boxEnd, uint16 *zones, uint16 **boxes) { return 0; }
@@ -86,14 +86,15 @@ struct IGame {
 
     virtual void addMuzzleFlash(Controller *owner, int joint, const vec3 &offset, int lightIndex) {}
 
+    virtual void invShow(int playerIndex, int page, int itemIndex = -1) {}
     virtual bool invUse(int playerIndex, TR::Entity::Type type) { return false; }
     virtual void invAdd(TR::Entity::Type type, int count = 1) {}
     virtual int* invCount(TR::Entity::Type type) { return NULL; }
     virtual bool invChooseKey(int playerIndex, TR::Entity::Type hole) { return false; }
 
     virtual Sound::Sample* playSound(int id, const vec3 &pos = vec3(0.0f), int flags = 0) const { return NULL; }
-    virtual void playTrack(uint8 track) {}
-    virtual void stopTrack()            {}
+    virtual void playTrack(uint8 track, bool background = false) {}
+    virtual void stopTrack()                                     {}
 };
 
 struct Controller {
@@ -127,6 +128,8 @@ struct Controller {
     vec3 mainLightPos;
     vec4 mainLightColor;
     bool mainLightFlip;
+    bool invertAim;
+    bool lockMatrix;
 
     struct MeshLayer {
         uint32   model;
@@ -142,10 +145,17 @@ struct Controller {
     } *explodeParts;
 
     vec3 lastPos;
-    bool invertAim;
+    mat4 matrix;
 
-    Controller(IGame *game, int entity) : next(NULL), game(game), level(game->getLevel()), entity(entity), animation(level, getModel(), level->entities[entity].flags.smooth), state(animation.state), layers(0), explodeMask(0), explodeParts(0), lastPos(0), invertAim(false) {
+    float waterLevel, waterDepth;
+
+    Controller(IGame *game, int entity) : next(NULL), game(game), level(game->getLevel()), entity(entity), animation(level, getModel(), level->entities[entity].flags.smooth), state(animation.state), invertAim(false), layers(0), explodeMask(0), explodeParts(0), lastPos(0) {
         const TR::Entity &e = getEntity();
+        lockMatrix  = false;
+        matrix.identity();
+
+        waterLevel = waterDepth = 0.0f;
+
         pos         = vec3(float(e.x), float(e.y), float(e.z));
         angle       = vec3(0.0f, e.rotation, 0.0f);
         roomIndex   = e.room;
@@ -161,6 +171,7 @@ struct Controller {
         timer      = 0.0f;
         ambient[0] = ambient[1] = ambient[2] = ambient[3] = ambient[4] = ambient[5] = vec4(intensityf(getRoom().ambient));
         targetLight = NULL;
+        mainLightFlip = false;
         updateLights(false);
         visibleMask = 0xFFFFFFFF;
 
@@ -174,6 +185,8 @@ struct Controller {
             flags.reverse = true;
             activate();
         }
+
+        level->entities[entity].flags = flags;
 
         if (e.isLara() || e.isActor()) // Lara and cutscene entities is active by default
             activate();
@@ -261,11 +274,12 @@ struct Controller {
                 TR::Entity &e = level->entities[cmd.args];
                 Controller *controller = (Controller*)e.controller;
                 if (!controller) continue; // Block UpdateFloor issue while entities initialization
-                if (!controller->flags.collision) continue;
 
                 switch (e.type) {
                     case TR::Entity::TRAP_DOOR_1 :
                     case TR::Entity::TRAP_DOOR_2 : {
+                        if (!controller->isCollider()) continue;
+
                         int dirX, dirZ;
                         e.getAxis(dirX, dirZ);
 
@@ -284,6 +298,8 @@ struct Controller {
                         break;
                     }
                     case TR::Entity::TRAP_FLOOR  : {
+                        if (!controller->isCollider()) continue;
+
                         if (sx != int(controller->pos.x) / 1024 || sz != int(controller->pos.z) / 1024) 
                             break;
                         int ey = int(controller->pos.y) - 512;
@@ -297,6 +313,8 @@ struct Controller {
                         break;
                     }
                     case TR::Entity::DRAWBRIDGE  : {
+                        if (controller->isCollider()) continue; // drawbridge is collidable in inactive state, but it works as floor only when active
+
                         if (controller->flags.active != TR::ACTIVE) continue;
                         int dirX, dirZ;
                         e.getAxis(dirX, dirZ);
@@ -317,10 +335,14 @@ struct Controller {
                         break;
                     }
                     case TR::Entity::HAMMER_HANDLE : {
+                        if (!controller->isCollider()) continue;
+
                         int dirX, dirZ;
                         e.getAxis(dirX, dirZ);
-                        if (abs(int(controller->pos.x) + dirX * 1024 * 3 - x) < 512 && abs(int(controller->pos.z) + dirZ * 1024 * 3 - z) < 512)
+                        if (abs(int(controller->pos.x) + dirX * 1024 * 3 - x) < 512 && abs(int(controller->pos.z) + dirZ * 1024 * 3 - z) < 512) {
                             info.floor -= 1024 * 3;
+                            info.trigCmdCount = 0;
+                        }
                         break;
                     }
                     case TR::Entity::BRIDGE_1    : 
@@ -375,7 +397,7 @@ struct Controller {
             switch (cmd.func) {
 
                 case TR::FloorData::PORTAL  :
-                    info.roomNext = (*fd++).data;
+                    info.roomNext = (*fd++).value;
                     break;
 
                 case TR::FloorData::FLOOR   : // floor & ceiling
@@ -396,14 +418,22 @@ struct Controller {
                 }
 
                 case TR::FloorData::TRIGGER :  {
-                    info.trigger        = (TR::Level::Trigger::Type)cmd.sub;
-                    info.trigCmdCount   = 0;
-                    info.trigInfo       = (*fd++).triggerInfo;
+                    bool skip = info.trigCmdCount > 0;
+
+                    if (!skip) {
+                        info.trigger      = (TR::Level::Trigger::Type)cmd.sub;
+                        info.trigCmdCount = 0;
+                        info.trigInfo     = (*fd++).triggerInfo;
+                    } else
+                        fd++;
+
                     TR::FloorData::TriggerCommand trigCmd;
                     do {
-                        ASSERT(info.trigCmdCount < MAX_TRIGGER_COMMANDS);
                         trigCmd = (*fd++).triggerCmd; // trigger action
-                        info.trigCmd[info.trigCmdCount++] = trigCmd;
+                        if (!skip) {
+                            ASSERT(info.trigCmdCount < MAX_TRIGGER_COMMANDS);
+                            info.trigCmd[info.trigCmdCount++] = trigCmd;
+                        }
                     } while (!trigCmd.end);
                     break;
                 }
@@ -440,7 +470,7 @@ struct Controller {
         } while (!cmd.end);
     }
 
-    virtual bool getSaveData(TR::SaveGame::Entity &data) {
+    virtual bool getSaveData(SaveEntity &data) {
         const TR::Entity &e = getEntity();
         const TR::Model  *m = getModel();
         if (entity < level->entitiesBaseCount) {
@@ -470,7 +500,7 @@ struct Controller {
         return true;
     }
 
-    virtual void setSaveData(const TR::SaveGame::Entity &data) {
+    virtual void setSaveData(const SaveEntity &data) {
         const TR::Entity &e = getEntity();
         const TR::Model  *m = getModel();
         if (entity < level->entitiesBaseCount) {
@@ -488,12 +518,13 @@ struct Controller {
             roomIndex   = data.room;
         }
         flags.value = e.flags.value ^ data.flags;
-        timer       = data.timer == -1 ? -1.0f : (timer / 30.0f);
+        timer       = data.timer == -1 ? -1.0f : (data.timer / 30.0f);
     // animation
         if (m) animation.setAnim(data.animIndex, -data.animFrame);
+        updateLights(false);
     }
 
-    bool isActive() {
+    bool isActive(bool timing = true) {
         if (flags.active != TR::ACTIVE)
             return flags.reverse;
 
@@ -503,16 +534,26 @@ struct Controller {
         if (timer == -1.0f)
             return flags.reverse;
 
-        timer = max(0.0f, timer - Core::deltaTime);
+        if (timing) {
+            timer = max(0.0f, timer - Core::deltaTime);
 
-        if (timer == 0.0f)
-            timer = -1.0f;
+            if (timer == 0.0f)
+                timer = -1.0f;
+        }
 
         return !flags.reverse;
     }
 
+    virtual bool isCollider() {
+        const TR::Entity &e = getEntity();
+        return e.isEnemy() ||
+               e.isVehicle() ||
+               e.isDoor() ||
+               e.type == TR::Entity::SCION_HOLDER;
+    }
+
     virtual bool activate() {
-        if (flags.state != TR::Entity::asNone)
+        if (flags.state == TR::Entity::asActive || next)
             return false;
         flags.invisible = false;
         flags.state = TR::Entity::asActive;
@@ -538,6 +579,7 @@ struct Controller {
                     prev = c;
                 c = c->next;
             }
+            next = NULL;
         }
     }
 
@@ -545,15 +587,17 @@ struct Controller {
         Controller *prev = NULL;
         Controller *c = first;
         while (c) {
+            Controller *next = c->next;
             if (c->flags.state == TR::Entity::asInactive) {
                 if (prev)
                     prev->next = c->next;
                 else
                     first = c->next;
                 c->flags.state = TR::Entity::asNone;
+                c->next = NULL;
             } else
                 prev = c;
-            c = c->next;
+            c = next;
         }
     }
 
@@ -580,36 +624,47 @@ struct Controller {
         layers[layer].mask  = mask;
     }
 
-    bool aim(Controller *target, int joint, const vec4 &angleRange, quat &rot, quat *rotAbs = NULL) {
-        if (target) {
-            Box box = target->getBoundingBox();
-            vec3 t = (box.min + box.max) * 0.5f;
+    bool aim(const vec3 &t, int joint, const vec4 &angleRange, quat &rot, quat *rotAbs = NULL) {
+        Basis b = animation.getJoints(getMatrix(), joint);
+        vec3 delta = (b.inverse() * t).normal();
+        if (invertAim)
+            delta = -delta;
 
-            Basis b = animation.getJoints(getMatrix(), joint);
-            vec3 delta = (b.inverse() * t).normal();
-            if (invertAim)
-                delta = -delta;
+        float angleY = clampAngle(atan2f(delta.x, delta.z));
+        float angleX = clampAngle(asinf(delta.y));
 
-            float angleY = clampAngle(atan2f(delta.x, delta.z));
-            float angleX = clampAngle(asinf(delta.y));
+        if (angleX > angleRange.x && angleX <= angleRange.y &&
+            angleY > angleRange.z && angleY <= angleRange.w) {
 
-            if (angleX > angleRange.x && angleX <= angleRange.y &&
-                angleY > angleRange.z && angleY <= angleRange.w) {
+            quat ax(vec3(1, 0, 0), -angleX);
+            quat ay(vec3(0, 1, 0), angleY);
 
-                quat ax(vec3(1, 0, 0), -angleX);
-                quat ay(vec3(0, 1, 0), angleY);
+            rot = ay * ax;
+            if (rotAbs)
+                *rotAbs = b.rot * rot;
 
-                rot = ay * ax;
-                if (rotAbs)
-                    *rotAbs = b.rot * rot;
-                return true;
-            }
+            return true;
         }
 
         if (rotAbs)
             *rotAbs = rotYXZ(angle);
+
         return false;
     }
+
+    bool aim(Controller *target, int joint, const vec4 &angleRange, quat &rot, quat *rotAbs = NULL) {
+        if (target) {
+            Box box = target->getBoundingBox();
+            vec3 t = (box.min + box.max) * 0.5f;
+            return aim(t, joint, angleRange, rot, rotAbs);
+        }
+
+        if (rotAbs)
+            *rotAbs = rotYXZ(angle);
+
+        return false;
+    }
+
 
     bool insideRoom(const vec3 &pos, int roomIndex) const {
         TR::Room &r = level->rooms[roomIndex];
@@ -828,7 +883,9 @@ struct Controller {
             dist -= d;
             pos = pos + dir * d;
 
-            px = (int)pos.x, py = (int)pos.y, pz = (int)pos.z;
+            px = (int)pos.x;
+            py = (int)pos.y;
+            pz = (int)pos.z;
         }
 
         return pos;
@@ -1024,16 +1081,20 @@ struct Controller {
                         if (animation.isFrameActive(frame)) {
                             if (cmd == TR::ANIM_CMD_EFFECT) {
                                 switch (fx) {
-                                    case TR::Effect::ROTATE_180   : angle.y = angle.y + PI; break;
+                                    case TR::Effect::ROTATE_180   : angle.x = -angle.x; angle.y = angle.y + PI; break;
                                     case TR::Effect::FLOOR_SHAKE  : game->setEffect(this, TR::Effect::Type(fx)); break;
                                     case TR::Effect::FINISH_LEVEL : game->loadNextLevel(); break;
                                     case TR::Effect::FLIP_MAP     : game->flipMap(); break;
                                     default                       : cmdEffect(fx); break;
                                 }
                             } else {
-                                if (!(sfx & 0x8000)) { // TODO 0x4000 / 0x8000 for ground / water foot steps
-                                    game->playSound(fx, pos, Sound::PAN);
+                                if (!(level->version & TR::VER_TR1)) {
+                                    if ((sfx & 0x8000) && waterDepth <= 0.0f)
+                                        break;
+                                    if ((sfx & 0x4000) && waterDepth > 0.0f)
+                                        break;
                                 }
+                                game->playSound(fx, pos, Sound::PAN);
                             }
                         }
                         break;
@@ -1107,8 +1168,10 @@ struct Controller {
     }
 
     virtual void update() {
-        updateAnimation(true);
-        updateExplosion();
+        if (explodeMask)
+            updateExplosion();
+        else
+            updateAnimation(true);
         updateLights(true);
     }
     
@@ -1161,8 +1224,7 @@ struct Controller {
         vec4 tcolor = vec4(vec3(targetLight->color.r, targetLight->color.g, targetLight->color.b) * (1.0f / 255.0f), float(targetLight->radius));
 
         if (mainLightFlip != level->state.flags.flipped) {
-            if (room.alternateRoom > -1)
-                lerp = false;
+            lerp = false;
             mainLightFlip = level->state.flags.flipped;
         }
 
@@ -1180,12 +1242,13 @@ struct Controller {
         if (level->isCutsceneLevel() && (getEntity().isActor() || getEntity().isLara())) 
             return level->cutMatrix;
 
-        mat4 matrix;
-        matrix.identity();
-        matrix.translate(pos);
-        if (angle.y != 0.0f) matrix.rotateY(angle.y - (animation.flip ? PI * animation.delta : 0.0f));
-        if (angle.x != 0.0f) matrix.rotateX(angle.x);
-        if (angle.z != 0.0f) matrix.rotateZ(angle.z);
+        if (!lockMatrix) {
+            matrix.identity();
+            matrix.translate(pos);
+            if (angle.y != 0.0f) matrix.rotateY(angle.y - (animation.anims != NULL ? (animation.rot * animation.delta) : 0.0f));
+            if (angle.x != 0.0f) matrix.rotateX(angle.x);
+            if (angle.z != 0.0f) matrix.rotateZ(angle.z);
+        }
         return matrix;
     }
 
@@ -1208,12 +1271,12 @@ struct Controller {
                 continue;
             explodeMask |= (1 << i);
             float angle = randf() * PI * 2.0f;
-            float speed = randf() * 256.0f;
+            vec2  speed = vec2(randf(), -randf()) * (getEntity().type == TR::Entity::ENEMY_GIANT_MUTANT ? 256.0f : 128.0f);
 
             ExplodePart &part = explodeParts[i];
             part.basis     = joints[i];
             part.basis.w   = 1.0f;
-            part.velocity  = vec3(cosf(angle), (randf() - 0.5f) * 0.25f, sinf(angle)) * speed;
+            part.velocity  = vec3(cosf(angle) * speed.x, speed.y, sinf(angle) * speed.x);
             part.roomIndex = roomIndex;
         }
     }
@@ -1270,6 +1333,11 @@ struct Controller {
 
     Basis& getJoint(int index) {
         updateJoints();
+
+        ASSERT(getModel() && index < getModel()->mCount);
+        if (getModel() && getModel()->mCount && index >= getModel()->mCount)
+            return joints[0];
+
         return joints[index];
     }
 
@@ -1315,8 +1383,14 @@ struct Controller {
             }
         } else {
             Core::setBasis(joints, model->mCount);
-            mesh->renderModel(getEntity().modelIndex - 1, caustics);
+            mesh->renderModel(model->index, caustics);
         }
+    }
+
+    void addRicochet(const vec3 &pos, bool sound) {
+        game->addEntity(TR::Entity::RICOCHET, getRoomIndex(), pos);
+        if (sound)
+            game->playSound(TR::SND_RICOCHET, pos, Sound::PAN);
     }
 };
 

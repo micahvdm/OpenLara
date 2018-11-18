@@ -4,8 +4,8 @@
 #include "core.h"
 #include "format.h"
 
-TR::ObjectTexture barTile[5 /* UI::BAR_MAX */];
-TR::ObjectTexture &whiteTile = barTile[4]; // BAR_WHITE
+TR::TextureInfo barTile[5 /* UI::BAR_MAX */];
+TR::TextureInfo &whiteTile = barTile[4]; // BAR_WHITE
 
 #define PLANE_DETAIL 48
 #define CIRCLE_SEGS  16
@@ -13,6 +13,11 @@ TR::ObjectTexture &whiteTile = barTile[4]; // BAR_WHITE
 #define DYN_MESH_QUADS     1024
 #define DOUBLE_SIDED       2
 #define MAX_ROOM_DYN_FACES 512
+
+#define WATER_VOLUME_HEIGHT (768 * 2)
+#define WATER_VOLUME_OFFSET 4
+
+const TR::Color32 COLOR_WHITE( 255, 255, 255, 255 );
 
 struct Mesh : GAPI::Mesh {
     int aIndex;
@@ -49,7 +54,7 @@ struct Mesh : GAPI::Mesh {
                     d.vertices[f.vertices[1]].vertex,\
                     d.vertices[f.vertices[2]].vertex,\
                     d.vertices[f.vertices[3]].vertex);\
-            for (int k = 0; k < f.vCount; k++) {\
+            for (int k = 0; k < (f.triangle ? 3 : 4); k++) {\
                 TR::Room::Data::Vertex &v = d.vertices[f.vertices[k]];\
                 Vertex &rv = vertices[vCount++];\
                 rv.coord  = short4( v.vertex.x, v.vertex.y, v.vertex.z, 0 );\
@@ -139,6 +144,7 @@ struct MeshBuilder {
         Geometry  geometry[3]; // opaque, double-side alpha, additive
         Dynamic   dynamic[3];  // lists of dynamic polygons (with animated textures) like lava, waterfalls etc.
         MeshRange sprites;
+        MeshRange waterVolume;
         int       split;
     } *rooms;
 
@@ -154,7 +160,7 @@ struct MeshBuilder {
 
 // procedured
     MeshRange shadowBlob;
-    MeshRange quad, circle;
+    MeshRange quad, circle, box;
     MeshRange plane;
 
     int transparent;
@@ -165,36 +171,36 @@ struct MeshBuilder {
         BLEND_ADD   = 4,
     };
 
-    MeshBuilder(TR::Level &level, Texture *atlas) : atlas(atlas), level(&level) {
+    MeshBuilder(TR::Level *level, Texture *atlas) : atlas(atlas), level(level) {
         dynMesh = new Mesh(NULL, DYN_MESH_QUADS * 6, NULL, DYN_MESH_QUADS * 4, 1, true);
         dynRange.vStart = 0;
         dynRange.iStart = 0;
         dynMesh->initRange(dynRange);
 
     // allocate room geometry ranges
-        rooms = new RoomRange[level.roomsCount];
+        rooms = new RoomRange[level->roomsCount];
 
         int iCount = 0, vCount = 0;
 
     // sort room faces by material
-        for (int i = 0; i < level.roomsCount; i++) {
-            TR::Room::Data &data = level.rooms[i].data;
+        for (int i = 0; i < level->roomsCount; i++) {
+            TR::Room::Data &data = level->rooms[i].data;
             sort(data.faces, data.fCount);
         // sort room sprites by material
             sort(data.sprites, data.sCount);
         }
 
     // sort mesh faces by material
-        for (int i = 0; i < level.meshesCount; i++) {
-            TR::Mesh &mesh = level.meshes[i];
+        for (int i = 0; i < level->meshesCount; i++) {
+            TR::Mesh &mesh = level->meshes[i];
             sort(mesh.faces, mesh.fCount);
         }
 
     // get size of mesh for rooms (geometry & sprites)
         int vStartRoom = vCount;
 
-        for (int i = 0; i < level.roomsCount; i++) {
-            TR::Room       &r = level.rooms[i];
+        for (int i = 0; i < level->roomsCount; i++) {
+            TR::Room       &r = level->rooms[i];
             TR::Room::Data &d = r.data;
 
             int vStartCount = vCount;
@@ -202,14 +208,13 @@ struct MeshBuilder {
             iCount += (d.rCount * 6 + d.tCount * 3) * DOUBLE_SIDED;
             vCount += (d.rCount * 4 + d.tCount * 3);
 
-            if (Core::settings.detail.water > Core::Settings::LOW)
-                roomRemoveWaterSurfaces(r, iCount, vCount);
+            roomRemoveWaterSurfaces(r, iCount, vCount);
 
             for (int j = 0; j < r.meshesCount; j++) {
                 TR::Room::Mesh &m = r.meshes[j];
-                TR::StaticMesh *s = &level.staticMeshes[m.meshIndex];
-                if (!level.meshOffsets[s->mesh]) continue;
-                TR::Mesh &mesh = level.meshes[level.meshOffsets[s->mesh]];
+                TR::StaticMesh *s = &level->staticMeshes[m.meshIndex];
+                if (!level->meshOffsets[s->mesh]) continue;
+                TR::Mesh &mesh = level->meshes[level->meshOffsets[s->mesh]];
 
                 iCount += (mesh.rCount * 6 + mesh.tCount * 3) * DOUBLE_SIDED;
                 vCount += (mesh.rCount * 4 + mesh.tCount * 3);
@@ -228,26 +233,26 @@ struct MeshBuilder {
         }
 
     // get models info
-        models = new ModelRange[level.modelsCount];
-        for (int i = 0; i < level.modelsCount; i++) {
-            TR::Model &model = level.models[i];
+        models = new ModelRange[level->modelsCount];
+        for (int i = 0; i < level->modelsCount; i++) {
+            TR::Model &model = level->models[i];
             for (int j = 0; j < model.mCount; j++) {
-                int index = level.meshOffsets[model.mStart + j];
-                if (index == -1) 
+                int index = level->meshOffsets[model.mStart + j];
+                if (!index && model.mStart + j > 0) 
                     continue;
-                TR::Mesh &mesh = level.meshes[index];
+                TR::Mesh &mesh = level->meshes[index];
                 iCount += (mesh.rCount * 6 + mesh.tCount * 3) * DOUBLE_SIDED;
                 vCount += (mesh.rCount * 4 + mesh.tCount * 3);
             }
         }
 
     // get size of mesh for sprite sequences
-        sequences = new SpriteRange[level.spriteSequencesCount];
-        for (int i = 0; i < level.spriteSequencesCount; i++) {
+        sequences = new SpriteRange[level->spriteSequencesCount];
+        for (int i = 0; i < level->spriteSequencesCount; i++) {
             sequences[i].transp = 1; // alpha blending by default
         #ifdef MERGE_SPRITES
-            iCount += level.spriteSequences[i].sCount * 6;
-            vCount += level.spriteSequences[i].sCount * 4;
+            iCount += level->spriteSequences[i].sCount * 6;
+            vCount += level->spriteSequences[i].sCount * 4;
         #endif
         }
 
@@ -262,6 +267,28 @@ struct MeshBuilder {
     // circle
         iCount += CIRCLE_SEGS * 3;
         vCount += CIRCLE_SEGS + 1;
+
+    // box
+        const Index boxIndices[] = {
+            2,  1,  0,  3,  2,  0,
+            4,  5,  6,  4,  6,  7,
+            8,  9,  10, 8,  10, 11,
+            14, 13, 12, 15, 14, 12,
+            16, 17, 18, 16, 18, 19,
+            22, 21, 20, 23, 22, 20,
+        };
+
+        const short4 boxCoords[] = {
+            {-1, -1,  1, 0}, { 1, -1,  1, 0}, { 1,  1,  1, 0}, {-1,  1,  1, 0},
+            { 1,  1,  1, 0}, { 1,  1, -1, 0}, { 1, -1, -1, 0}, { 1, -1,  1, 0},
+            {-1, -1, -1, 0}, { 1, -1, -1, 0}, { 1,  1, -1, 0}, {-1,  1, -1, 0},
+            {-1, -1, -1, 0}, {-1, -1,  1, 0}, {-1,  1,  1, 0}, {-1,  1, -1, 0},
+            { 1,  1,  1, 0}, {-1,  1,  1, 0}, {-1,  1, -1, 0}, { 1,  1, -1, 0},
+            {-1, -1, -1, 0}, { 1, -1, -1, 0}, { 1, -1,  1, 0}, {-1, -1,  1, 0},
+        };
+
+        iCount += COUNT(boxIndices);
+        vCount += COUNT(boxCoords);
 
     // detailed plane
     #ifdef GENERATE_WATER_PLANE
@@ -279,8 +306,8 @@ struct MeshBuilder {
         vStartRoom = vCount;
         aCount++;
 
-        for (int i = 0; i < level.roomsCount; i++) {
-            TR::Room &room = level.rooms[i];
+        for (int i = 0; i < level->roomsCount; i++) {
+            TR::Room &room = level->rooms[i];
             TR::Room::Data &d = room.data;
             RoomRange &range = rooms[i];
 
@@ -288,6 +315,10 @@ struct MeshBuilder {
                 vStartRoom = vCount;
                 aCount++;
             }
+
+            range.waterVolume.iCount = 0;
+            if (Core::settings.detail.water > Core::Settings::MEDIUM)
+                buildWaterVolume(i, indices, vertices, iCount, vCount, vStartRoom);
 
             for (int transp = 0; transp < 3; transp++) { // opaque, opacity
                 int blendMask = getBlendMask(transp);
@@ -300,9 +331,9 @@ struct MeshBuilder {
             // static meshes
                 for (int j = 0; j < room.meshesCount; j++) {
                     TR::Room::Mesh &m = room.meshes[j];
-                    TR::StaticMesh *s = &level.staticMeshes[m.meshIndex];
-                    if (!level.meshOffsets[s->mesh]) continue;
-                    TR::Mesh &mesh = level.meshes[level.meshOffsets[s->mesh]];
+                    TR::StaticMesh *s = &level->staticMeshes[m.meshIndex];
+                    if (!level->meshOffsets[s->mesh]) continue;
+                    TR::Mesh &mesh = level->meshes[level->meshOffsets[s->mesh]];
 
                     int x = m.x - room.info.x;
                     int y = m.y;
@@ -321,7 +352,7 @@ struct MeshBuilder {
             for (int j = 0; j < d.sCount; j++) {
                 TR::Room::Data::Sprite &f = d.sprites[j];
                 TR::Room::Data::Vertex &v = d.vertices[f.vertex];
-                TR::SpriteTexture &sprite = level.spriteTextures[f.texture];
+                TR::TextureInfo &sprite = level->spriteTextures[f.texture];
 
                 addSprite(indices, vertices, iCount, vCount, vStartRoom, v.vertex.x, v.vertex.y, v.vertex.z, sprite, v.color, v.color);
             }
@@ -336,10 +367,8 @@ struct MeshBuilder {
         int vStartModel = vCount;
         aCount++;
 
-        TR::Color32 COLOR_WHITE(255, 255, 255, 255);
-
-        for (int i = 0; i < level.modelsCount; i++) {
-            TR::Model &model = level.models[i];
+        for (int i = 0; i < level->modelsCount; i++) {
+            TR::Model &model = level->models[i];
 
             for (int transp = 0; transp < 3; transp++) {
                 Geometry &geom = models[i].geometry[transp];
@@ -351,15 +380,14 @@ struct MeshBuilder {
                         models[i].parts[transp][j] = geom.count;
                     #endif
 
-                    int index = level.meshOffsets[model.mStart + j];
-                    if (index == -1)
-                        continue;
-
-                    TR::Mesh &mesh = level.meshes[index];
-                    #ifndef MERGE_MODELS
-                        geom.getNextRange(vStartModel, iCount, 0xFFFF, 0xFFFF);
-                    #endif
-                    buildMesh(geom, blendMask, mesh, level, indices, vertices, iCount, vCount, vStartModel, j, 0, 0, 0, 0, COLOR_WHITE);
+                    int index = level->meshOffsets[model.mStart + j];
+                    if (index || model.mStart + j <= 0) {
+                        TR::Mesh &mesh = level->meshes[index];
+                        #ifndef MERGE_MODELS
+                            geom.getNextRange(vStartModel, iCount, 0xFFFF, 0xFFFF);
+                        #endif
+                        buildMesh(geom, blendMask, mesh, level, indices, vertices, iCount, vCount, vStartModel, j, 0, 0, 0, 0, COLOR_WHITE);
+                    }
 
                     #ifndef MERGE_MODELS
                         geom.finish(iCount);
@@ -392,12 +420,12 @@ struct MeshBuilder {
         int vStartSprite = vCount;
         aCount++;
 
-        for (int i = 0; i < level.spriteSequencesCount; i++) {
+        for (int i = 0; i < level->spriteSequencesCount; i++) {
             MeshRange &range = sequences[i].sprites;
             range.vStart = vStartSprite;
             range.iStart = iCount;
-            for (int j = 0; j < level.spriteSequences[i].sCount; j++) {
-                TR::SpriteTexture &sprite = level.spriteTextures[level.spriteSequences[i].sStart + j];
+            for (int j = 0; j < level->spriteSequences[i].sCount; j++) {
+                TR::TextureInfo &sprite = level->spriteTextures[level->spriteSequences[i].sStart + j];
                 addSprite(indices, vertices, iCount, vCount, vStartSprite, 0, 0, 0, sprite, TR::Color32(255, 255, 255, 255), TR::Color32(255, 255, 255, 255));
             }
             range.iCount = iCount - range.iStart;
@@ -459,7 +487,7 @@ struct MeshBuilder {
         quad.iStart = iCount;
         quad.iCount = 2 * 3;
 
-        addQuad(indices, iCount, vCount, vStartCommon, vertices, &whiteTile, false);
+        addQuad(indices, iCount, vCount, vStartCommon, vertices, &whiteTile, false, false);
         vertices[vCount + 0].coord = short4( -32767,  32767, 0, 1 );
         vertices[vCount + 1].coord = short4(  32767,  32767, 1, 1 );
         vertices[vCount + 2].coord = short4(  32767, -32767, 1, 0 );
@@ -471,12 +499,11 @@ struct MeshBuilder {
         vertices[vCount + 3].texCoord = short4(     0,      0, 0, 0 );
 
         for (int i = 0; i < 4; i++) {
-            Vertex &v = vertices[vCount + i];
+            Vertex &v = vertices[vCount++];
             v.normal  = short4( 0, 0, 0, 0 );
             v.color   = ubyte4( 255, 255, 255, 255 );
             v.light   = ubyte4( 255, 255, 255, 255 );
         }
-        vCount += 4;
 
     // circle
         circle.vStart = vStartCommon;
@@ -503,6 +530,25 @@ struct MeshBuilder {
         vertices[vCount + CIRCLE_SEGS] = vertices[vCount];
         vertices[vCount + CIRCLE_SEGS].coord = short4( 0, 0, 0, 0 );
         vCount += CIRCLE_SEGS + 1;
+
+    // box
+        box.vStart = vStartCommon;
+        box.iStart = iCount;
+        box.iCount = COUNT(boxIndices);
+
+        baseIdx = vCount - vStartCommon;
+
+        for (int i = 0; i < COUNT(boxIndices); i++)
+            indices[iCount++] = baseIdx + boxIndices[i];
+
+        for (int i = 0; i < COUNT(boxCoords); i++) {
+            Vertex &v = vertices[vCount++];
+            v.coord    = boxCoords[i];
+            v.normal   = short4(0, 0, 0, 32767);
+            v.texCoord = short4(0, 0, 0, 0);
+            v.color    = ubyte4(255, 255, 255, 255);
+            v.light    = ubyte4(255, 255, 255, 255);
+        }
 
     // plane
     #ifdef GENERATE_WATER_PLANE
@@ -544,7 +590,7 @@ struct MeshBuilder {
         MeshRange rangeRoom;
         rangeRoom.vStart = 0;
         mesh->initRange(rangeRoom);
-        for (int i = 0; i < level.roomsCount; i++) {
+        for (int i = 0; i < level->roomsCount; i++) {
             
             if (rooms[i].split) {
                 ASSERT(rooms[i].geometry[0].count);
@@ -558,12 +604,13 @@ struct MeshBuilder {
                     r.geometry[j].ranges[k].aIndex = rangeRoom.aIndex;
 
             r.sprites.aIndex = rangeRoom.aIndex;
+            r.waterVolume.aIndex = rangeRoom.aIndex;
         }
 
         MeshRange rangeModel;
         rangeModel.vStart = vStartModel;
         mesh->initRange(rangeModel);
-        for (int i = 0; i < level.modelsCount; i++)
+        for (int i = 0; i < level->modelsCount; i++)
             for (int j = 0; j < 3; j++) {
                 Geometry &geom = models[i].geometry[j];
                 for (int k = 0; k < geom.count; k++)
@@ -574,7 +621,7 @@ struct MeshBuilder {
         MeshRange rangeSprite;
         rangeSprite.vStart = vStartSprite;
         mesh->initRange(rangeSprite);
-        for (int i = 0; i < level.spriteSequencesCount; i++)
+        for (int i = 0; i < level->spriteSequencesCount; i++)
             sequences[i].sprites.aIndex = rangeSprite.aIndex;
     #endif
 
@@ -610,9 +657,9 @@ struct MeshBuilder {
         short4 res = v;
 
         switch (dir) {
-            case 1  : res.x =  v.z, res.z = -v.x; break;
-            case 2  : res.x = -v.x, res.z = -v.z; break;
-            case 3  : res.x = -v.z, res.z =  v.x; break;
+            case 1  : res.x =  v.z; res.z = -v.x; break;
+            case 2  : res.x = -v.x; res.z = -v.z; break;
+            case 3  : res.x = -v.z; res.z =  v.x; break;
             default : ASSERT(false);
         }
         return res;
@@ -639,11 +686,18 @@ struct MeshBuilder {
     }
 
     void roomRemoveWaterSurfaces(TR::Room &room, int &iCount, int &vCount) {
+
         room.waterLevel = -1;
+
+        if (Core::settings.detail.water == Core::Settings::LOW) {
+            for (int i = 0; i < room.data.fCount; i++)
+                room.data.faces[i].water = false;
+            return;
+        }
 
         for (int i = 0; i < room.data.fCount; i++) {
             TR::Face &f = room.data.faces[i];
-            if (f.vertices[0] == 0xFFFF) continue;
+            if (f.water) continue;
 
             TR::Vertex &a = room.data.vertices[f.vertices[0]].vertex;
             TR::Vertex &b = room.data.vertices[f.vertices[1]].vertex;
@@ -664,16 +718,181 @@ struct MeshBuilder {
 
             if (isWaterSurface(yt, s.roomAbove, room.flags.water) ||
                 isWaterSurface(yb, s.roomBelow, room.flags.water)) {
-                f.vertices[0] = 0xFFFF; // mark as unused
+                f.water = true;
+
                 room.waterLevel = a.y;
-                if (f.vCount == 4) {
-                    iCount -= 6;
-                    vCount -= 4;
-                } else {
+                if (f.triangle) {
                     iCount -= 3;
                     vCount -= 3;
+                } else {
+                    iCount -= 6;
+                    vCount -= 4;
+                }
+
+            // preserve indices & vertices for water volume
+                if (room.flags.water && Core::settings.detail.water > Core::Settings::MEDIUM) {
+                // water volume caps
+                    iCount += (f.triangle ? 3 : 6) * 2;
+                    vCount += (f.triangle ? 3 : 4) * 2;
+                // water volume bounds (reserved)
+                    iCount += (f.triangle ? 3 : 4) * 6;
+                    vCount += (f.triangle ? 3 : 4) * 4;
                 }
             }
+        }
+    }
+
+    Index addUniqueVertex(Array<TR::Vertex> &vertices, TR::Vertex &v) {
+        for (int i = 0; i < vertices.length; i++) {
+            TR::Vertex &o = vertices[i];
+            if (o.x == v.x && o.y == v.y && o.z == v.z)
+                return i;
+        }
+        return vertices.push(v);
+    }
+
+    void addUniqueEdge(Array<Edge> &edges, Index a, Index b) {
+        for (int i = 0; i < edges.length; i++) {
+            Edge &e = edges[i];
+            if ((e.a == a && e.b == b) || (e.a == b && e.b == a)) {
+                edges.remove(i);
+                return;
+            }
+        }
+        edges.push(Edge(a, b));
+    }
+
+    void buildWaterVolume(int roomIndex, Index *indices, Vertex *vertices, int &iCount, int &vCount, int vStart) {
+        TR::Room &room = level->rooms[roomIndex];
+        if (!room.flags.water) return;
+        MeshRange &range = rooms[roomIndex].waterVolume;
+
+        Array<Edge>       wEdges(128);
+        Array<Index>      wIndices(128);
+        Array<TR::Vertex> wVertices(128);
+
+        for (int i = 0; i < room.data.fCount; i++) {
+            TR::Face &f = room.data.faces[i];
+            if (!f.water) continue;
+
+            Index idx[4];
+
+            idx[0] = addUniqueVertex(wVertices, room.data.vertices[f.vertices[0]].vertex);
+            idx[1] = addUniqueVertex(wVertices, room.data.vertices[f.vertices[1]].vertex);
+            idx[2] = addUniqueVertex(wVertices, room.data.vertices[f.vertices[2]].vertex);
+
+            if (!f.triangle) {
+                idx[3] = addUniqueVertex(wVertices, room.data.vertices[f.vertices[3]].vertex);
+
+                wIndices.push(idx[0]);
+                wIndices.push(idx[1]);
+                wIndices.push(idx[3]);
+
+                wIndices.push(idx[3]);
+                wIndices.push(idx[1]);
+                wIndices.push(idx[2]);
+
+                addUniqueEdge(wEdges, idx[0], idx[1]);
+                addUniqueEdge(wEdges, idx[1], idx[2]);
+                addUniqueEdge(wEdges, idx[2], idx[3]);
+                addUniqueEdge(wEdges, idx[3], idx[0]);
+            } else {
+                wIndices.push(idx[0]);
+                wIndices.push(idx[1]);
+                wIndices.push(idx[2]);
+
+                addUniqueEdge(wEdges, idx[0], idx[1]);
+                addUniqueEdge(wEdges, idx[1], idx[2]);
+                addUniqueEdge(wEdges, idx[2], idx[0]);
+            }
+        }
+
+        if (!wEdges.length) return;
+
+        Array<short3> wOffsets(wVertices.length);
+
+        for (int i = 0; i < wVertices.length; i++)
+            wOffsets.push(short3(0, WATER_VOLUME_OFFSET, 0));
+
+        for (int i = 0; i < wEdges.length; i++) {
+            Edge &e = wEdges[i];
+            TR::Vertex &a = wVertices[e.a];
+            TR::Vertex &b = wVertices[e.b];
+            int16 dx = a.z - b.z;
+            int16 dz = b.x - a.x;
+
+            short3 &ao = wOffsets[e.a];
+            ao.x = clamp(ao.x + dx, -WATER_VOLUME_OFFSET, WATER_VOLUME_OFFSET);
+            ao.z = clamp(ao.z + dz, -WATER_VOLUME_OFFSET, WATER_VOLUME_OFFSET);
+
+            short3 &bo = wOffsets[e.b];
+            bo.x = clamp(bo.x + dx, -WATER_VOLUME_OFFSET, WATER_VOLUME_OFFSET);
+            bo.z = clamp(bo.z + dz, -WATER_VOLUME_OFFSET, WATER_VOLUME_OFFSET);
+        }
+
+        range.vStart = vStart;
+        range.iCount = wIndices.length * 2 + wEdges.length * 6;
+        range.iStart = iCount;
+
+        for (int i = 0; i < wIndices.length; i += 3) {
+            indices[iCount++] = vCount + wIndices[i + 2];
+            indices[iCount++] = vCount + wIndices[i + 1];
+            indices[iCount++] = vCount + wIndices[i + 0];
+        }
+
+        for (int i = 0; i < wIndices.length; i++)
+            indices[iCount++] = vCount + wIndices[i] + wVertices.length;
+
+        for (int i = 0; i < wEdges.length; i++) {
+            Index a = wEdges[i].a;
+            Index b = wEdges[i].b;
+
+            indices[iCount++] = vCount + a;
+            indices[iCount++] = vCount + b;
+            indices[iCount++] = vCount + a + wVertices.length;
+
+            indices[iCount++] = vCount + b;
+            indices[iCount++] = vCount + b + wVertices.length;
+            indices[iCount++] = vCount + a + wVertices.length;
+        }
+
+        for (int i = 0; i < wVertices.length; i++) {
+            TR::Vertex &v = wVertices[i];
+            short3     &o = wOffsets[i];
+
+            v.x += o.x;
+            v.y += o.y;
+            v.z += o.z;
+
+            vertices[vCount++].coord = short4(v.x, v.y, v.z, 0);
+        }
+
+        for (int i = 0; i < wVertices.length; i++) {
+            TR::Vertex &v = wVertices[i];
+
+            v.y += WATER_VOLUME_HEIGHT - WATER_VOLUME_OFFSET - WATER_VOLUME_OFFSET;
+
+            const vec3 sectorOffsets[] = {
+                vec3(-8, 0, -8),
+                vec3( 8, 0, -8),
+                vec3( 8, 0,  8),
+                vec3(-8, 0,  8),
+            };
+
+            int16 floor = 32000;
+            for (int j = 0; j < 4; j++) {
+                vec3 pos = room.getOffset() + vec3(v.x, v.y, v.z) + sectorOffsets[j];
+                int16 rIndex = roomIndex;
+                TR::Room::Sector *sector = level->getSector(rIndex, pos);
+                if (sector->floor == TR::NO_FLOOR || !level->rooms[rIndex].flags.water) continue;
+                floor = min(floor, int16(level->getFloor(sector, pos)));
+            }
+
+            floor -= WATER_VOLUME_OFFSET * 3;
+
+            v.y = min(v.y, floor);
+
+            vertices[vCount++].coord = short4(v.x, v.y, v.z, 0);
         }
     }
 
@@ -682,17 +901,19 @@ struct MeshBuilder {
         return 1 << texAttribute;
     }
 
-    void buildRoom(Geometry &geom, Dynamic &dyn, int blendMask, const TR::Room &room, const TR::Level &level, Index *indices, Vertex *vertices, int &iCount, int &vCount, int vStart) {
+    void buildRoom(Geometry &geom, Dynamic &dyn, int blendMask, const TR::Room &room, TR::Level *level, Index *indices, Vertex *vertices, int &iCount, int &vCount, int vStart) {
         const TR::Room::Data &d = room.data;
 
         dyn.count = 0;
         dyn.faces = NULL;
 
         for (int j = 0; j < d.fCount; j++) {
-            TR::Face          &f = d.faces[j];
-            TR::ObjectTexture &t = level.objectTextures[f.flags.texture];
+            TR::Face &f = d.faces[j];
+            ASSERT(!f.colored);
+            ASSERT(f.flags.texture < level->objectTexturesCount);
+            TR::TextureInfo &t = level->objectTextures[f.flags.texture];
 
-            if (f.vertices[0] == 0xFFFF) continue; // skip if marks as unused (removing water planes)
+            if (f.water) continue;
 
             CHECK_ROOM_NORMAL(f);
 
@@ -705,8 +926,8 @@ struct MeshBuilder {
                 continue;
             }
 
-            if (!geom.validForTile(t.tile.index, t.clut))
-                geom.getNextRange(vStart, iCount, t.tile.index, t.clut);
+            if (!geom.validForTile(t.tile, t.clut))
+                geom.getNextRange(vStart, iCount, t.tile, t.clut);
 
             ADD_ROOM_FACE(indices, iCount, vCount, vStart, vertices, f, t);
         }
@@ -723,10 +944,10 @@ struct MeshBuilder {
             dyn.faces = new uint16[dyn.count];
             dyn.count = 0;
             for (int j = 0; j < d.fCount; j++) {
-                TR::Face          &f = d.faces[j];
-                TR::ObjectTexture &t = level.objectTextures[f.flags.texture];
+                TR::Face        &f = d.faces[j];
+                TR::TextureInfo &t = level->objectTextures[f.flags.texture];
 
-                if (f.vertices[0] == 0xFFFF) continue; // skip if marks as unused (removing water planes)
+                if (f.water) continue;
 
                 if (!(blendMask & getBlendMask(t.attribute)))
                     continue;
@@ -737,13 +958,13 @@ struct MeshBuilder {
         }
     }
 
-    bool buildMesh(Geometry &geom, int blendMask, const TR::Mesh &mesh, const TR::Level &level, Index *indices, Vertex *vertices, int &iCount, int &vCount, int vStart, int16 joint, int x, int y, int z, int dir, const TR::Color32 &light) {
-        TR::Color24 COLOR_WHITE( 255, 255, 255 );
+    bool buildMesh(Geometry &geom, int blendMask, const TR::Mesh &mesh, TR::Level *level, Index *indices, Vertex *vertices, int &iCount, int &vCount, int vStart, int16 joint, int x, int y, int z, int dir, const TR::Color32 &light) {
         bool isOpaque = true;
 
         for (int j = 0; j < mesh.fCount; j++) {
             TR::Face &f = mesh.faces[j];
-            TR::ObjectTexture &t = f.colored ? whiteTile : level.objectTextures[f.flags.texture];
+            ASSERT(f.colored || f.flags.texture < level->objectTexturesCount);
+            TR::TextureInfo &t = f.colored ? whiteTile : level->objectTextures[f.flags.texture];
 
             if (t.attribute != 0)
                 isOpaque = false;
@@ -751,10 +972,10 @@ struct MeshBuilder {
             if (!(blendMask & getBlendMask(t.attribute)))
                 continue;
 
-            if (!geom.validForTile(t.tile.index, t.clut))
-                geom.getNextRange(vStart, iCount, t.tile.index, t.clut);
+            if (!geom.validForTile(t.tile, t.clut))
+                geom.getNextRange(vStart, iCount, t.tile, t.clut);
 
-            TR::Color32 c = f.colored ? level.getColor(f.flags.value) : COLOR_WHITE;
+            TR::Color32 c = f.colored ? level->getColor(f.flags.value) : COLOR_WHITE;
 
             addFace(indices, iCount, vCount, vStart, vertices, f, &t, 
                     mesh.vertices[f.vertices[0]].coord,
@@ -762,7 +983,7 @@ struct MeshBuilder {
                     mesh.vertices[f.vertices[2]].coord,
                     mesh.vertices[f.vertices[3]].coord);
 
-            for (int k = 0; k < f.vCount; k++) {
+            for (int k = 0; k < (f.triangle ? 3 : 4); k++) {
                 TR::Mesh::Vertex &v = mesh.vertices[f.vertices[k]];
 
                 vertices[vCount].coord  = transform(v.coord, joint, x, y, z, dir);
@@ -779,7 +1000,7 @@ struct MeshBuilder {
         return isOpaque;
     }
 
-    void addTexCoord(Vertex *vertices, int vCount, TR::ObjectTexture *tex, bool triangle) {
+    void addTexCoord(Vertex *vertices, int vCount, TR::TextureInfo *tex, bool triangle, uint8 flip) {
         int count = triangle ? 3 : 4;
         for (int i = 0; i < count; i++) {
             Vertex &v = vertices[vCount + i];
@@ -788,9 +1009,44 @@ struct MeshBuilder {
 
         if (((level->version & TR::VER_PSX)) && !triangle) // TODO: swap vertices instead of rectangle indices and vertices.texCoords (WRONG lighting in TR2!)
             swap(vertices[vCount + 2].texCoord, vertices[vCount + 3].texCoord);
+
+        if ((level->version & TR::VER_SAT)) {
+            if (triangle) {
+            /*  transform Saturn's triangle texCoords by flip code
+                                    |\
+                flip 2, 6,  8, 12 - |_\
+                                     _
+                flip 0, 4, 10, 14 - | /
+                                    |/
+            */
+                if (flip == 2 || flip == 6 || flip == 8 || flip == 12)
+                    vertices[vCount + 1].texCoord = vertices[vCount + 2].texCoord;
+
+                vertices[vCount + 2].texCoord.x = vertices[vCount + 0].texCoord.x;
+
+                if (flip == 10 || flip == 14) // flip diagonal
+                    swap(vertices[vCount + 1].texCoord, vertices[vCount + 2].texCoord);
+
+                if (flip == 2 || flip == 6) { // rotate
+                    swap(vertices[vCount + 0].texCoord, vertices[vCount + 2].texCoord);
+                    swap(vertices[vCount + 2].texCoord, vertices[vCount + 1].texCoord);
+                }
+
+                if (flip == 8 || flip == 12) // flip vertical
+                    swap(vertices[vCount + 0].texCoord, vertices[vCount + 2].texCoord);
+
+            } else {
+
+                if (flip) { // flip horizontal
+                    swap(vertices[vCount + 0].texCoord, vertices[vCount + 1].texCoord);
+                    swap(vertices[vCount + 3].texCoord, vertices[vCount + 2].texCoord);
+                }
+
+            }
+        }
     }
 
-    void addTriangle(Index *indices, int &iCount, int vCount, int vStart, Vertex *vertices, TR::ObjectTexture *tex, bool doubleSided) {
+    void addTriangle(Index *indices, int &iCount, int vCount, int vStart, Vertex *vertices, TR::TextureInfo *tex, bool doubleSided, uint8 flip) {
         int vIndex = vCount - vStart;
 
         indices[iCount + 0] = vIndex + 0;
@@ -806,10 +1062,10 @@ struct MeshBuilder {
             iCount += 3;
         }
 
-        if (tex) addTexCoord(vertices, vCount, tex, true);
+        if (tex) addTexCoord(vertices, vCount, tex, true, flip);
     }
 
-    void addQuad(Index *indices, int &iCount, int vCount, int vStart, Vertex *vertices, TR::ObjectTexture *tex, bool doubleSided) {
+    void addQuad(Index *indices, int &iCount, int vCount, int vStart, Vertex *vertices, TR::TextureInfo *tex, bool doubleSided, uint8 flip) {
         int vIndex = vCount - vStart;
 
         indices[iCount + 0] = vIndex + 0;
@@ -834,12 +1090,12 @@ struct MeshBuilder {
             iCount += 6;
         }
 
-        if (tex) addTexCoord(vertices, vCount, tex, false);
+        if (tex) addTexCoord(vertices, vCount, tex, false, flip);
     }
 
-    void addQuad(Index *indices, int &iCount, int &vCount, int vStart, Vertex *vertices, TR::ObjectTexture *tex, bool doubleSided,
+    void addQuad(Index *indices, int &iCount, int &vCount, int vStart, Vertex *vertices, TR::TextureInfo *tex, bool doubleSided, uint8 flip,
                  const short3 &c0, const short3 &c1, const short3 &c2, const short3 &c3) {
-        addQuad(indices, iCount, vCount, vStart, vertices, tex, doubleSided);
+        addQuad(indices, iCount, vCount, vStart, vertices, tex, doubleSided, flip);
 
         vec3 a = c0 - c1;
         vec3 b = c3 - c2;
@@ -875,11 +1131,11 @@ struct MeshBuilder {
     }
 
 
-    void addFace(Index *indices, int &iCount, int &vCount, int vStart, Vertex *vertices, const TR::Face &f, TR::ObjectTexture *tex, const short3 &a, const short3 &b, const short3 &c, const short3 &d) {
-        if (f.vCount == 4)
-            addQuad(indices, iCount, vCount, vStart, vertices, tex, f.flags.doubleSided, a, b, c, d);
+    void addFace(Index *indices, int &iCount, int &vCount, int vStart, Vertex *vertices, const TR::Face &f, TR::TextureInfo *tex, const short3 &a, const short3 &b, const short3 &c, const short3 &d) {
+        if (f.triangle)
+            addTriangle(indices, iCount, vCount, vStart, vertices, tex, f.flags.doubleSided, f.flip);
         else
-            addTriangle(indices, iCount, vCount, vStart, vertices, tex, f.flags.doubleSided);
+            addQuad(indices, iCount, vCount, vStart, vertices, tex, f.flags.doubleSided, f.flip, a, b, c, d);
     }
 
 
@@ -891,8 +1147,8 @@ struct MeshBuilder {
         return short4(int16(coord.x), int16(coord.y), int16(coord.z), 0);
     }
 
-    void addSprite(Index *indices, Vertex *vertices, int &iCount, int &vCount, int vStart, int16 x, int16 y, int16 z, const TR::SpriteTexture &sprite, const TR::Color32 &tColor, const TR::Color32 &bColor, bool expand = false) {
-        addQuad(indices, iCount, vCount, vStart, NULL, NULL, false);
+    void addSprite(Index *indices, Vertex *vertices, int &iCount, int &vCount, int vStart, int16 x, int16 y, int16 z, const TR::TextureInfo &sprite, const TR::Color32 &tColor, const TR::Color32 &bColor, bool expand = false) {
+        addQuad(indices, iCount, vCount, vStart, NULL, NULL, false, false);
 
         Vertex *quad = &vertices[vCount];
 
@@ -938,8 +1194,8 @@ struct MeshBuilder {
         vCount += 4;
     }
 
-    void addBar(Index *indices, Vertex *vertices, int &iCount, int &vCount, const TR::ObjectTexture &tile, const vec2 &pos, const vec2 &size, uint32 color, uint32 color2 = 0) {
-        addQuad(indices, iCount, vCount, 0, vertices, NULL, false);
+    void addBar(Index *indices, Vertex *vertices, int &iCount, int &vCount, const TR::TextureInfo &tile, const vec2 &pos, const vec2 &size, uint32 color, uint32 color2 = 0) {
+        addQuad(indices, iCount, vCount, 0, vertices, NULL, false, false);
 
         int16 minX = int16(pos.x);
         int16 minY = int16(pos.y);
@@ -955,9 +1211,9 @@ struct MeshBuilder {
             Vertex &v = vertices[vCount + i];
             v.normal  = short4( 0, 0, 0, 0 );
             if (color2 != 0 && (i == 0 || i == 3))
-                v.light = *((ubyte4*)&color2);
+                v.light.value = color2;
             else
-                v.light = *((ubyte4*)&color);
+                v.light.value = color;
 
             short2 uv = tile.texCoordAtlas[i];
 
@@ -987,13 +1243,13 @@ struct MeshBuilder {
 
         for (int i = 0; i < 8; i++) {
             Vertex &v = vertices[vCount + i];
-            v.normal   = short4( 0, 0, 0, 0 );
-            v.light    = *((ubyte4*)&color1);
-            v.texCoord = uv;
+            v.normal      = short4( 0, 0, 0, 0 );
+            v.light.value = color1;
+            v.texCoord    = uv;
         }
 
-        addQuad(indices, iCount, vCount, 0, vertices, NULL, false); vCount += 4;
-        addQuad(indices, iCount, vCount, 0, vertices, NULL, false); vCount += 4;
+        addQuad(indices, iCount, vCount, 0, vertices, NULL, false, false); vCount += 4;
+        addQuad(indices, iCount, vCount, 0, vertices, NULL, false, false); vCount += 4;
 
         vertices[vCount + 0].coord = short4( minX, int16(maxY - 1), 0, 0 );
         vertices[vCount + 1].coord = short4( maxX, int16(maxY - 1), 0, 0 );
@@ -1007,13 +1263,13 @@ struct MeshBuilder {
 
         for (int i = 0; i < 8; i++) {
             Vertex &v = vertices[vCount + i];
-            v.normal   = short4( 0, 0, 0, 0 );
-            v.light    = *((ubyte4*)&color2);
-            v.texCoord = uv;
+            v.normal      = short4( 0, 0, 0, 0 );
+            v.light.value = color2;
+            v.texCoord    = uv;
         }
 
-        addQuad(indices, iCount, vCount, 0, vertices, NULL, false); vCount += 4;
-        addQuad(indices, iCount, vCount, 0, vertices, NULL, false); vCount += 4;
+        addQuad(indices, iCount, vCount, 0, vertices, NULL, false, false); vCount += 4;
+        addQuad(indices, iCount, vCount, 0, vertices, NULL, false, false); vCount += 4;
     }
     
     void renderBuffer(Index *indices, int iCount, Vertex *vertices, int vCount) {
@@ -1051,8 +1307,8 @@ struct MeshBuilder {
 
             const TR::Room::Data &d = level->rooms[roomIndex].data;
             for (int i = 0; i < dyn.count; i++) {
-                TR::Face          &f = d.faces[dyn.faces[i]];
-                TR::ObjectTexture &t = level->objectTextures[f.flags.texture];
+                TR::Face        &f = d.faces[dyn.faces[i]];
+                TR::TextureInfo &t = level->objectTextures[f.flags.texture];
 
             #ifdef SPLIT_BY_TILE
                 if (iCount) {
@@ -1220,6 +1476,16 @@ struct MeshBuilder {
 
     void renderPlane() {
         mesh->render(plane);
+    }
+
+    void renderBox() {
+        mesh->render(box);
+    }
+
+    void renderWaterVolume(int roomIndex) {
+        MeshRange &range = rooms[roomIndex].waterVolume;
+        if (range.iCount)
+            mesh->render(range);
     }
 };
 

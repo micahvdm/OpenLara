@@ -13,16 +13,11 @@ inspired by OpenTomb project http://opentomb.github.io/
 * [Tomb Raider Forums thread](http://www.tombraiderforums.com/showthread.php?t=216618)
 
 ## Roadmap
-- enemies
-- save game crystals
-- PSP port
-- Wii port
-- PSV port
-- bug fixes
-- RELEASE beta-1
-- bug fixes
+- BETA
+- Sega Saturn levels
 - graphics improvements
-- RELEASE
+- bug fixes
+- RELEASE 1
 - OpenLara 2...
 
 ## Screenshots

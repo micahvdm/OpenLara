@@ -15,8 +15,8 @@
 #ifdef __LIBRETRO__
     #define _GAPI_GL     1
 #else
-    //#define _GAPI_GL     1
-    #define _GAPI_D3D9   1
+    #define _GAPI_GL     1
+    //#define _GAPI_D3D9   1
 #endif
     //#define _GAPI_VULKAN 1
 
@@ -32,6 +32,12 @@
     extern void osToggleVR(bool enable);
 #elif __RPI__
     #define _OS_RPI    1
+    #define _GAPI_GL   1
+    #define _GAPI_GLES 1
+
+    #define DYNGEOM_NO_VBO
+#elif __CLOVER__
+    #define _OS_CLOVER 1
     #define _GAPI_GL   1
     #define _GAPI_GLES 1
 
@@ -65,6 +71,11 @@
     #define EDRAM_TEX
 
     #undef OS_PTHREAD_MT
+#elif __SWITCH__
+   #define _OS_NX     1
+   #define _GAPI_GL   1
+
+   #undef OS_PTHREAD_MT
 #endif
 
 #ifndef _OS_PSP
@@ -89,14 +100,8 @@
 #include "utils.h"
 
 // muse be equal with base shader
-#define SHADOW_OBJ_COLS         4
-#define SHADOW_OBJ_ROWS         2
-#define SHADOW_TEX_TILE         128
-#define SHADOW_TEX_BIG_WIDTH    1024
-#define SHADOW_TEX_BIG_HEIGHT   1024
-#define SHADOW_TEX_WIDTH        (SHADOW_OBJ_COLS * SHADOW_TEX_TILE)
-#define SHADOW_TEX_HEIGHT       (SHADOW_OBJ_ROWS * SHADOW_TEX_TILE)
-#define SHADOW_OBJ_MAX          (SHADOW_OBJ_COLS * SHADOW_OBJ_ROWS)
+#define SHADOW_TEX_WIDTH    1024
+#define SHADOW_TEX_HEIGHT   1024
 
 extern void* osMutexInit     ();
 extern void  osMutexFree     (void *obj);
@@ -108,23 +113,7 @@ extern int   osGetTime       ();
 extern bool  osJoyReady      (int index);
 extern void  osJoyVibrate    (int index, float L, float R);
 
-struct Mutex {
-    void *obj;
-
-    Mutex()       { obj = osMutexInit(); }
-    ~Mutex()      { osMutexFree(obj);    }
-    void lock()   { osMutexLock(obj);    }
-    void unlock() { osMutexUnlock(obj);  }
-};
-
-struct Lock {
-    Mutex &mutex;
-
-    Lock(Mutex &mutex) : mutex(mutex) { mutex.lock(); }
-    ~Lock() { mutex.unlock(); }
-};
-
-#define OS_LOCK(mutex) Lock _lock(mutex)
+#define OS_LOCK(mutex) Core::Lock _lock(mutex)
 
 /*
 extern void* osRWLockInit    ();
@@ -205,6 +194,23 @@ enum RenderTargetOp {
 };
 
 namespace Core {
+
+    struct Mutex {
+        void *obj;
+    
+        Mutex()       { obj = osMutexInit(); }
+        ~Mutex()      { osMutexFree(obj);    }
+        void lock()   { osMutexLock(obj);    }
+        void unlock() { osMutexUnlock(obj);  }
+    };
+    
+    struct Lock {
+        Mutex &mutex;
+    
+        Lock(Mutex &mutex) : mutex(mutex) { mutex.lock(); }
+        ~Lock() { mutex.unlock(); }
+    };
+
     float deltaTime;
     int   lastTime;
     int   x, y, width, height;
@@ -256,17 +262,29 @@ namespace Core {
             }
 
             void setLighting(Quality value) {
+            #ifdef _OS_PSP
+                lighting = LOW;
+            #else
                 lighting = value;
+            #endif
             }
 
             void setShadows(Quality value) {
+            #ifdef _OS_PSP
+                shadows = LOW;
+            #else
                 shadows = value;
+            #endif
             }
 
             void setWater(Quality value) {
+            #ifdef _OS_PSP
+                water = LOW;
+            #else
                 if (value > LOW && !(support.texFloat || support.texHalf))
                     value = LOW;
                 water = value;
+            #endif
             }
         } detail;
 
@@ -351,18 +369,19 @@ enum TexFormat {
     FMT_RGBA_FLOAT,
     FMT_RGBA_HALF,
     FMT_DEPTH,
-    FMT_DEPTH_STENCIL, 
     FMT_SHADOW,
     FMT_MAX,
 };
 
 // Texture options
 enum TexOption {
-    OPT_CUBEMAP = 1,
-    OPT_MIPMAPS = 2, 
-    OPT_NEAREST = 4,
-    OPT_TARGET  = 8,
-    OPT_PROXY   = 16,
+    OPT_REPEAT  = 1,
+    OPT_CUBEMAP = 2,
+    OPT_MIPMAPS = 4, 
+    OPT_NEAREST = 8,
+    OPT_TARGET  = 16,
+    OPT_VERTEX  = 32,
+    OPT_PROXY   = 64,
 };
 
 // Pipeline State Object
@@ -376,6 +395,13 @@ struct PSO {
 };
 
 typedef uint16 Index;
+
+struct Edge {
+    Index a, b;
+
+    Edge() {}
+    Edge(Index a, Index b) : a(a), b(b) {}
+};
 
 struct Vertex {
     short4 coord;      // xyz  - position, w - joint index (for entities only)
@@ -441,12 +467,13 @@ struct MeshRange {
     E( TYPE_MIRROR    ) \
     /* water sub-passes */ \
     E( WATER_DROP     ) \
-    E( WATER_STEP     ) \
+    E( WATER_SIMULATE ) \
     E( WATER_CAUSTICS ) \
+    E( WATER_RAYS     ) \
     E( WATER_MASK     ) \
     E( WATER_COMPOSE  ) \
     /* filter types */ \
-    E( FILTER_DEFAULT         ) \
+    E( FILTER_UPSCALE         ) \
     E( FILTER_DOWNSAMPLE      ) \
     E( FILTER_GRAYSCALE       ) \
     E( FILTER_BLUR            ) \
@@ -457,7 +484,6 @@ struct MeshRange {
     E( CLIP_PLANE      ) \
     E( OPT_AMBIENT     ) \
     E( OPT_SHADOW      ) \
-    E( OPT_SHADOW_HIGH ) \
     E( OPT_CONTACT     ) \
     E( OPT_CAUSTICS    )
 
@@ -494,7 +520,7 @@ namespace Core {
     float eye;
     Viewport viewport, viewportDef;
     mat4 mModel, mView, mProj, mViewProj, mViewInv;
-    mat4 mLightProj[SHADOW_OBJ_MAX];
+    mat4 mLightProj;
     Basis basis;
     vec4 viewPos;
     vec4 lightPos[MAX_LIGHTS];
@@ -503,7 +529,7 @@ namespace Core {
     vec4 fogParams;
     vec4 contacts[MAX_CONTACTS];
 
-    Texture *whiteTex, *whiteCube, *blackTex;
+    Texture *whiteTex, *whiteCube, *blackTex, *ditherTex;
 
     enum Pass { passCompose, passShadow, passAmbient, passWater, passFilter, passGUI, passMAX } pass;
 
@@ -583,10 +609,14 @@ namespace Core {
 
 #include "texture.h"
 #include "shader.h"
+#include "video.h"
 
 namespace Core {
 
+    static const char *version = __DATE__;
+
     void init() {
+        LOG("OpenLara (%s)\n", version);
         x = y = 0;
 
         #ifdef USE_INFLATE
@@ -600,7 +630,7 @@ namespace Core {
 
         GAPI::init();
 
-        LOG("cache    : %s\n", Stream::cacheDir);
+        LOG("cache    : %s\n", cacheDir);
         LOG("supports :\n");
         LOG("  variyngs count : %d\n", support.maxVectors);
         LOG("  binary shaders : %s\n", support.shaderBinary  ? "true" : "false");
@@ -631,7 +661,19 @@ namespace Core {
         data = 0;
         blackTex  = new Texture(1, 1, FMT_RGBA, OPT_NEAREST, &data);
 
-    // init settings
+        uint8 ditherData[] = {
+            0x00, 0x7F, 0x1F, 0x9F, 0x07, 0x87, 0x27, 0xA7,
+            0xBF, 0x3F, 0xDF, 0x5F, 0xC7, 0x47, 0xE7, 0x67,
+            0x2F, 0xAF, 0x0F, 0x8F, 0x37, 0xB7, 0x17, 0x97,
+            0xEF, 0x6F, 0xCF, 0x4F, 0xF7, 0x77, 0xD7, 0x57,
+            0x0B, 0x8B, 0x2B, 0xAB, 0x03, 0x83, 0x23, 0xA3,
+            0xCB, 0x4B, 0xEB, 0x6B, 0xC3, 0x43, 0xE3, 0x63,
+            0x3B, 0xBB, 0x1B, 0x9B, 0x33, 0xB3, 0x13, 0x93,
+            0xFB, 0x7B, 0xDB, 0x5B, 0xF3, 0x73, 0xD3, 0x53,
+        };
+        ditherTex = new Texture(8, 8, FMT_LUMINANCE, OPT_REPEAT | OPT_NEAREST, &ditherData);
+
+// init settings
         settings.version = SETTINGS_VERSION;
 
         settings.detail.setFilter   (Core::Settings::HIGH);
@@ -708,7 +750,7 @@ namespace Core {
         settings.controls[0].keys[ cInventory ].key = ikTab;
     #endif
 
-    #ifdef _OS_RPI
+    #if defined(_OS_RPI) || defined(_OS_CLOVER)
         settings.detail.setShadows  (Core::Settings::LOW);
         settings.detail.setLighting (Core::Settings::MEDIUM);
     #endif
@@ -734,6 +776,7 @@ namespace Core {
         delete whiteTex;
         delete whiteCube;
         delete blackTex;
+        delete ditherTex;
 
         GAPI::deinit();
 
@@ -741,7 +784,7 @@ namespace Core {
     }
 
     void setVSync(bool enable) {
-        GAPI::setVSync(Core::settings.detail.vsync = enable);
+        GAPI::setVSync((Core::settings.detail.vsync = enable));
     }
 
     void waitVBlank() {
@@ -891,7 +934,7 @@ namespace Core {
         if (target == defaultTarget) // backbuffer
             setViewport(viewportDef);
         else
-            setViewport(0, 0, target->width, target->height);
+            setViewport(0, 0, target->origWidth, target->origHeight);
 
         reqTarget.texture = target;
         reqTarget.op      = op;
@@ -945,6 +988,10 @@ namespace Core {
     }
 
     void endFrame() {
+        if (active.target != defaultTarget) {
+            GAPI::setTarget(NULL, 0);
+            validateRenderState();
+        }
         GAPI::endFrame();
         Core::stats.stop();
     }

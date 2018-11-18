@@ -39,14 +39,14 @@ uniform vec4 uParam;
 	vec4 grayscale() { // uParam (factor, unused, unused, unused)
 		vec4 color = texture2D(sDiffuse, vTexCoord);
 		vec3 gray  = vec3(dot(color, vec4(0.299, 0.587, 0.114, 0.0)));
-		return vec4(mix(color.xyz, gray, uParam.x), color.w);
+		return vec4(mix(color.xyz, gray, uParam.w) * uParam.xyz, color.w);
 	}
 
 	vec4 blur() { // uParam (dirX, dirY, 1 / textureSize, unused)
 		const vec3 offset = vec3(0.0, 1.3846153846, 3.2307692308);
 		const vec3 weight = vec3(0.2270270270, 0.3162162162, 0.0702702703);
 
-		vec2 dir   = uParam.xy * uParam.z;
+		vec2 dir   = uParam.xy;
 		vec4 color = texture2D(sDiffuse, vTexCoord) * weight[0];
 		color += texture2D(sDiffuse, vTexCoord + dir * offset[1]) * weight[1];
 		color += texture2D(sDiffuse, vTexCoord - dir * offset[1]) * weight[1];
@@ -67,6 +67,15 @@ uniform vec4 uParam;
 		}
 	#endif
 
+	vec4 upscale() { // https://www.shadertoy.com/view/XsfGDn
+		vec2 uv = vTexCoord * uParam.xy + 0.5;
+		vec2 iuv = floor(uv);
+		vec2 fuv = fract(uv);
+		uv = iuv + fuv * fuv * (3.0 - 2.0 * fuv);
+		uv = (uv - 0.5) / uParam.xy;
+		return texture2D(sDiffuse, uv) * vColor;
+	}
+
 	vec4 filter() {
 		#ifdef FILTER_DOWNSAMPLE
 			return downsample();
@@ -84,7 +93,7 @@ uniform vec4 uParam;
 			return equirectangular();
 		#endif
 
-		return texture2D(sDiffuse, vTexCoord) * vColor;
+		return upscale();
 	}
 
 	void main() {

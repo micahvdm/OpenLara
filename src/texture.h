@@ -1,4 +1,4 @@
-#ifndef H_TEXTURE
+ #ifndef H_TEXTURE
 #define H_TEXTURE
 
 #include "core.h"
@@ -14,8 +14,8 @@ struct Texture : GAPI::Texture {
 
             Texture(TR::Tile4 *tiles, int tilesCount, TR::CLUT *cluts, int clutsCount) : GAPI::Texture(256, 256, OPT_PROXY) {
                 #ifdef EDRAM_TEX
-                    this->tiles = (TR::Tile4*)Core::allocEDRAM(tilesCount * sizeof(tiles[0]));
-                    this->cluts =  (TR::CLUT*)Core::allocEDRAM(clutsCount * sizeof(cluts[0]));
+                    this->tiles = (TR::Tile4*)GAPI::allocEDRAM(tilesCount * sizeof(tiles[0]));
+                    this->cluts =  (TR::CLUT*)GAPI::allocEDRAM(clutsCount * sizeof(cluts[0]));
                     memcpy(this->cluts, cluts, clutsCount * sizeof(cluts[0]));
                     #ifdef TEX_SWIZZLE
                         for (int i = 0; i < tilesCount; i++)
@@ -31,12 +31,18 @@ struct Texture : GAPI::Texture {
         #else
             Texture *tiles[32];
 
-            Texture(TR::Tile32 *tiles, int tilesCount) : GAPI::Texture(256, 256, OPT_PROXY) {
+            struct Tile {
+                uint32 width;
+                uint32 height;
+                uint32 *data;
+            };
+
+            Texture(Tile *tiles, int tilesCount) : GAPI::Texture(256, 256, OPT_PROXY) {
                 memset(this->tiles, 0, sizeof(this->tiles));
 
                 ASSERT(tilesCount < COUNT(this->tiles));
                 for (int i = 0; i < tilesCount; i++)
-                    this->tiles[i] = new Texture(width, height, FMT_RGBA, 0, tiles + i);
+                    this->tiles[i] = new Texture(tiles[i].width, tiles[i].height, FMT_RGBA, OPT_MIPMAPS, tiles[i].data);
             }
         #endif
 
@@ -48,6 +54,17 @@ struct Texture : GAPI::Texture {
         #endif
         }
     #endif
+
+#if defined(_DEBUG) && defined(_OS_WIN) && defined(_GAPI_GL)
+    void dump(const char *fileName) {
+        bind(0);
+        int size = width *height * 4;
+        char *data = new char[size];
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+        Texture::SaveBMP(fileName, data, width, height);
+        delete[] data;
+    }
+#endif
 
     Texture(int width, int height, TexFormat format, uint32 opt = 0, void *data = NULL) : GAPI::Texture(width, height, opt) {
 //        LOG("create texture %d x %d (%d)\n", width, height, format);
@@ -66,16 +83,13 @@ struct Texture : GAPI::Texture {
         bool filter   = (opt & OPT_NEAREST) == 0;
         bool mipmaps  = (opt & OPT_MIPMAPS) != 0;
 
-        if (format == FMT_SHADOW && !Core::support.shadowSampler) {
+        if (format == FMT_SHADOW && !Core::support.shadowSampler)
             format = FMT_DEPTH;
-            filter = false;
-        }
 
         if (format == FMT_DEPTH) {
-            if (Core::support.depthTexture)
-                filter = false;
-            else
+            if (!Core::support.depthTexture)
                 format = FMT_RGBA;
+            filter = false;
         }
 
         if (format == FMT_RGBA_HALF) {
@@ -105,9 +119,11 @@ struct Texture : GAPI::Texture {
     }
 
     virtual ~Texture() {
-        #ifdef SPLIT_BY_TILE
-            for (int i = 0; i < COUNT(tiles); i++)
-                delete tiles[i];
+        #ifndef _OS_PSP
+            #ifdef SPLIT_BY_TILE
+                for (int i = 0; i < COUNT(tiles); i++)
+                    delete tiles[i];
+            #endif
         #endif
         deinit();
     }
@@ -329,7 +345,7 @@ struct Texture : GAPI::Texture {
         stream.seek(8);
 
         uint8 bits, colorType, interlace;
-        int BPP, BPL;
+        int BPP = 0, BPL = 0;
 
         uint8 palette[256 * 3];
         uint8 trans[256];
@@ -475,16 +491,16 @@ struct Texture : GAPI::Texture {
 
     static void rncGetOffset(BitStream &bs, uint16 &offset) {
         offset = 0;
-        if (bs.readBit()) {
-            offset = bs.readBit();
+        if (bs.readBitBE()) {
+            offset = bs.readBitBE();
 
-            if (bs.readBit()) {
-                offset = ((offset << 1) | bs.readBit()) | 4;
+            if (bs.readBitBE()) {
+                offset = ((offset << 1) | bs.readBitBE()) | 4;
 
-                if (!bs.readBit())
-                    offset = (offset << 1) | bs.readBit();
+                if (!bs.readBitBE())
+                    offset = (offset << 1) | bs.readBitBE();
             } else if (!offset)
-                offset = bs.readBit() + 2;
+                offset = bs.readBitBE() + 2;
         }
         offset = ((offset << 8) | bs.readByte()) + 1;
     }
@@ -499,7 +515,7 @@ struct Texture : GAPI::Texture {
             stream.seek(6);
         } else {
             stream.seek(-4);
-            size  = 384 * 256 * 2;
+            size  = 512 * 256 * 2;
             csize = stream.size;
         }
 
@@ -515,17 +531,17 @@ struct Texture : GAPI::Texture {
         uint32 length = 0;
         uint16 offset = 0;
 
-        bs.readBits(2);
+        bs.readBE(2);
         while (bs.data < bs.end && dst < end) {
-            if (!bs.readBit()) {
+            if (!bs.readBitBE()) {
                 *dst++ = bs.readByte();
             } else {
-                if (bs.readBit()) {
-                    if (bs.readBit()) {
-                        if (bs.readBit()) {
+                if (bs.readBitBE()) {
+                    if (bs.readBitBE()) {
+                        if (bs.readBitBE()) {
                             length = bs.readByte() + 8;
                             if (length == 8) {
-                                bs.readBit();
+                                bs.readBitBE();
                                 continue;
                             }
                         } else
@@ -542,9 +558,9 @@ struct Texture : GAPI::Texture {
                         dst++;
                     }
                 } else {
-                    length = bs.readBit() + 4;
-                    if (bs.readBit())
-                        length = ((length - 1) << 1) + bs.readBit();
+                    length = bs.readBitBE() + 4;
+                    if (bs.readBitBE())
+                        length = ((length - 1) << 1) + bs.readBitBE();
 
                     if (length != 9) {
                         rncGetOffset(bs, offset);
@@ -554,7 +570,7 @@ struct Texture : GAPI::Texture {
                             dst++;
                         }
                     } else {
-                        length = (bs.readBits(4) << 2) + 12;
+                        length = (bs.readBE(4) << 2) + 12;
                         while (length--)
                             *dst++ = bs.readByte();
                     }
@@ -563,8 +579,8 @@ struct Texture : GAPI::Texture {
         }
         delete[] cdata;
 
-        width  = 384;
-        height = size / width / 2;
+        height = 256;
+        width  = uint32(dst - data) / height / 2;
 
         uint32 *data32 = new uint32[width * height];
         {
@@ -667,10 +683,9 @@ struct Texture : GAPI::Texture {
 
 struct Atlas {
     struct Tile {
-        int32  id;
-        int16  tile;
-        int16  clut;
-        short4 uv;
+        uint16          id;
+        TR::TextureInfo *tex;
+        short4          uv;
     } *tiles;
 
     typedef void (Callback)(int id, int tileX, int tileY, int atalsWidth, int atlasHeight, Tile &tile, void *userData, void *data);
@@ -744,19 +759,18 @@ struct Atlas {
         delete[] tiles;
     }
 
-    void add(int32 id, short4 uv, int16 tile = 0, int16 clut = 0) {
+    void add(uint16 id, short4 uv, TR::TextureInfo *tex) {
         for (int i = 0; i < tilesCount; i++)
-            if (tiles[i].uv == uv && tiles[i].tile == tile && tiles[i].clut == clut) {
+            if (tiles[i].uv == uv && tiles[i].tex->type == tex->type && tiles[i].tex->tile == tex->tile && tiles[i].tex->clut == tex->clut) {
                 uv.x = 0x7FFF;
                 uv.y = tiles[i].id;
                 uv.z = uv.w = 0;
                 break;
             }
 
-        tiles[tilesCount].id   = id;
-        tiles[tilesCount].tile = tile;
-        tiles[tilesCount].clut = clut;
-        tiles[tilesCount].uv   = uv;
+        tiles[tilesCount].id  = id;
+        tiles[tilesCount].tex = tex;
+        tiles[tilesCount].uv  = uv;
         tilesCount++;
 
         if (uv.x != 0x7FFF)

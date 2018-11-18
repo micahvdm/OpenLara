@@ -4,6 +4,7 @@
 #include "format.h"
 #include "controller.h"
 #include "ui.h"
+#include "savegame.h"
 
 #define INVENTORY_MAX_ITEMS  32
 #define INVENTORY_MAX_RADIUS 688.0f
@@ -33,7 +34,7 @@ struct OptionItem {
     uint32   icon;
     uint8    maxValue;
     bool     bar;
-        
+
     OptionItem(Type type = TYPE_EMPTY, int title = STR_NOT_IMPLEMENTED, intptr_t offset = 0, uint32 color = 0xFFFFFFFF, int icon = 0, uint8 maxValue = 0, bool bar = false) : type(type), title(StringID(title)), offset(offset), color(color), icon(icon), maxValue(maxValue), bar(bar) {}
 
     void setValue(uint8 value, Core::Settings *settings) const {
@@ -72,8 +73,8 @@ struct OptionItem {
         UI::textOut(vec2(x, y), vStr, UI::aCenter, w, alpha, UI::SHADE_GRAY); // color as StringID
 
         if (type == TYPE_PARAM && active) {
-            float maxWidth = UI::getTextSize(STR[color + value]).x;
-            maxWidth = maxWidth * 0.5f + 8.0f;
+            int maxWidth = UI::getTextSize(STR[color + value]).x;
+            maxWidth = maxWidth / 2 + 8;
             x += w * 0.5f;
             if (checkValue(value - 1)) UI::specOut(vec2(x - maxWidth - 16.0f, y), 108);
             if (checkValue(value + 1)) UI::specOut(vec2(x + maxWidth, y), 109);
@@ -153,8 +154,10 @@ static const OptionItem optControls[] = {
     OptionItem( OptionItem::TYPE_TITLE,  STR_SET_CONTROLS ),
     OptionItem( ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_NOT_IMPLEMENTED         , SETTINGS( playerIndex                    ), STR_PLAYER_1,  0, 1 ),
+#ifndef _OS_CLOVER
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_CONTROLS_GAMEPAD    , SETTINGS( controls[0].joyIndex           ), STR_GAMEPAD_1, 0, 3 ),
-#ifdef _OS_WIN
+#endif
+#if defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_RPI)
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_CONTROLS_VIBRATION  , SETTINGS( controls[0].vibration          ), STR_OFF,       0, 1 ),
 #endif
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_CONTROLS_RETARGET   , SETTINGS( controls[0].retarget           ), STR_OFF,       0, 1 ),
@@ -179,37 +182,23 @@ static const OptionItem optControls[] = {
 
 static OptionItem optControlsPlayer[COUNT(optControls)];
 
-static OptionItem optPassport[] = {
-    OptionItem( OptionItem::TYPE_TITLE,  STR_SELECT_LEVEL ),
-    OptionItem( ),
-    OptionItem( OptionItem::TYPE_BUTTON ), // dummy
-    OptionItem( ),
-    OptionItem( ),
-    OptionItem( ),
-    OptionItem( ),
-    OptionItem( ),
-    OptionItem( ),
-    OptionItem( ),
-    OptionItem( ),
-    OptionItem( ),
-    OptionItem( ),
-    OptionItem( ),
-    OptionItem( ),
-    OptionItem( ),
-    OptionItem( ),
-};
-
 struct Inventory {
 
     enum Page {
         PAGE_OPTION,
         PAGE_INVENTORY,
         PAGE_ITEMS,
+        PAGE_SAVEGAME,
+        PAGE_LEVEL_STATS,
         PAGE_MAX
     };
 
     IGame   *game;
     Texture *background[2];
+    Video   *video;
+
+    bool    playLogo;
+    bool    playVideo;
 
     bool    active;
     bool    chosen;
@@ -237,6 +226,8 @@ struct Inventory {
 
         int                 value;
 
+        Array<OptionItem>   optLoadSlots;
+
         struct Desc {
             StringID    str;
             Page        page;
@@ -255,21 +246,22 @@ struct Inventory {
                 case TR::Entity::INV_MAP             : desc = Desc( STR_MAP,             PAGE_INVENTORY, level->extra.inv.map             ); break;
                 case TR::Entity::INV_COMPASS         : desc = Desc( STR_COMPASS,         PAGE_INVENTORY, level->extra.inv.compass         ); break;
                 case TR::Entity::INV_STOPWATCH       : desc = Desc( STR_STOPWATCH,       PAGE_INVENTORY, level->extra.inv.stopwatch       ); break;
+                case TR::Entity::INV_EXPLOSIVE       : desc = Desc( STR_EXPLOSIVE,       PAGE_INVENTORY, level->extra.inv.explosive       ); break;
                 case TR::Entity::INV_HOME            : desc = Desc( STR_HOME,            PAGE_OPTION,    level->extra.inv.home            ); break;
                 case TR::Entity::INV_DETAIL          : desc = Desc( STR_DETAIL,          PAGE_OPTION,    level->extra.inv.detail          ); break;
                 case TR::Entity::INV_SOUND           : desc = Desc( STR_SOUND,           PAGE_OPTION,    level->extra.inv.sound           ); break;
                 case TR::Entity::INV_CONTROLS        : desc = Desc( STR_CONTROLS,        PAGE_OPTION,    level->extra.inv.controls        ); break;
                 case TR::Entity::INV_GAMMA           : desc = Desc( STR_GAMMA,           PAGE_OPTION,    level->extra.inv.gamma           ); break;
                                                                                    
-                case TR::Entity::INV_PISTOLS         : desc = Desc( STR_PISTOLS,         PAGE_INVENTORY, level->extra.inv.weapon[0]       ); break;
-                case TR::Entity::INV_SHOTGUN         : desc = Desc( STR_SHOTGUN,         PAGE_INVENTORY, level->extra.inv.weapon[1]       ); break;
-                case TR::Entity::INV_MAGNUMS         : desc = Desc( STR_MAGNUMS,         PAGE_INVENTORY, level->extra.inv.weapon[2]       ); break;
-                case TR::Entity::INV_UZIS            : desc = Desc( STR_UZIS,            PAGE_INVENTORY, level->extra.inv.weapon[3]       ); break;
+                case TR::Entity::INV_PISTOLS         : desc = Desc( STR_PISTOLS,         PAGE_INVENTORY, level->extra.inv.weapons[type]   ); break;
+                case TR::Entity::INV_SHOTGUN         : desc = Desc( STR_SHOTGUN,         PAGE_INVENTORY, level->extra.inv.weapons[type]   ); break;
+                case TR::Entity::INV_MAGNUMS         : desc = Desc( STR_MAGNUMS,         PAGE_INVENTORY, level->extra.inv.weapons[type]   ); break;
+                case TR::Entity::INV_UZIS            : desc = Desc( STR_UZIS,            PAGE_INVENTORY, level->extra.inv.weapons[type]   ); break;
                                                                                    
-                case TR::Entity::INV_AMMO_PISTOLS    : desc = Desc( STR_AMMO_PISTOLS,    PAGE_INVENTORY, level->extra.inv.ammo[0]         ); break;
-                case TR::Entity::INV_AMMO_SHOTGUN    : desc = Desc( STR_AMMO_SHOTGUN,    PAGE_INVENTORY, level->extra.inv.ammo[1]         ); break;
-                case TR::Entity::INV_AMMO_MAGNUMS    : desc = Desc( STR_AMMO_MAGNUMS,    PAGE_INVENTORY, level->extra.inv.ammo[2]         ); break;
-                case TR::Entity::INV_AMMO_UZIS       : desc = Desc( STR_AMMO_UZIS,       PAGE_INVENTORY, level->extra.inv.ammo[3]         ); break;
+                case TR::Entity::INV_AMMO_PISTOLS    : desc = Desc( STR_AMMO_PISTOLS,    PAGE_INVENTORY, level->extra.inv.ammo[type]      ); break;
+                case TR::Entity::INV_AMMO_SHOTGUN    : desc = Desc( STR_AMMO_SHOTGUN,    PAGE_INVENTORY, level->extra.inv.ammo[type]      ); break;
+                case TR::Entity::INV_AMMO_MAGNUMS    : desc = Desc( STR_AMMO_MAGNUMS,    PAGE_INVENTORY, level->extra.inv.ammo[type]      ); break;
+                case TR::Entity::INV_AMMO_UZIS       : desc = Desc( STR_AMMO_UZIS,       PAGE_INVENTORY, level->extra.inv.ammo[type]      ); break;
 
                 case TR::Entity::INV_MEDIKIT_SMALL   : desc = Desc( STR_MEDI_SMALL,      PAGE_INVENTORY, level->extra.inv.medikit[0]      ); break;
                 case TR::Entity::INV_MEDIKIT_BIG     : desc = Desc( STR_MEDI_BIG,        PAGE_INVENTORY, level->extra.inv.medikit[1]      ); break;
@@ -313,12 +305,89 @@ struct Inventory {
             }
         }
 
+        void initLoadSlots(TR::Level *level) {
+            optLoadSlots.clear();
+            optLoadSlots.push(OptionItem( OptionItem::TYPE_TITLE,  STR_SELECT_LEVEL ));
+            optLoadSlots.push(OptionItem( ));
+
+            for (int i = 0; i < saveSlots.length; i++) {
+                const SaveSlot &slot = saveSlots[i];
+
+                TR::LevelID id = slot.getLevelID();
+
+                if (TR::getGameVersionByLevel(id) != (level->version & TR::VER_VERSION))
+                    continue;
+
+                OptionItem item;
+                item.type   = OptionItem::TYPE_BUTTON;
+                item.offset = slot.isCheckpoint() ? intptr_t(STR[STR_CURRENT_POSITION]) : intptr_t(TR::LEVEL_INFO[id].title); // offset as int pointer to level title string
+                item.color  = i; // color as slot index
+                optLoadSlots.push(item);
+            }
+/*
+            #ifdef _DEBUG
+                int passportSlotCount = 0;
+                TR::LevelID passportSlots[32];
+
+                switch (level->version & TR::VER_VERSION) {
+                    case TR::VER_TR1 : 
+                    #ifdef _OS_WEB
+                        passportSlotCount = 2;
+                        passportSlots[0]  = TR::LVL_TR1_1;
+                        passportSlots[1]  = TR::LVL_TR1_2;
+                    #else
+                        passportSlotCount = 0;
+                        for (int i = TR::LVL_TR1_1; i <= TR::LVL_TR1_10C; i++)
+                            if (!TR::isCutsceneLevel(TR::LevelID(i))) {
+                                passportSlots[passportSlotCount++] = TR::LevelID(i);
+                            }
+                    #endif
+                        break;
+                    case TR::VER_TR2 :
+                    #ifdef _OS_WEB
+                        passportSlotCount = 2;
+                        passportSlots[0]  = TR::LVL_TR2_WALL;
+                        passportSlots[1]  = TR::LVL_TR2_BOAT;
+                    #else
+                        passportSlotCount = 0;
+                        for (int i = TR::LVL_TR2_WALL; i <= TR::LVL_TR2_HOUSE; i++)
+                            if (!TR::isCutsceneLevel(TR::LevelID(i))) {
+                                passportSlots[passportSlotCount++] = TR::LevelID(i);
+                            }
+                    #endif
+                        break;
+                    case TR::VER_TR3 :
+                    #ifdef _OS_WEB
+                        passportSlotCount = 1;
+                        passportSlots[0]  = TR::LVL_TR3_JUNGLE;
+                    #else
+                        passportSlotCount = 0;
+                        for (int i = TR::LVL_TR3_JUNGLE; i <= TR::LVL_TR3_STPAUL; i++)
+                            if (!TR::isCutsceneLevel(TR::LevelID(i))) {
+                                passportSlots[passportSlotCount++] = TR::LevelID(i);
+                            }
+                    #endif
+                        break;
+                    default : ASSERT(false);
+                }
+
+                for (int i = 0; i < passportSlotCount; i++) {
+                    OptionItem item;
+                    item.type   = OptionItem::TYPE_BUTTON;
+                    item.offset = intptr_t(TR::LEVEL_INFO[passportSlots[i]].title); // offset as int pointer to level title string
+                    item.color  = -passportSlots[i]; // color as level ID
+                    optLoadSlots.push(item);
+                }
+            #endif
+*/
+        }
+
         const OptionItem* getOptions(int &optCount) const {
             switch (type) {
                 case TR::Entity::INV_PASSPORT :
                     if (value != 0) return NULL;
-                    optCount = COUNT(optPassport);
-                    return optPassport;
+                    optCount = optLoadSlots.length;
+                    return optLoadSlots;
                 case TR::Entity::INV_DETAIL :
                     optCount = COUNT(optDetail);
                     return optDetail;
@@ -359,8 +428,17 @@ struct Inventory {
             const OptionItem *options = getOptions(optCount);
             if (!options) return;
 
+            int rep = 0;
             do {
                 slot = (slot + dir + optCount) % optCount;
+            // check for looping (no available slot)
+                if (slot == 0) {
+                    rep++;
+                    if (rep > 1) {
+                        slot = -1;
+                        return;
+                    }
+                }
             } while (options[slot].type == OptionItem::TYPE_TITLE || options[slot].type == OptionItem::TYPE_EMPTY);
         }
 
@@ -431,7 +509,7 @@ struct Inventory {
 
             Core::setBasis(joints, m.mCount);
 
-            Core::setBlendMode(bmAlpha);
+            Core::setBlendMode(bmPremult);
             mesh->transparent = 0;
             mesh->renderModel(desc.model);
             mesh->transparent = 1;
@@ -454,39 +532,91 @@ struct Inventory {
 
     static void loadTitleBG(Stream *stream, void *userData) {
         Inventory *inv = (Inventory*)userData;
+
+        if (!inv->video)
+            inv->skipVideo(); // play background track etc.
+
         if (!stream) {
             inv->titleTimer = 0.0f;
             return;
         }
-        inv->titleTimer = 3.0f;
+        inv->titleTimer = inv->game->getLevel()->isTitle() ? 0.0f : 3.0f;
 
         inv->background[0] = Texture::Load(*stream);
         delete stream;
     }
 
-    Inventory(IGame *game) : game(game), active(false), chosen(false), index(0), targetIndex(0), page(PAGE_OPTION), targetPage(PAGE_OPTION), itemsCount(0), playerIndex(0), changeTimer(0.0f), nextLevel(TR::LVL_MAX), lastKey(cMAX) {
-        TR::LevelID id = game->getLevel()->id;
+    static void loadVideo(Stream *stream, void *userData) {
+        Inventory *inv = (Inventory*)userData;
+        if (stream)
+            inv->video = new Video(stream);
+        new Stream(TR::getGameScreen(inv->game->getLevel()->id), loadTitleBG, inv);
+    }
+
+    static void loadLogo(Stream *stream, void *userData) {
+        Inventory *inv = (Inventory*)userData;
+        if (stream)
+            inv->video = new Video(stream);
+        else
+            inv->skipVideo();
+    }
+
+    Inventory() : game(NULL), itemsCount(0) {
+        memset(background, 0, sizeof(background));
+        reset();
+    }
+
+    ~Inventory() {
+        delete video;
+        clear();
+    }
+
+    void clear() {
+        for (int i = 0; i < itemsCount; i++)
+            delete items[i];
+        itemsCount = 0;
+
+        for (int i = 0; i < COUNT(background); i++) {
+            delete background[i];
+            background[i] = NULL;
+        }
+    }
+
+    void reset() {
+        clear();
+        active      = false;
+        chosen      = false;
+        index       = targetIndex = 0;
+        page        = targetPage = PAGE_OPTION;
+
+        playerIndex = 0;
+        changeTimer = 0.0f;
+        nextLevel   = TR::LVL_MAX;
+        lastKey     = cMAX;
+
+        phaseRing = phasePage = phaseChoose = phaseSelect = 0.0f;
+        memset(pageItemIndex, 0, sizeof(pageItemIndex));
+
+        waitForKey = NULL;
+        video      = NULL;
+
+        titleTimer = TITLE_LOADING;
+
+        if (!game) return;
+
+        TR::Level *level = game->getLevel();
 
         add(TR::Entity::INV_PASSPORT);
         add(TR::Entity::INV_DETAIL);
         add(TR::Entity::INV_SOUND);
         add(TR::Entity::INV_CONTROLS);
 
-        if (!game->getLevel()->isTitle() && id != TR::LVL_TR1_GYM && id != TR::LVL_TR2_ASSAULT) {
-/*
-            if (level->extra.inv.map != -1)
-                add(TR::Entity::INV_MAP);
-            if (level->extra.inv.gamma != -1)
-                add(TR::Entity::INV_GAMMA);
-*/
-            add(TR::Entity::INV_PISTOLS, UNLIMITED_AMMO);
-            add(TR::Entity::INV_SHOTGUN, 10);
-            add(TR::Entity::INV_MAGNUMS, 10);
-            add(TR::Entity::INV_UZIS, 50);
-//              add(TR::Entity::INV_MEDIKIT_SMALL, 999);
-//              add(TR::Entity::INV_MEDIKIT_BIG, 999);
-//              add(TR::Entity::INV_SCION, 1);
+        if (!level->isTitle() && !level->isCutsceneLevel() && !level->isHome()) {
+            if (!TR::isEmptyLevel(level->id)) {
+                add(TR::Entity::INV_PISTOLS, UNLIMITED_AMMO);
+            }
         #ifdef _DEBUG
+            addWeapons();
             add(TR::Entity::INV_KEY_1, 3);
             add(TR::Entity::INV_KEY_2, 3);
             add(TR::Entity::INV_KEY_3, 3);
@@ -497,20 +627,10 @@ struct Inventory {
             add(TR::Entity::INV_PUZZLE_3, 3);
             add(TR::Entity::INV_PUZZLE_4, 3);
 
+            add(TR::Entity::INV_EXPLOSIVE);
             add(TR::Entity::INV_LEADBAR, 3);
         #endif
         } 
-
-        TR::Level *level = game->getLevel();
-
-        memset(background, 0, sizeof(background));
-
-        const char *titleBG = TR::getGameScreen(level->version, level->id);
-        if (titleBG) {
-            titleTimer = TITLE_LOADING;
-            new Stream(titleBG, loadTitleBG, this);
-        } else
-            titleTimer = 0.0f;
 
         if (level->isTitle()) {
             add(TR::Entity::INV_HOME);
@@ -518,19 +638,38 @@ struct Inventory {
             add(TR::Entity::INV_COMPASS);
             add(TR::Entity::INV_STOPWATCH);
         }
-
-        phaseRing = phasePage = phaseChoose = phaseSelect = 0.0f;
-        memset(pageItemIndex, 0, sizeof(pageItemIndex));
-
-        waitForKey = NULL;
     }
 
-    ~Inventory() {
-        for (int i = 0; i < itemsCount; i++)
-            delete items[i];
+    void addWeapons() {
+        TR::Level *level = game->getLevel();
+        if (level->isTitle() || level->isCutsceneLevel() || level->isHome())
+            return;
 
-        for (int i = 0; i < COUNT(background); i++)
-            delete background[i];
+        if (level->version & TR::VER_TR1) {
+            add(TR::Entity::INV_PISTOLS, UNLIMITED_AMMO);
+            add(TR::Entity::INV_SHOTGUN, 250);
+            add(TR::Entity::INV_MAGNUMS, 20);
+            add(TR::Entity::INV_UZIS,    100);
+        }
+    }
+
+    void startVideo() {
+        new Stream(playVideo ? TR::getGameVideo(game->getLevel()->id) : NULL, loadVideo, this);
+    }
+
+    void init(bool playLogo, bool playVideo) {
+        this->playLogo  = playLogo;
+        this->playVideo = playVideo;
+
+        if (playLogo) {
+            new Stream(TR::getGameLogo(game->getLevel()->version), loadLogo, this);
+            return;
+        }
+
+        if (playVideo)
+            startVideo();
+        else 
+            new Stream(TR::getGameScreen(game->getLevel()->id), loadTitleBG, this);
     }
 
     bool isActive() {
@@ -566,6 +705,10 @@ struct Inventory {
 
         if (smart) {
             switch (type) {
+                case TR::Entity::INV_PISTOLS      :
+                case TR::Entity::INV_AMMO_PISTOLS : 
+                    addAmmo(type, count, 10, TR::Entity::INV_PISTOLS, TR::Entity::INV_AMMO_PISTOLS);
+                    break;
                 case TR::Entity::INV_SHOTGUN      :
                 case TR::Entity::INV_AMMO_SHOTGUN : 
                     addAmmo(type, count,  2, TR::Entity::INV_SHOTGUN, TR::Entity::INV_AMMO_SHOTGUN);
@@ -585,10 +728,13 @@ struct Inventory {
         int i = contains(type);
         if (i > -1) {
             items[i]->count += count;
+            items[i]->count = min(UNLIMITED_AMMO, items[i]->count);
             return;
         }
 
         ASSERT(itemsCount < INVENTORY_MAX_ITEMS);
+
+        count = min(UNLIMITED_AMMO, count);
 
         Item *newItem = new Item(game->getLevel(), type, count);
         if (newItem->desc.model == -1) {
@@ -634,7 +780,7 @@ struct Inventory {
     
     bool chooseKey(int playerIndex, TR::Entity::Type hole) {
         TR::Entity::Type type = TR::Entity::getItemForHole(hole);
-        if (type == TR::Entity::LARA)
+        if (type == TR::Entity::NONE)
             return false;
         int index = contains(type);
         if (index < 0)
@@ -651,7 +797,10 @@ struct Inventory {
         return false;
     }
 
-    bool toggle(int playerIndex = 0, Page curPage = PAGE_INVENTORY, TR::Entity::Type type = TR::Entity::LARA) {
+    void toggle(int playerIndex = 0, Page curPage = PAGE_INVENTORY, TR::Entity::Type type = TR::Entity::NONE) {
+        if (titleTimer != 0.0f || (isActive() != active))
+            return;
+
         Input::stopJoyVibration();
         
         this->playerIndex = playerIndex;
@@ -660,19 +809,29 @@ struct Inventory {
         if (phaseRing == 0.0f || phaseRing == 1.0f) {
             active = !active;
             vec3 p;
-            game->playSound(active ? TR::SND_INV_SHOW : TR::SND_INV_HIDE, p);
+
+            if (curPage == PAGE_SAVEGAME) {
+                phaseRing = active ? 1.0f : 0.0f;
+                slot = 1;
+            } else {
+                if (curPage != PAGE_LEVEL_STATS)
+                    game->playSound(active ? TR::SND_INV_SHOW : TR::SND_INV_HIDE, p);
+            }
+
             chosen = false;
 
             if (active) {
-                for (int i = 0; i < itemsCount; i++)
-                    items[i]->reset();
+                if (curPage != PAGE_LEVEL_STATS) {
+                    for (int i = 0; i < itemsCount; i++)
+                        items[i]->reset();
+                }
 
                 nextLevel   = TR::LVL_MAX;
                 phasePage   = 1.0f;
                 phaseSelect = 1.0f;
                 page        = targetPage  = curPage;
 
-                if (type != TR::Entity::LARA) {
+                if (type != TR::Entity::NONE) {
                     int i = contains(type);
                     if (i >= 0)
                         pageItemIndex[page] = getLocalIndex(i);
@@ -686,7 +845,6 @@ struct Inventory {
                 //    chooseItem();
             }
         }
-        return active;
     }
 
     void doPhase(bool increase, float speed, float &value) {
@@ -754,58 +912,7 @@ struct Inventory {
             case TR::Entity::INV_PASSPORT : {
                 game->playSound(TR::SND_INV_PAGE);
                 item->value = 1;
-
-                int passportSlotCount = 0;
-                TR::LevelID passportSlots[32];
-
-                switch (level->version & TR::VER_VERSION) {
-                    case TR::VER_TR1 : 
-                    #ifdef _OS_WEB
-                        passportSlotCount = 2;
-                        passportSlots[0]  = TR::LVL_TR1_1;
-                        passportSlots[1]  = TR::LVL_TR1_2;
-                    #else
-                        passportSlotCount = 0;
-                        for (int i = TR::LVL_TR1_1; i <= TR::LVL_TR1_10C; i++)
-                            if (!TR::isCutsceneLevel(TR::LevelID(i))) {
-                                passportSlots[passportSlotCount++] = TR::LevelID(i);
-                            }
-                    #endif
-                        break;
-                    case TR::VER_TR2 :
-                    #ifdef _OS_WEB
-                        passportSlotCount = 2;
-                        passportSlots[0]  = TR::LVL_TR2_WALL;
-                        passportSlots[1]  = TR::LVL_TR2_BOAT;
-                    #else
-                        passportSlotCount = 0;
-                        for (int i = TR::LVL_TR2_WALL; i <= TR::LVL_TR2_HOUSE; i++)
-                            if (!TR::isCutsceneLevel(TR::LevelID(i))) {
-                                passportSlots[passportSlotCount++] = TR::LevelID(i);
-                            }
-                    #endif
-                        break;
-                    case TR::VER_TR3 :
-                    #ifdef _OS_WEB
-                        passportSlotCount = 1;
-                        passportSlots[0]  = TR::LVL_TR3_JUNGLE;
-                    #else
-                        passportSlotCount = 0;
-                        for (int i = TR::LVL_TR3_JUNGLE; i <= TR::LVL_TR3_STPAUL; i++)
-                            if (!TR::isCutsceneLevel(TR::LevelID(i))) {
-                                passportSlots[passportSlotCount++] = TR::LevelID(i);
-                            }
-                    #endif
-                        break;
-                    default : ASSERT(false);
-                }
-
-                for (int i = 0; i < passportSlotCount; i++) {
-                    optPassport[2 + i].type   = OptionItem::TYPE_BUTTON;
-                    optPassport[2 + i].offset = intptr_t(TR::LEVEL_INFO[passportSlots[i]].title); // offset as int pointer to level title string
-                    optPassport[2 + i].color  = passportSlots[i]; // color as level ID
-                }
-
+                item->initLoadSlots(level);
                 break;
             }
             case TR::Entity::INV_CONTROLS :
@@ -832,14 +939,26 @@ struct Inventory {
             if (key == cRight && item->value < 2) { item->value++; item->anim->dir =  1.0f; game->playSound(TR::SND_INV_PAGE); }
 
             if (item->value != oldValue) {
-                slot = -1;
-                item->nextSlot(slot, 1);
+                slot = 0;
+                item->nextSlot(slot, -1);
             }
 
             if (key == cAction && phaseChoose == 1.0f && item->value != 0) {
                 TR::LevelID id = level->id;
                 switch (item->value) {
-                    case 1 : nextLevel = level->isTitle() ? level->getStartId() : id; break;
+                    case 1 : {
+                        if (level->isTitle()) { // start new game
+                            nextLevel = level->getStartId();
+                        } else { // restart level
+                            int slot = getSaveSlot(id, false);
+                            if (slot > -1)
+                                game->loadGame(slot);
+                            else
+                                nextLevel = id; 
+                            toggle();
+                        }
+                        break;
+                    }
                     case 2 : 
                         if (!level->isTitle())
                             nextLevel = level->getTitleId();
@@ -870,7 +989,12 @@ struct Inventory {
 
     void optionChanged(Item *item, const OptionItem *opt, Core::Settings &settings) {
         if (item->type == TR::Entity::INV_PASSPORT) {
-            nextLevel = (TR::LevelID)opt->color;
+        #ifdef _DEBUG
+            if (int(opt->color) < 0)
+                nextLevel = TR::LevelID(-int(opt->color));
+            else
+        #endif
+                game->loadGame(opt->color);
             item->anim->dir = -1.0f;
             item->value = -100;
             toggle();
@@ -898,7 +1022,47 @@ struct Inventory {
         }
     };
 
+    void skipVideo() {
+        delete video;
+        video = NULL;
+
+        if (playLogo) {
+            playLogo = false;
+            if (playVideo) {
+                startVideo();
+                return;
+            }
+        }
+        playVideo = false;
+
+        game->playTrack(0);
+        if (game->getLevel()->isTitle()) {
+            titleTimer = 0.0f;
+            toggle(0, Inventory::PAGE_OPTION);
+        }
+        Input::reset();
+    }
+
     void update() {
+        if (Input::lastState[0] == cInventory || Input::lastState[0] == cAction ||
+            Input::lastState[1] == cInventory || Input::lastState[1] == cAction)
+        {
+            if (video) {
+                skipVideo();
+            } else if (titleTimer > 1.0f && titleTimer < 2.5f) {
+                titleTimer = 1.0f;
+            }
+        }
+
+        if (video) {
+            video->update();
+            if (video->isPlaying)
+                return;
+            skipVideo();
+        }
+
+        if (video || titleTimer == TITLE_LOADING) return;
+
         if (titleTimer != TITLE_LOADING && titleTimer > 0.0f) {
             titleTimer -= Core::deltaTime;
             if (titleTimer < 0.0f)
@@ -936,9 +1100,9 @@ struct Inventory {
         Input::Joystick &joy = Input::joy[Core::settings.controls[playerIndex].joyIndex];
 
         ControlKey key = cMAX;
-        if (Input::down[ikCtrl] || Input::down[ikEnter] || Input::state[playerIndex][cAction] || joy.down[jkA])
+        if (Input::down[ikCtrl] || Input::down[ikEnter] || Input::lastState[playerIndex] == cAction || joy.down[jkA])
             key = cAction;
-        else if (Input::down[ikAlt]   || joy.down[jkB]     || Input::state[playerIndex][cInventory])
+        else if (Input::down[ikAlt]   || joy.down[jkB]     || Input::lastState[playerIndex] == cInventory)
             key = cInventory;
         else if (Input::down[ikLeft]  || joy.down[jkLeft]  || joy.L.x < -0.5f)
             key = cLeft;
@@ -951,7 +1115,27 @@ struct Inventory {
 
         Item *item = items[getGlobalIndex(page, index)];
 
-        if (index == targetIndex && targetPage == page && ready) {
+        if (page == PAGE_LEVEL_STATS) {
+            if (Input::lastState[playerIndex] != cMAX) {
+                toggle(playerIndex, targetPage);
+            }
+        } else if (page == PAGE_SAVEGAME) {
+            if (Input::lastState[playerIndex] == cLeft || Input::lastState[playerIndex] == cRight)
+                slot ^= 1;
+
+            if (Input::lastState[playerIndex] == cAction) {
+                if (slot == 1) {
+                    if (index > -1) {
+                        TR::Entity &e = game->getLevel()->entities[index];
+                        Controller *controller = (Controller*)e.controller;
+                        controller->deactivate(true);
+                    }
+                    game->saveGame(game->getLevel()->id, index > -1, false);
+                }
+                toggle(playerIndex, targetPage);
+            }
+
+        } else if (index == targetIndex && targetPage == page && ready) {
             if (!chosen) {
                 if ((key == cUp && !canFlipPage(-1)) || (key == cDown && !canFlipPage( 1)))
                     key = cMAX;
@@ -1012,10 +1196,13 @@ struct Inventory {
                     }
                 } else
                     if (!game->getLevel()->isTitle())
-                        toggle();
+                        toggle(playerIndex, targetPage);
             }
         }
         lastKey = key;
+
+        if (page == PAGE_SAVEGAME || page == PAGE_LEVEL_STATS)
+            return;
 
         ready = active && phaseRing == 1.0f && phasePage == 1.0f;
 
@@ -1139,21 +1326,21 @@ struct Inventory {
         // vertical blur
         Core::setTarget(background[1], RT_STORE_COLOR);
         game->setShader(Core::passFilter, Shader::FILTER_BLUR, false, false);
-        Core::active.shader->setParam(uParam, vec4(0, 1, 1.0f / INVENTORY_BG_SIZE, 0));;
+        Core::active.shader->setParam(uParam, vec4(0, 1.0f / INVENTORY_BG_SIZE, 0, 0));
         background[0]->bind(sDiffuse);
         game->getMesh()->renderQuad();
 
         // horizontal blur
         Core::setTarget(background[0], RT_STORE_COLOR);
         game->setShader(Core::passFilter, Shader::FILTER_BLUR, false, false);
-        Core::active.shader->setParam(uParam, vec4(1, 0, 1.0f / INVENTORY_BG_SIZE, 0));;
+        Core::active.shader->setParam(uParam, vec4(1.0f / INVENTORY_BG_SIZE, 0, 0, 0));
         background[1]->bind(sDiffuse);
         game->getMesh()->renderQuad();
 
         // grayscale
         Core::setTarget(background[1], RT_STORE_COLOR);
         game->setShader(Core::passFilter, Shader::FILTER_GRAYSCALE, false, false);
-        Core::active.shader->setParam(uParam, vec4(1, 0, 0, 0));
+        Core::active.shader->setParam(uParam, vec4(0.75f, 0.75f, 1.0f, 1.0f));
         background[0]->bind(sDiffuse);
         game->getMesh()->renderQuad();
 
@@ -1195,14 +1382,17 @@ struct Inventory {
         }
 
         UI::textOut(vec2(0, 480 - 32), str, UI::aCenter, UI::width);
-        float tw = UI::getTextSize(STR[str]).x;
+        int tw = UI::getTextSize(STR[str]).x;
 
         if (item->value > 0) UI::specOut(vec2((UI::width - tw) * 0.5f - 32.0f, 480 - 32), 108);
         if (item->value < 2) UI::specOut(vec2((UI::width + tw) * 0.5f + 16.0f, 480 - 32), 109);
 
         if (item->value != 0) return;
 
-        renderOptions(item);
+        if (slot == -1) {
+            //
+        } else
+            renderOptions(item);
     }
 
     void renderOptions(Item *item) {
@@ -1307,11 +1497,13 @@ struct Inventory {
         }
     }
 
-    void renderTitleBG() {
+    void renderTitleBG(float sx = 1.0f, float sy = 1.0f, uint8 alpha = 255) {
         float aspectSrc, aspectDst, aspectImg, ax, ay;
 
         if (background[0]) {
-            aspectSrc = float(background[0]->origWidth) / float(background[0]->origHeight);
+            float ox = sx * background[0]->origWidth;
+            float oy = sy * background[0]->origHeight;
+            aspectSrc = ox / oy;
             aspectDst = float(Core::width) / float(Core::height);
             ax = background[0]->origWidth  / float(background[0]->width);
             ay = background[0]->origHeight / float(background[0]->height);
@@ -1329,14 +1521,7 @@ struct Inventory {
             Core::mModel.scale(vec3(1.0f / 32767.0f));
         #endif
 
-        uint8 alpha;
-        if (!isActive() && titleTimer > 0.0f && titleTimer < 1.0f) {
-            Core::setBlendMode(bmAlpha);
-            alpha = uint8(titleTimer * 255);
-        } else {
-            Core::setBlendMode(bmNone);
-            alpha = 255;
-        }
+        Core::setBlendMode(alpha < 255 ? bmAlpha : bmNone);
 
         Index  indices[6 * 3] = { 0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11 };
         Vertex vertices[4 * 3];
@@ -1404,22 +1589,17 @@ struct Inventory {
         vertices[10].texCoord =
         vertices[11].texCoord = short4(0, 0, 0, 0);
 
-        game->setShader(Core::passFilter, Shader::DEFAULT, false, false);
-
-        if (Core::settings.detail.stereo == Core::Settings::STEREO_VR || !background[0]) {
-            for (int i = 0; i < 4; i++)
-                vertices[i].light.x = vertices[i].light.y = vertices[i].light.z = 0;
-            Core::whiteTex->bind(sDiffuse); // black background
-        } else
+        if ((Core::settings.detail.stereo == Core::Settings::STEREO_VR && !video) || !background[0])
+            Core::blackTex->bind(sDiffuse); // black background
+        else
             background[0]->bind(sDiffuse);
 
+        game->setShader(Core::passFilter, Shader::FILTER_UPSCALE, false, false);
+        Core::active.shader->setParam(uParam, vec4(float(Core::active.textures[sDiffuse]->width), float(Core::active.textures[sDiffuse]->height), Core::getTime() * 0.001f, 0.0f));
         game->getMesh()->renderBuffer(indices, COUNT(indices), vertices, COUNT(vertices));
     }
 
     void renderGameBG() {
-        #ifdef _OS_PSP
-            return;
-        #endif
         Index  indices[6] = { 0, 1, 2, 0, 2, 3 };
         Vertex vertices[4];
         vertices[0].coord = short4(-32767,  32767, 0, 0);
@@ -1435,13 +1615,13 @@ struct Inventory {
         vertices[2].texCoord = short4(32767,     0, 0, 0);
         vertices[3].texCoord = short4(    0,     0, 0, 0);
 
-        game->setShader(Core::passFilter, Shader::DEFAULT, false, false);
         if (Core::settings.detail.stereo == Core::Settings::STEREO_VR || !background[0]) {
-            for (int i = 0; i < 4; i++)
-                vertices[i].light.x = vertices[i].light.y = vertices[i].light.z = 0;
-            Core::whiteTex->bind(sDiffuse); // black background 
+            Core::blackTex->bind(sDiffuse); // black background 
         } else
             background[0]->bind(sDiffuse); // blured grayscale image
+
+        game->setShader(Core::passFilter, Shader::FILTER_UPSCALE, false, false);
+        Core::active.shader->setParam(uParam, vec4(float(Core::active.textures[sDiffuse]->width), float(Core::active.textures[sDiffuse]->height), 0.0f, 0.0f));
 
         Core::setBlendMode(phaseRing < 1.0f ? bmAlpha : bmNone);
         game->getMesh()->renderBuffer(indices, COUNT(indices), vertices, COUNT(vertices));
@@ -1453,19 +1633,31 @@ struct Inventory {
 
         Core::setDepthTest(false);
 
+        uint8 alpha;
+        if (!isActive() && titleTimer > 0.0f && titleTimer < 1.0f)
+            alpha = uint8(titleTimer * 255);
+        else
+            alpha = 255;
+
+        float sy = 1.0f;
+    #ifndef _OS_WEB
+        if (background[0])
+            sy = (480.0f / 640.0f) * ((float)background[0]->width / (float)background[0]->height);
+    #endif
+
         if (Core::settings.detail.stereo == Core::Settings::STEREO_VR) {
             if (game->getLevel()->isTitle())
-                renderTitleBG();
+                renderTitleBG(1.0f, sy, alpha);
             else
                 renderGameBG();
         } else {
             if (background[1])
                 renderGameBG();
             else
-                renderTitleBG();
+                renderTitleBG(1.0f, sy, alpha);
         }
 
-        Core::setBlendMode(bmAlpha);
+        Core::setBlendMode(bmPremult);
         Core::setDepthTest(true);
     }
 
@@ -1496,7 +1688,7 @@ struct Inventory {
         if (Core::settings.detail.stereo == Core::Settings::STEREO_VR)
             Core::mProj = Input::hmd.proj[Core::eye == -1.0f ? 0 : 1];
         else
-            Core::mProj = mat4(70.0f, aspect, 32.0f, 2048.0f);
+            Core::mProj = GAPI::perspective(70.0f, aspect, 32.0f, 2048.0f);
 
         Core::mView   = Core::mViewInv.inverseOrtho();
         Core::viewPos = Core::mViewInv.getPos();
@@ -1505,6 +1697,28 @@ struct Inventory {
     }
 
     void render(float aspect) {
+        if (video) {
+            Core::setDepthTest(false);
+            video->render();
+
+            Texture *tmp = background[0];
+
+            float sy = 1.0f;
+            if ((game->getLevel()->version & TR::VER_TR1) && !playLogo)
+                sy = 1.2f;
+
+            background[0] = video->frameTex[0];
+            renderTitleBG(1.0f, sy, 255);
+
+            background[0] = video->frameTex[1];
+            renderTitleBG(1.0f, sy, clamp(int((video->stepTimer / video->step) * 255), 0, 255));
+
+            background[0] = tmp;
+
+            Core::setDepthTest(true);
+            return;
+        }
+
         if (!isActive() && titleTimer == 0.0f)
             return;
 
@@ -1514,8 +1728,7 @@ struct Inventory {
     // items
         game->setupBinding();
 
-        for (int i = 0; i < SHADOW_OBJ_MAX; i++)
-            Core::mLightProj[i].identity();
+        Core::mLightProj.identity();
 
         setupCamera(aspect);
 
@@ -1540,10 +1753,37 @@ struct Inventory {
             renderPage(targetPage);
     }
 
+    void showLevelStats(const vec2 &pos) {
+        char buf[256];
+        char time[16];
+
+        int secretsMax = 3;
+        int secrets = ((saveStats.secrets & 1) != 0) +
+                      ((saveStats.secrets & 2) != 0) +
+                      ((saveStats.secrets & 4) != 0);
+
+        int s = saveStats.time % 60;
+        int m = saveStats.time / 60 % 60;
+        int h = saveStats.time / 3600;
+
+        if (h)
+            sprintf(time, "%d:%02d:%02d", h, m, s);
+        else
+            sprintf(time, "%d:%02d", m, s);
+
+        sprintf(buf, STR[STR_LEVEL_STATS], 
+                TR::LEVEL_INFO[saveStats.level].title,
+                saveStats.kills,
+                saveStats.pickups,
+                secrets, secretsMax, time);
+
+        UI::textOut(pos, buf, UI::aCenter, UI::width);
+    }
+
     void renderUI() {
         if (!active || phaseRing < 1.0f) return;
 
-        static const StringID pageTitle[PAGE_MAX] = { STR_OPTION, STR_INVENTORY, STR_ITEMS };
+        static const StringID pageTitle[PAGE_MAX] = { STR_OPTION, STR_INVENTORY, STR_ITEMS, STR_SAVEGAME, STR_LEVEL_STATS };
 
         float eye = UI::width * Core::eye * 0.01f;
 
@@ -1551,6 +1791,20 @@ struct Inventory {
             setupCamera(1.0f, true);
             Core::active.shader->setParam(uViewProj, Core::mViewProj);
             eye = 0.0f;
+        }
+
+        if (page == PAGE_SAVEGAME) {
+            UI::renderBar(UI::BAR_OPTION, vec2(-eye + UI::width / 2 - 120, 240 - 14), vec2(240, LINE_HEIGHT - 6), 1.0f, 0x802288FF, 0, 0, 0);
+            UI::textOut(vec2(-eye, 240), pageTitle[page], UI::aCenter, UI::width);
+            UI::renderBar(UI::BAR_OPTION, vec2(-eye - 48 * slot + UI::width / 2, 240 + 24 - 16), vec2(48, 18), 1.0f, 0xFFD8377C, 0);
+            UI::textOut(vec2(-eye - 48 + UI::width / 2, 240 + 24), STR_YES, UI::aCenter, 48);
+            UI::textOut(vec2(-eye + UI::width / 2, 240 + 24), STR_NO, UI::aCenter, 48);
+            return;
+        }
+
+        if (page == PAGE_LEVEL_STATS) {
+            showLevelStats(vec2(-eye, 180));
+            return;
         }
 
         if (!game->getLevel()->isTitle()) 
@@ -1582,6 +1836,8 @@ struct Inventory {
         }
     }
 };
+
+Inventory *inventory;
 
 #undef SETTINGS
 #undef LINE_HEIGHT

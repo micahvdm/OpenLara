@@ -1,7 +1,7 @@
 #include "common.hlsl"
 
 struct VS_OUTPUT {
-	float4 wpos		: POSITION;
+	float4 pos		: POSITION;
 	float2 texCoord	: TEXCOORD0;
 	float4 diffuse	: COLOR0;
 };
@@ -9,7 +9,7 @@ struct VS_OUTPUT {
 #ifdef VERTEX
 VS_OUTPUT main(VS_INPUT In) {
 	VS_OUTPUT Out;
-	Out.wpos     = float4(In.aCoord.xy * (1.0 / 32767.0), 0.0, 1.0);
+	Out.pos      = float4(In.aCoord.xy * (1.0 / 32767.0), 0.0, 1.0);
 	Out.texCoord = In.aTexCoord.xy * (1.0 / 32767.0);
 	Out.diffuse  = In.aLight;
 
@@ -45,20 +45,29 @@ float4 downsample(float2 uv) { // uParam (1 / textureSize, unused, unused, unuse
 float4 grayscale(float2 uv) { // uParam (factor, unused, unused, unused)
 	float4 color = tex2D(sDiffuse, uv);
 	float3 gray  = dot(color, float4(0.299, 0.587, 0.114, 0.0));
-	return float4(lerp(color.xyz, gray, uParam.x), color.w);
+	return float4(lerp(color.xyz, gray, uParam.w) * uParam.bgr, color.w);
 }
 
 float4 blur(float2 uv) { // uParam (dirX, dirY, 1 / textureSize, unused)
 	const float3 offset = float3(         0.0, 1.3846153846, 3.2307692308);
 	const float3 weight = float3(0.2270270270, 0.3162162162, 0.0702702703);
 
-	float2 dir = uParam.xy * uParam.z;
+	float2 dir = uParam.xy;
 	float4 color = tex2D(sDiffuse, uv) * weight[0];
 	color += tex2D(sDiffuse, uv + dir * offset[1]) * weight[1];
 	color += tex2D(sDiffuse, uv - dir * offset[1]) * weight[1];
 	color += tex2D(sDiffuse, uv + dir * offset[2]) * weight[2];
 	color += tex2D(sDiffuse, uv - dir * offset[2]) * weight[2];
 	return color;
+}
+
+float4 upscale(float2 uv) {
+    uv *= uParam.xy + 0.5;
+    float2 iuv = floor(uv);
+    float2 fuv = frac(uv);
+    uv = iuv + fuv * fuv * (3.0 - 2.0 * fuv);
+    uv = (uv - 0.5) / uParam.xy;
+    return tex2D(sDiffuse, uv).bgra;
 }
 
 float4 main(VS_OUTPUT In) : COLOR0 {
@@ -69,9 +78,9 @@ float4 main(VS_OUTPUT In) : COLOR0 {
 	if (FILTER_GRAYSCALE)
 		return grayscale(In.texCoord.xy);
 
-    if (FILTER_BLUR)
-        return blur(In.texCoord.xy);
+	if (FILTER_BLUR)
+		return blur(In.texCoord.xy);
 
-	return (tex2D(sDiffuse, In.texCoord.xy) * In.diffuse).bgra;
+	return upscale(In.texCoord.xy) * In.diffuse;
 }
 #endif
