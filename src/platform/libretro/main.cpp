@@ -44,8 +44,6 @@ Sound::Frame *sndData;
 
 char levelpath[255];
 char basedir[1024];
-char Stream::cacheDir[255];
-char Stream::contentDir[255];
 
 static retro_video_refresh_t video_cb;
 static retro_audio_sample_t audio_cb;
@@ -144,7 +142,7 @@ void osJoyVibrate(int index, float L, float R) {
 void retro_init(void)
 {
    const char *sysdir = NULL;
-   Stream::contentDir[0] = Stream::cacheDir[0] = 0;
+   contentDir[0] = cacheDir[0] = 0;
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &sysdir))
    {
@@ -153,13 +151,13 @@ void retro_init(void)
 #else
       char slash = '/';
 #endif
-      sprintf(Stream::cacheDir, "%s%copenlara-", sysdir, slash);
+      sprintf(cacheDir, "%s%copenlara-", sysdir, slash);
    }
 }
 
 void retro_deinit(void)
 {
-   Stream::contentDir[0] = Stream::cacheDir[0] = 0;
+   contentDir[0] = cacheDir[0] = 0;
 }
 
 unsigned retro_api_version(void)
