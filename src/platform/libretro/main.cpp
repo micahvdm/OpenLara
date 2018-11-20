@@ -51,6 +51,7 @@ static retro_audio_sample_batch_t audio_batch_cb;
 static retro_environment_t environ_cb;
 static retro_input_poll_t input_poll_cb;
 static retro_input_state_t input_state_cb;
+static retro_set_rumble_state_t set_rumble_cb;
 
 #ifdef _WIN32
 #include <windows.h>
@@ -136,14 +137,22 @@ int osGetTime(void)
 }
 #endif
 
-void osJoyVibrate(int index, float L, float R) {
+void osJoyVibrate(int index, float L, float R) 
+{
+    if(set_rumble_cb)
+    {
+        uint16_t left  = int(0xffffff * max(1.0f, L));
+        uint16_t right = int(0xffffff * max(1.0f, R));
+        set_rumble_cb(index, RETRO_RUMBLE_STRONG, left);
+        set_rumble_cb(index, RETRO_RUMBLE_WEAK, right);
+    }
 }
 
 void retro_init(void)
 {
+   contentDir[0] = cacheDir[0] = saveDir[0] = 0;
+   
    const char *sysdir = NULL;
-   contentDir[0] = cacheDir[0] = 0;
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &sysdir))
    {
 #ifdef _WIN32
@@ -153,6 +162,12 @@ void retro_init(void)
 #endif
       sprintf(cacheDir, "%s%copenlara-", sysdir, slash);
    }
+   
+   	struct retro_rumble_interface rumbleInterface;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumbleInterface)) 
+    {
+        set_rumble_cb = rumbleInterface.set_rumble_state;
+    } 
 }
 
 void retro_deinit(void)
@@ -521,6 +536,7 @@ bool retro_load_game(const struct retro_game_info *info)
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,      "Draw weapon" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,      "Action (Shoot/grab)" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,      "Roll" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,      "Look (when holding)" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,      "Walk (when holding)" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,     "Duck/Crouch (TR3 and up)" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,     "Dash (TR3 and up)" },
