@@ -163,7 +163,7 @@ void retro_init(void)
       sprintf(cacheDir, "%s%copenlara-", sysdir, slash);
    }
    
-   	struct retro_rumble_interface rumbleInterface;
+    struct retro_rumble_interface rumbleInterface;
     if (environ_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumbleInterface)) 
     {
         set_rumble_cb = rumbleInterface.set_rumble_state;
@@ -315,13 +315,7 @@ void retro_run(void)
 
    input_poll_cb();
 
-   /* Start */
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START))
-      Input::setDown(InputKey::ikEnter, true, 0);
-   else
-      Input::setDown(InputKey::ikEnter, false, 0);
-
-   /* Player 1 */
+   /* Player 1+2 */
    for (i = 0; i < 2; i++)
    {
 #if 0
@@ -364,6 +358,12 @@ void retro_run(void)
       else
          Input::setJoyDown(i, JoyKey::jkSelect, false);
 
+      /* Start */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START))
+         Input::setJoyDown(i, JoyKey::jkStart, true);
+      else
+         Input::setJoyDown(i, JoyKey::jkStart, false);
+     
       /* Draw weapon */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X))
          Input::setJoyDown(i, JoyKey::jkY, true);
