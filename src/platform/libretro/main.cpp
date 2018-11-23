@@ -139,13 +139,13 @@ int osGetTime(void)
 
 void osJoyVibrate(int index, float L, float R) 
 {
-    if(set_rumble_cb)
-    {
-        uint16_t left  = int(0xffffff * max(1.0f, L));
-        uint16_t right = int(0xffffff * max(1.0f, R));
-        set_rumble_cb(index, RETRO_RUMBLE_STRONG, left);
-        set_rumble_cb(index, RETRO_RUMBLE_WEAK, right);
-    }
+   if(set_rumble_cb)
+   {
+      uint16_t left  = int(0xffffff * max(1.0f, L));
+      uint16_t right = int(0xffffff * max(1.0f, R));
+      set_rumble_cb(index, RETRO_RUMBLE_STRONG, left);
+      set_rumble_cb(index, RETRO_RUMBLE_WEAK, right);
+   }
 }
 
 void retro_init(void)
@@ -275,8 +275,8 @@ static void update_variables(bool first_startup)
          if (pch)
             height = strtoul(pch, NULL, 0);
 
-	 MAX_WIDTH  = width;
-	 MAX_HEIGHT = height;
+         MAX_WIDTH  = width;
+         MAX_HEIGHT = height;
 
          fprintf(stderr, "[openlara]: Got size: %u x %u.\n", width, height);
       }
@@ -526,6 +526,7 @@ static void extract_directory(char *buf, const char *path, size_t size)
 bool retro_load_game(const struct retro_game_info *info)
 {
    struct retro_input_descriptor desc[] = {
+      // Player 1
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "Left" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "Up" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,  "Down" },
@@ -540,6 +541,21 @@ bool retro_load_game(const struct retro_game_info *info)
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,      "Walk (when holding)" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,     "Duck/Crouch (TR3 and up)" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,     "Dash (TR3 and up)" },
+      // Player 2
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "Left" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "Up" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,  "Down" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "Right" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Inventory" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y,      "Jump" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,      "Draw weapon" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,      "Action (Shoot/grab)" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,      "Roll" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,      "Look (when holding)" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,      "Walk (when holding)" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,     "Duck/Crouch (TR3 and up)" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,     "Dash (TR3 and up)" },
       { 0 },
    };
 
