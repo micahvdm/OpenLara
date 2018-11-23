@@ -44,8 +44,6 @@ Sound::Frame *sndData;
 
 char levelpath[255];
 char basedir[1024];
-char Stream::cacheDir[255];
-char Stream::contentDir[255];
 
 static retro_video_refresh_t video_cb;
 static retro_audio_sample_t audio_cb;
@@ -53,6 +51,7 @@ static retro_audio_sample_batch_t audio_batch_cb;
 static retro_environment_t environ_cb;
 static retro_input_poll_t input_poll_cb;
 static retro_input_state_t input_state_cb;
+static retro_set_rumble_state_t set_rumble_cb;
 
 #ifdef _WIN32
 #include <windows.h>
@@ -138,14 +137,22 @@ int osGetTime(void)
 }
 #endif
 
-void osJoyVibrate(int index, float L, float R) {
+void osJoyVibrate(int index, float L, float R) 
+{
+   if(set_rumble_cb)
+   {
+      uint16_t left  = int(0xffffff * max(1.0f, L));
+      uint16_t right = int(0xffffff * max(1.0f, R));
+      set_rumble_cb(index, RETRO_RUMBLE_STRONG, left);
+      set_rumble_cb(index, RETRO_RUMBLE_WEAK, right);
+   }
 }
 
 void retro_init(void)
 {
+   contentDir[0] = cacheDir[0] = saveDir[0] = 0;
+   
    const char *sysdir = NULL;
-   Stream::contentDir[0] = Stream::cacheDir[0] = 0;
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &sysdir))
    {
 #ifdef _WIN32
@@ -153,13 +160,19 @@ void retro_init(void)
 #else
       char slash = '/';
 #endif
-      sprintf(Stream::cacheDir, "%s%copenlara-", sysdir, slash);
+      sprintf(cacheDir, "%s%copenlara-", sysdir, slash);
    }
+   
+    struct retro_rumble_interface rumbleInterface;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumbleInterface)) 
+    {
+        set_rumble_cb = rumbleInterface.set_rumble_state;
+    } 
 }
 
 void retro_deinit(void)
 {
-   Stream::contentDir[0] = Stream::cacheDir[0] = 0;
+   contentDir[0] = cacheDir[0] = 0;
 }
 
 unsigned retro_api_version(void)
@@ -262,8 +275,8 @@ static void update_variables(bool first_startup)
          if (pch)
             height = strtoul(pch, NULL, 0);
 
-	 MAX_WIDTH  = width;
-	 MAX_HEIGHT = height;
+         MAX_WIDTH  = width;
+         MAX_HEIGHT = height;
 
          fprintf(stderr, "[openlara]: Got size: %u x %u.\n", width, height);
       }
@@ -302,13 +315,7 @@ void retro_run(void)
 
    input_poll_cb();
 
-   /* Start */
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START))
-      Input::setDown(InputKey::ikEnter, true, 0);
-   else
-      Input::setDown(InputKey::ikEnter, false, 0);
-
-   /* Player 1 */
+   /* Player 1+2 */
    for (i = 0; i < 2; i++)
    {
 #if 0
@@ -351,6 +358,12 @@ void retro_run(void)
       else
          Input::setJoyDown(i, JoyKey::jkSelect, false);
 
+      /* Start */
+      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START))
+         Input::setJoyDown(i, JoyKey::jkStart, true);
+      else
+         Input::setJoyDown(i, JoyKey::jkStart, false);
+     
       /* Draw weapon */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X))
          Input::setJoyDown(i, JoyKey::jkY, true);
@@ -513,6 +526,7 @@ static void extract_directory(char *buf, const char *path, size_t size)
 bool retro_load_game(const struct retro_game_info *info)
 {
    struct retro_input_descriptor desc[] = {
+      // Player 1
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "Left" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "Up" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,  "Down" },
@@ -523,9 +537,25 @@ bool retro_load_game(const struct retro_game_info *info)
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,      "Draw weapon" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,      "Action (Shoot/grab)" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,      "Roll" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,      "Look (when holding)" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,      "Walk (when holding)" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,     "Duck/Crouch (TR3 and up)" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,     "Dash (TR3 and up)" },
+      // Player 2
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "Left" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "Up" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,  "Down" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "Right" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Inventory" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y,      "Jump" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,      "Draw weapon" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,      "Action (Shoot/grab)" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,      "Roll" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,      "Look (when holding)" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,      "Walk (when holding)" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,     "Duck/Crouch (TR3 and up)" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,     "Dash (TR3 and up)" },
       { 0 },
    };
 

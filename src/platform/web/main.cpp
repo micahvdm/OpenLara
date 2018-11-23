@@ -57,7 +57,7 @@ void onCacheStore(void *arg) {
     Stream *stream = (Stream*)arg;
     LOG("cache stored: %s\n", stream->name);
     if (stream->callback)    
-        stream->callback(new Stream(stream->name, NULL, 0), stream->userData);
+        stream->callback(new Stream(stream->name, stream->data, stream->size), stream->userData);
     delete stream;
 }
 
@@ -86,12 +86,12 @@ void osCacheRead(Stream *stream) {
 }
 
 // memory card
-void osSaveGame(Stream *stream) {
-    return osCacheWrite(stream);
+void osReadSlot(Stream *stream) {
+    return osCacheRead(stream);
 }
 
-void osLoadGame(Stream *stream) {
-    return osCacheRead(stream);
+void osWriteSlot(Stream *stream) {
+    return osCacheWrite(stream);
 }
 
 JoyKey joyToInputKey(int code) {
@@ -312,12 +312,9 @@ EM_BOOL mouseCallback(int eventType, const EmscriptenMouseEvent *e, void *userDa
     return 1;
 }
 
-char Stream::cacheDir[255];
-char Stream::contentDir[255];
-
 int main() {
-    Stream::contentDir[0] = Stream::cacheDir[0] = 0;
-    
+    cacheDir[0] = saveDir[0] = contentDir[0] = 0;
+
     initGL(); 
 
     emscripten_set_keydown_callback(0, 0, 1, keyCallback);

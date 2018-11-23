@@ -43,7 +43,7 @@ extern struct retro_hw_render_callback hw_render;
     #define glProgramBinary              glProgramBinaryOES
 
     #define GL_PROGRAM_BINARY_LENGTH     GL_PROGRAM_BINARY_LENGTH_OES
-#elif _OS_RPI
+#elif defined(_OS_RPI) || defined(_OS_CLOVER)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
     #include <EGL/egl.h>
@@ -76,6 +76,14 @@ extern struct retro_hw_render_callback hw_render;
     #define glProgramBinary(...)
     
     extern EGLDisplay display;
+#elif _OS_NX
+    #define GL_GLEXT_PROTOTYPES
+    #include <EGL/egl.h>
+    #include <EGL/eglext.h>
+    #include <GL/gl.h>
+    #include <GL/glext.h>
+
+    extern EGLDisplay display;
 #elif _OS_LINUX
     #include <GL/gl.h>
     #include <GL/glext.h>
@@ -96,9 +104,17 @@ extern struct retro_hw_render_callback hw_render;
         #define GL_CLAMP_TO_BORDER          0x812D
         #define GL_TEXTURE_BORDER_COLOR     0x1004
 
-        #define GL_TEXTURE_COMPARE_MODE     GL_TEXTURE_COMPARE_MODE_EXT
-        #define GL_TEXTURE_COMPARE_FUNC     GL_TEXTURE_COMPARE_FUNC_EXT
-        #define GL_COMPARE_REF_TO_TEXTURE   GL_COMPARE_REF_TO_TEXTURE_EXT
+        #undef  GL_RGBA32F
+        #undef  GL_RGBA16F
+        #undef  GL_HALF_FLOAT
+
+        #define GL_RGBA32F      GL_RGBA
+        #define GL_RGBA16F      GL_RGBA
+        #define GL_HALF_FLOAT   GL_HALF_FLOAT_OES
+
+        //#define GL_TEXTURE_COMPARE_MODE     GL_TEXTURE_COMPARE_MODE_EXT
+        //#define GL_TEXTURE_COMPARE_FUNC     GL_TEXTURE_COMPARE_FUNC_EXT
+        //#define GL_COMPARE_REF_TO_TEXTURE   GL_COMPARE_REF_TO_TEXTURE_EXT
     #else
         #include <Carbon/Carbon.h>
         #include <AudioToolbox/AudioQueue.h>
@@ -138,7 +154,7 @@ extern struct retro_hw_render_callback hw_render;
     #define glProgramBinary(...)
 #endif
 
-#if defined(_OS_WIN) || (defined(_OS_LINUX) && !defined(_OS_RPI)) || defined(_OS_ANDROID)
+#if defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_ANDROID)
 
     #ifdef _OS_ANDROID
         #define GetProc(x) dlsym(libGL, x);
@@ -148,7 +164,7 @@ extern struct retro_hw_render_callback hw_render;
                 return (void*)wglGetProcAddress(name);
             #elif _OS_LINUX
                 return (void*)glXGetProcAddress((GLubyte*)name);
-            #elif _OS_RPI
+            #else // EGL
                 return (void*)eglGetProcAddress(name);
             #endif
         }
@@ -235,7 +251,7 @@ extern struct retro_hw_render_callback hw_render;
     PFNGLPROGRAMBINARYPROC              glProgramBinary;
 #endif
 
-#if defined(_GAPI_GLES)
+#if defined(_GAPI_GLES) && !defined(_OS_RPI) && !defined(_OS_CLOVER) && !defined(_OS_IOS)
     PFNGLDISCARDFRAMEBUFFEREXTPROC      glDiscardFramebufferEXT;
 #endif
 
@@ -349,7 +365,7 @@ namespace GAPI {
         void setParam(UniformType uType, const mat4  &value, int count = 1) {}
         void setParam(UniformType uType, const Basis &value, int count = 1) {}
     #else
-        uint32  ID;
+        GLuint  ID;
         int32   uID[uMAX];
 
         void init(Core::Pass pass, int type, int *def, int defCount) {
@@ -364,6 +380,38 @@ namespace GAPI {
                 default                : ASSERT(false); LOG("! wrong pass id\n"); return;
             }
 
+            #ifdef _DEBUG
+                Stream *stream = NULL;
+                switch (pass) {
+                    case Core::passCompose :
+                    case Core::passShadow  :
+                    case Core::passAmbient : stream = new Stream("../../src/shaders/shader.glsl"); break;
+                    case Core::passWater   : stream = new Stream("../../src/shaders/water.glsl");  break;
+                    case Core::passFilter  : stream = new Stream("../../src/shaders/filter.glsl"); break;
+                    case Core::passGUI     : stream = new Stream("../../src/shaders/gui.glsl");    break;
+                    default                : ASSERT(false);  return;
+                }
+                
+                char *sourceData = new char[stream->size + 1];
+                stream->raw(sourceData, stream->size);
+                sourceData[stream->size] = 0;
+
+                source = sourceData;
+                for (int i = 0; i < stream->size; i++) // trim string resource begin tag
+                    if (sourceData[i] == '(') {
+                        source = sourceData + i + 1;
+                        break;
+                    }
+
+                for (int i = stream->size - 1; i >= 0; i--) // trim string resource end tag
+                    if (sourceData[i] == ')') {
+                        sourceData[i] = 0;
+                        break;
+                    }
+
+                delete stream;
+            #endif
+
             char defines[1024];
             defines[0] = 0;
 
@@ -372,14 +420,27 @@ namespace GAPI {
                     if (def[i] == SD_SHADOW_SAMPLER)
                         strcat(defines, "#extension GL_EXT_shadow_samplers : require\n"); // ACHTUNG! must be first in the list
                 #endif
-                sprintf(defines, "%s#define %s\n", defines, DefineName[def[i]]);
+                sprintf(defines + strlen(defines), "#define %s\n", DefineName[def[i]]);
             }
-            sprintf(defines, "%s#define PASS_%s\n", defines, passNames[pass]);
+            sprintf(defines + strlen(defines), "#define PASS_%s\n", passNames[pass]);
+
+            #if defined(_OS_RPI) || defined(_OS_CLOVER)
+                strcat(defines, "#define OPT_VLIGHTPROJ\n");
+                strcat(defines, "#define OPT_VLIGHTVEC\n");
+                strcat(defines, "#define OPT_SHADOW_ONETAP\n");
+            #endif
+
+            #ifndef _OS_CLOVER
+                // TODO: only for non Mali-400?
+                strcat(defines, "#define OPT_TRAPEZOID\n");
+                if (Core::settings.detail.water > Core::Settings::LOW)
+                    strcat(defines, "#define OPT_UNDERWATER_FOG\n");
+            #endif
 
             char fileName[255];
         // generate shader file path
             if (Core::support.shaderBinary) {
-                uint32 hash = fnv32(defines, strlen(defines), fnv32(source, strlen(source)));
+                uint32 hash = fnv32(defines, (int32)strlen(defines), fnv32(source, (int32)strlen(source)));
                 sprintf(fileName, "%08X.xsh", hash);
             }
 
@@ -388,7 +449,7 @@ namespace GAPI {
             if (!(Core::support.shaderBinary && linkBinary(fileName))) { // try to load cached shader     
                 if (linkSource(source, defines) && Core::support.shaderBinary) { // compile shader from source and dump it into cache
                 #ifndef _OS_WEB
-                    GLenum format, size;
+                    GLenum format = 0, size;
                     glGetProgramiv(ID, GL_PROGRAM_BINARY_LENGTH, (GLsizei*)&size);
                     char *data = new char[8 + size];
                     glGetProgramBinary(ID, size, NULL, &format, &data[8]);
@@ -399,6 +460,10 @@ namespace GAPI {
                 #endif
                 }
             }
+
+            #ifdef _DEBUG
+                delete[] sourceData;
+            #endif
 
             Core::active.shader = this;
             glUseProgram(ID);
@@ -442,7 +507,7 @@ namespace GAPI {
                 glCompileShader(obj);
 
                 glGetShaderInfoLog(obj, sizeof(info), NULL, info);
-                if (info[0]) LOG("! shader: %s\n", info);
+                if (info[0] && strlen(info) > 8) LOG("! shader: %s\n", info);
 
                 glAttachShader(ID, obj);
                 glDeleteShader(obj);
@@ -454,7 +519,7 @@ namespace GAPI {
             glLinkProgram(ID);
 
             glGetProgramInfoLog(ID, sizeof(info), NULL, info);
-            if (info[0]) LOG("! program: %s\n", info);
+            if (info[0] && strlen(info) > 8) LOG("! program: %s\n", info);
 
             return checkLink();
         }
@@ -462,7 +527,7 @@ namespace GAPI {
         bool linkBinary(const char *name) {
             // non-async code!
             char path[255];
-            strcpy(path, Stream::cacheDir);
+            strcpy(path, cacheDir);
             strcat(path, name);
 
             if (!Stream::exists(path))
@@ -530,6 +595,8 @@ namespace GAPI {
             bool isShadow = fmt == FMT_SHADOW;
 
             glGenTextures(1, &ID);
+
+            Core::active.textures[0] = NULL;
             bind(0);
 
             GLenum target = cube ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D;
@@ -540,8 +607,8 @@ namespace GAPI {
             }
 
             bool border = isShadow && Core::support.texBorder;
-            glTexParameteri(target, GL_TEXTURE_WRAP_S, border ? GL_CLAMP_TO_BORDER : GL_CLAMP_TO_EDGE);
-            glTexParameteri(target, GL_TEXTURE_WRAP_T, border ? GL_CLAMP_TO_BORDER : GL_CLAMP_TO_EDGE);
+            glTexParameteri(target, GL_TEXTURE_WRAP_S, (opt & OPT_REPEAT) ? GL_REPEAT : (border ? GL_CLAMP_TO_BORDER : GL_CLAMP_TO_EDGE));
+            glTexParameteri(target, GL_TEXTURE_WRAP_T, (opt & OPT_REPEAT) ? GL_REPEAT : (border ? GL_CLAMP_TO_BORDER : GL_CLAMP_TO_EDGE));
             if (border) {
                 float color[] = { 1.0f, 1.0f, 1.0f, 1.0f };
                 glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, color);
@@ -553,7 +620,7 @@ namespace GAPI {
             static const struct FormatDesc {
                 GLuint ifmt, fmt;
                 GLenum type;
-            } formats[FMT_MAX] = {            
+            } formats[FMT_MAX] = {
                 { GL_LUMINANCE,       GL_LUMINANCE,       GL_UNSIGNED_BYTE          }, // LUMINANCE
                 { GL_RGBA,            GL_RGBA,            GL_UNSIGNED_BYTE          }, // RGBA
                 { GL_RGB,             GL_RGB,             GL_UNSIGNED_SHORT_5_6_5   }, // RGB16
@@ -561,7 +628,6 @@ namespace GAPI {
                 { GL_RGBA32F,         GL_RGBA,            GL_FLOAT                  }, // RGBA_FLOAT
                 { GL_RGBA16F,         GL_RGBA,            GL_HALF_FLOAT             }, // RGBA_HALF
                 { GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT         }, // DEPTH
-                { GL_DEPTH_STENCIL,   GL_DEPTH_STENCIL,   GL_UNSIGNED_INT_24_8      }, // DEPTH_STENCIL
                 { GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT         }, // SHADOW
             };
 
@@ -591,10 +657,18 @@ namespace GAPI {
                 }
             #endif
 
+
+            void *pix = data;
+            if (data && !Core::support.texNPOT && (width != origWidth || height != origHeight))
+                pix = NULL;
+
             for (int i = 0; i < 6; i++) {
-                glTexImage2D(cube ? (GL_TEXTURE_CUBE_MAP_POSITIVE_X + i) : GL_TEXTURE_2D, 0, desc.ifmt, width, height, 0, desc.fmt, desc.type, data);
+                glTexImage2D(cube ? (GL_TEXTURE_CUBE_MAP_POSITIVE_X + i) : GL_TEXTURE_2D, 0, desc.ifmt, width, height, 0, desc.fmt, desc.type, pix);
                 if (!cube) break;
             }
+
+            if (pix != data)
+                update(data);
         }
 
         void deinit() {
@@ -610,6 +684,11 @@ namespace GAPI {
             if (!(opt & OPT_CUBEMAP) && !(opt & OPT_NEAREST) && (Core::support.maxAniso > 0))
                 glTexParameteri(target, GL_TEXTURE_MAX_ANISOTROPY_EXT, min(int(Core::support.maxAniso), 8));
             //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 4);
+        }
+
+        void update(void *data) {
+            bind(0);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, origWidth, origHeight, GL_RGBA, GL_UNSIGNED_BYTE, data);
         }
 
         void bind(int sampler) {
@@ -632,8 +711,8 @@ namespace GAPI {
         }
 
         void setFilterQuality(int value) {
-            bool filter  = value > Core::Settings::LOW;
-            bool mipmaps = value > Core::Settings::MEDIUM;
+            bool filter  = (opt & OPT_NEAREST) == 0 && (value > Core::Settings::LOW);
+            bool mipmaps = (opt & OPT_MIPMAPS) != 0;
 
             Core::active.textures[0] = NULL;
             bind(0);
@@ -657,7 +736,7 @@ namespace GAPI {
         bool         dynamic;
 
         Mesh(bool dynamic) : iBuffer(NULL), vBuffer(NULL), VAO(NULL), dynamic(dynamic) {
-            ID[0] = ID[1] = NULL;
+            ID[0] = ID[1] = 0;
         }
 
         void init(Index *indices, int iCount, ::Vertex *vertices, int vCount, int aCount) {
@@ -795,6 +874,7 @@ namespace GAPI {
     } rtCache[2];
 
     bool extSupport(const char *str, const char *ext) {
+        if (!str) return false;
         return strstr(str, ext) != NULL;
     }
 
@@ -805,7 +885,7 @@ namespace GAPI {
             void *libGL = dlopen("libGLESv2.so", RTLD_LAZY);
         #endif
 
-        #if defined(_OS_WIN) || (defined(_OS_LINUX) && !defined(_OS_RPI)) || defined(_OS_ANDROID)
+        #if defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_ANDROID)
             #ifdef _OS_WIN
                 GetProcOGL(glActiveTexture);
             #endif
@@ -940,8 +1020,8 @@ namespace GAPI {
         support.texHalf        = support.texHalfLinear || extSupport(ext, "_texture_half_float");
 
         #ifdef PROFILE
-            support.profMarker     = extSupport(ext, "_KHR_debug");
-            support.profTiming     = extSupport(ext, "_timer_query");
+            support.profMarker = extSupport(ext, "_KHR_debug");
+            support.profTiming = extSupport(ext, "_timer_query");
         #endif
 
         if (support.maxAniso)
@@ -987,6 +1067,14 @@ namespace GAPI {
                 glDeleteRenderbuffers(1, &rtCache[b].items[i].ID);
     }
 
+    mat4 ortho(float l, float r, float b, float t, float znear, float zfar) {
+        return mat4(mat4::PROJ_NEG_POS, l, r, b, t, znear, zfar);
+    }
+
+    mat4 perspective(float fov, float aspect, float znear, float zfar) {
+        return mat4(mat4::PROJ_NEG_POS, fov, aspect, znear, zfar);
+    }
+
     bool beginFrame() {
         return true;
     }
@@ -1017,7 +1105,7 @@ namespace GAPI {
 
         glGenRenderbuffers(1, &item.ID);
         glBindRenderbuffer(GL_RENDERBUFFER, item.ID);
-        glRenderbufferStorage(GL_RENDERBUFFER, depth ? GL_RGB565 : GL_DEPTH_COMPONENT16, width, height);
+        glRenderbufferStorage(GL_RENDERBUFFER, depth ? GL_DEPTH_COMPONENT16 : GL_RGB565, width, height);
         glBindRenderbuffer(GL_RENDERBUFFER, 0);
         return cache.count++;
     }
@@ -1035,11 +1123,11 @@ namespace GAPI {
 
             bool depth = target->fmt == FMT_DEPTH || target->fmt == FMT_SHADOW;
 
-            int rtIndex = cacheRenderTarget(depth, target->width, target->height);
+            int rtIndex = cacheRenderTarget(!depth, target->width, target->height);
 
             glBindFramebuffer(GL_FRAMEBUFFER, FBO);
             glFramebufferTexture2D    (GL_FRAMEBUFFER, depth ? GL_DEPTH_ATTACHMENT  : GL_COLOR_ATTACHMENT0, texTarget,       target->ID, 0);
-            glFramebufferRenderbuffer (GL_FRAMEBUFFER, depth ? GL_COLOR_ATTACHMENT0 : GL_DEPTH_ATTACHMENT,  GL_RENDERBUFFER, rtCache[depth].items[rtIndex].ID);
+            glFramebufferRenderbuffer (GL_FRAMEBUFFER, depth ? GL_COLOR_ATTACHMENT0 : GL_DEPTH_ATTACHMENT,  GL_RENDERBUFFER, rtCache[!depth].items[rtIndex].ID);
         }
     }
 
@@ -1070,7 +1158,7 @@ namespace GAPI {
             if (wglSwapIntervalEXT) wglSwapIntervalEXT(enable ? 1 : 0);
         #elif _OS_LINUX
             if (glXSwapIntervalSGI) glXSwapIntervalSGI(enable ? 1 : 0);
-        #elif _OS_RPI
+        #elif defined(_OS_RPI) || defined(_OS_CLOVER) || defined(_OS_NX)
             eglSwapInterval(display, enable ? 1 : 0);
         #endif
 #endif

@@ -2,10 +2,11 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <linux/input.h>
+#include <linux/fb.h>
+#include <linux/vt.h>
 #include <unistd.h>
 #include <pwd.h>
 #include <pthread.h>
-#include <bcm_host.h>
 #include <EGL/egl.h>
 #include <fcntl.h>
 #include <linux/input.h>
@@ -35,19 +36,26 @@ void* sndFill(void *arg) {
     while (sndOut) {
         Sound::fill(sndData, SND_FRAMES);
 
-        int err = snd_pcm_writei(sndOut, sndData, SND_FRAMES);
-        if (err < 0) {
-            LOG("! sound: write %s\n", snd_strerror(err));;
-            if (err != -EPIPE)
-                break;
-
-            err = snd_pcm_recover(sndOut, err, 0);
-            if (err < 0) {
-                LOG("! sound: failed to recover\n");
-                break;
+        int count = SND_FRAMES;
+        while (count > 0) {
+            int frames = snd_pcm_writei(sndOut, &sndData[SND_FRAMES - count], count);
+            if (frames < 0) {
+                frames = snd_pcm_recover(sndOut, frames, 0);
+                if (frames == -EAGAIN) {
+                    LOG("snd_pcm_writei try again\n");
+                    sleep(1);
+                    continue;
+                }
+                if (frames < 0) {
+                    LOG("snd_pcm_writei failed: %s\n", snd_strerror(frames));
+                    sndOut = NULL;
+                    return NULL;
+                }
             }
-            snd_pcm_prepare(sndOut);
+            count -= frames;
         }
+        
+        snd_pcm_prepare(sndOut);
     }
     return NULL;
 }
@@ -56,9 +64,22 @@ bool sndInit() {
     unsigned int freq = 44100;
 
     int err;
-    if ((err = snd_pcm_open(&sndOut, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
-        LOG("! sound: open %s\n", snd_strerror(err));\
+    
+    // In the perfect world ReedPlayer-Clover process 
+    // will release ALSA device before app running, but...
+    for (int i = 0; i < 20; i++) { // 20 * 0.1 = 2 secs
         sndOut = NULL;
+        if ((err = snd_pcm_open(&sndOut, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
+            LOG("sound: try to snd_pcm_open #%d...\n", i);
+            usleep(100000); // wait for 100 ms
+            continue;
+        }
+        break;
+    }
+    
+    // I've bad news for you
+    if (!sndOut) {
+        LOG("! sound: snd_pcm_open %s\n", snd_strerror(err));
         return false;
     }
 
@@ -82,7 +103,7 @@ bool sndInit() {
     sndData = new Sound::Frame[SND_FRAMES];
     memset(sndData, 0, SND_FRAMES * sizeof(Sound::Frame));
     if ((err = snd_pcm_writei(sndOut, sndData, SND_FRAMES)) < 0) {
-        LOG("! sound: write %s\n", snd_strerror(err));\
+        LOG("! sound: write %s\n", snd_strerror(err));
         sndOut = NULL;
     }
 
@@ -101,50 +122,36 @@ void sndFree() {
 }
 
 // Window
-bool wndInit(DISPMANX_DISPLAY_HANDLE_T &display, EGL_DISPMANX_WINDOW_T &window) {
-    if (graphics_get_display_size(0, (uint32_t*)&window.width, (uint32_t*)&window.height) < 0) {
-        LOG("! can't get display size\n");
+struct FrameBuffer {
+    unsigned short width;
+    unsigned short height;
+} fb;
+
+EGLDisplay display;
+EGLSurface surface;
+EGLContext context;
+
+bool eglInit() {
+    LOG("EGL init context...\n");
+    
+    fb_var_screeninfo vinfo;
+    int fd = open("/dev/fb0", O_RDWR);
+    if (ioctl(fd, FBIOGET_VSCREENINFO, &vinfo) < 0) {
+        LOG("! can't get framebuffer size\n");
         return false;
     }
+    close(fd);
 
-    int scale = 1;
-    window.width  /= scale;
-    window.height /= scale;
-
-    VC_RECT_T dstRect, srcRect;
-    vc_dispmanx_rect_set(&dstRect, 0, 0, window.width, window.height);
-    vc_dispmanx_rect_set(&srcRect, 0, 0, window.width << 16, window.height << 16);
-    VC_DISPMANX_ALPHA_T alpha = { DISPMANX_FLAGS_ALPHA_FIXED_ALL_PIXELS, 0xFF, 0 };
-
-    display = vc_dispmanx_display_open(0);
-
-    DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
-
-    window.element = vc_dispmanx_element_add(
-        update, display, 0, &dstRect, 0, &srcRect,
-        DISPMANX_PROTECTION_NONE, &alpha, NULL, DISPMANX_NO_ROTATE);
-
-    vc_dispmanx_update_submit_sync(update);
-
-    return true;
-}
-
-void wndFree(DISPMANX_DISPLAY_HANDLE_T &display, EGL_DISPMANX_WINDOW_T &window) {
-    DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
-    vc_dispmanx_element_remove(update, window.element);
-    vc_dispmanx_update_submit_sync(update);
-    vc_dispmanx_display_close(display);
-}
-
-bool eglInit(EGL_DISPMANX_WINDOW_T &window, EGLDisplay &display, EGLSurface &surface, EGLContext &context) {
+    fb.width  = vinfo.xres;
+    fb.height = vinfo.yres;
+    
     static const EGLint eglAttr[] = {
-        EGL_RED_SIZE,       8,
-        EGL_GREEN_SIZE,     8,
-        EGL_BLUE_SIZE,      8,
-        EGL_ALPHA_SIZE,     8,
-        EGL_DEPTH_SIZE,     24,
-        EGL_SAMPLES,        0,
-        EGL_SURFACE_TYPE,   EGL_WINDOW_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+        EGL_SURFACE_TYPE,    EGL_WINDOW_BIT,
+        EGL_BLUE_SIZE,       8,
+        EGL_GREEN_SIZE,      8,
+        EGL_RED_SIZE,        8,
+        EGL_ALPHA_SIZE,      8,
         EGL_NONE
     };
 
@@ -154,36 +161,46 @@ bool eglInit(EGL_DISPMANX_WINDOW_T &window, EGLDisplay &display, EGLSurface &sur
     };
 
     display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    if (display == EGL_NO_DISPLAY)
+    if (display == EGL_NO_DISPLAY) {
+        LOG("eglGetDisplay = EGL_NO_DISPLAY\n");
         return false;
+    }
 
-    if (eglInitialize(display, NULL, NULL) == EGL_FALSE)
+    if (eglInitialize(display, NULL, NULL) == EGL_FALSE) {
+        LOG("eglInitialize = EGL_FALSE\n");
         return false;
+    }
 
     EGLConfig config;
     EGLint configCount;
 
-    if (eglChooseConfig(display, eglAttr, &config, 1, &configCount) == EGL_FALSE)
+    if (eglChooseConfig(display, eglAttr, &config, 1, &configCount) == EGL_FALSE) {
+        LOG("eglChooseConfig = EGL_FALSE\n");
         return false;
+    }
+
+    surface = eglCreateWindowSurface(display, config, &fb, NULL);
+    if (surface == EGL_NO_SURFACE) {
+        LOG("eglCreateWindowSurface = EGL_NO_SURFACE\n");
+        return false;
+    }
 
     context = eglCreateContext(display, config, EGL_NO_CONTEXT, ctxAttr);
-    if (context == EGL_NO_CONTEXT)
+    if (context == EGL_NO_CONTEXT) {
+        LOG("eglCreateContext = EGL_NO_CONTEXT\n");
         return false;
+    }
 
-    surface = eglCreateWindowSurface(display, config, &window, NULL);
-    if (surface == EGL_NO_SURFACE)
+    if (eglMakeCurrent(display, surface, surface, context) == EGL_FALSE) {
+        LOG("eglMakeCurrent = EGL_FALSE\n");
         return false;
-
-    if (eglSurfaceAttrib(display, surface, EGL_SWAP_BEHAVIOR, EGL_BUFFER_DESTROYED) == EGL_FALSE)
-        return false;
-
-    if (eglMakeCurrent(display, surface, surface, context) == EGL_FALSE)
-        return false;
+    }
 
     return true;
 }
 
-void eglFree(EGLDisplay display, EGLSurface surface, EGLContext context) {
+void eglFree() {
+    LOG("EGL release context\n");
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     eglDestroySurface(display, surface);
     eglDestroyContext(display, context);
@@ -192,7 +209,10 @@ void eglFree(EGLDisplay display, EGLSurface surface, EGLContext context) {
 
 // Input
 #define MAX_INPUT_DEVICES 16
-int inputDevices[MAX_INPUT_DEVICES];
+struct InputDevice {
+    int fd;
+    int joyIndex;
+} inputDevices[MAX_INPUT_DEVICES];
 
 udev *udevObj;
 udev_monitor *udevMon;
@@ -266,6 +286,11 @@ InputKey codeToInputKey(int code) {
         case BTN_LEFT       : return ikMouseL;
         case BTN_RIGHT      : return ikMouseR;
         case BTN_MIDDLE     : return ikMouseM;
+    // system keys
+        case KEY_VOLUMEUP   :
+        case BTN_MODE       :
+            Core::quit();
+            return ikNone;
     }
     return ikNone;
 }
@@ -273,10 +298,14 @@ InputKey codeToInputKey(int code) {
 JoyKey codeToJoyKey(int code) {
     switch (code) {
     // gamepad
-        case BTN_A          : return jkA;
-        case BTN_B          : return jkB;
-        case BTN_X          : return jkX;
-        case BTN_Y          : return jkY;
+        case BTN_TRIGGER_HAPPY1 : return jkLeft;
+        case BTN_TRIGGER_HAPPY2 : return jkRight;
+        case BTN_TRIGGER_HAPPY3 : return jkUp;
+        case BTN_TRIGGER_HAPPY4 : return jkDown;
+        case BTN_A          : return jkB;
+        case BTN_B          : return jkA;
+        case BTN_X          : return jkY;
+        case BTN_Y          : return jkX;
         case BTN_TL         : return jkLB;
         case BTN_TR         : return jkRB;
         case BTN_SELECT     : return jkSelect;
@@ -296,19 +325,42 @@ int inputDevIndex(const char *node) {
     return -1;
 }
 
-void inputDevAdd(const char *node) {
+void inputDevAdd(const char *node, udev_device *device) {
     int index = inputDevIndex(node);
     if (index != -1) {
-        inputDevices[index] = open(node, O_RDONLY | O_NONBLOCK);
-        ioctl(inputDevices[index], EVIOCGRAB, 1);
-        //LOG("input: add %s\n", node);
+        InputDevice &item = inputDevices[index];
+        item.fd = open(node, O_RDONLY | O_NONBLOCK);
+        ioctl(item.fd, EVIOCGRAB, 1);
+
+        item.joyIndex = -1;
+        if (udev_device_get_property_value(device, "ID_INPUT_JOYSTICK")) {
+
+            // TODO get index from /dev/input/js[N]
+
+            for (int i = 0; i < 4; i++) { // up to 4 gamepads
+                bool found = true;
+                for (int j = 0; j < MAX_INPUT_DEVICES; j++) {
+                    if (inputDevices[j].joyIndex == i) {
+                        found = false;
+                        break;
+                    }
+                }
+                
+                if (found) {
+                    item.joyIndex = i;
+                    break;
+                }
+            }
+        }
+
+        //LOG("input: add %s (%d)\n", node, item.joyIndex);
     }
 }
 
 void inputDevRemove(const char *node) {
     int index = inputDevIndex(node);
-    if (index != -1 && inputDevices[index] != -1) {
-        close(inputDevices[index]);
+    if (index != -1 && inputDevices[index].fd != -1) {
+        close(inputDevices[index].fd);
         //LOG("input: remove %s\n", node);
     }
 }
@@ -316,8 +368,10 @@ void inputDevRemove(const char *node) {
 bool inputInit() {
     joyL = joyR = vec2(0);
 
-    for (int i = 0; i < MAX_INPUT_DEVICES; i++)
-        inputDevices[i] = -1;
+    for (int i = 0; i < MAX_INPUT_DEVICES; i++) {
+        inputDevices[i].fd       = -1;
+        inputDevices[i].joyIndex = -1;
+    }
 
     udevObj = udev_new();
     if (!udevObj)
@@ -343,7 +397,7 @@ bool inputInit() {
         node   = udev_device_get_devnode(device);
 
         if (node)
-            inputDevAdd(node);
+            inputDevAdd(node, device);
     }
     udev_enumerate_unref(e);
 
@@ -352,8 +406,8 @@ bool inputInit() {
 
 void inputFree() {
     for (int i = 0; i < MAX_INPUT_DEVICES; i++)
-        if (inputDevices[i] != -1)
-            close(inputDevices[i]);
+        if (inputDevices[i].fd != -1)
+            close(inputDevices[i].fd);
     udev_monitor_unref(udevMon);
     udev_unref(udevObj);
 }
@@ -380,10 +434,10 @@ void inputUpdate() {
     input_event events[16];
 
     for (int i = 0; i < MAX_INPUT_DEVICES; i++) {
-        if (inputDevices[i] == -1) continue;
-        int rb = read(inputDevices[i], events, sizeof(events));
+        if (inputDevices[i].fd == -1) continue;
+        int rb = read(inputDevices[i].fd, events, sizeof(events));
 
-        int joyIndex = 0; // TODO: joy index
+        int joyIndex = inputDevices[i].joyIndex;
 
         input_event *e = events;
         while (rb > 0) {
@@ -395,6 +449,8 @@ void inputUpdate() {
                             Input::setPos(key, Input::mouse.pos);
                         Input::setDown(key, e->value != 0);
                     } else {
+                        if (joyIndex == -1)
+                            break;
                         JoyKey key = codeToJoyKey(e->code);
                         Input::setJoyDown(joyIndex, key, e->value != 0);
                     }
@@ -407,6 +463,9 @@ void inputUpdate() {
                     break;
                 }
                 case EV_ABS : {
+                    if (joyIndex == -1)
+                        break;
+                        
                     switch (e->code) {
                     // Left stick
                         case ABS_X  : joyL.x = joyAxisValue(e->value); break;
@@ -457,7 +516,7 @@ void inputUpdate() {
             if (node) {
                 const char *action = udev_device_get_action(device);
                 if (!strcmp(action, "add"))
-                    inputDevAdd(node);
+                    inputDevAdd(node, device);
                 if (!strcmp(action, "remove"))
                     inputDevRemove(node);
             }
@@ -467,49 +526,50 @@ void inputUpdate() {
     }
 }
 
-EGLDisplay display;
-
 int main(int argc, char **argv) {
-    bcm_host_init();
-
-    DISPMANX_DISPLAY_HANDLE_T dmDisplay;
-    EGL_DISPMANX_WINDOW_T     dmWindow;
-    if (!wndInit(dmDisplay, dmWindow))
-        return 1;
-    Core::width  = dmWindow.width;
-    Core::height = dmWindow.height;
-
-    EGLSurface surface;
-    EGLContext context;
-    if (!eglInit(dmWindow, display, context, surface)) {
+    if (!eglInit()) {
         LOG("! can't initialize EGL context\n");
-        return 1;
+        return -1;
     }
+    
+    Core::width  = fb.width;
+    Core::height = fb.height;
 
     cacheDir[0] = saveDir[0] = contentDir[0] = 0;
 
-    const char *home;
-    if (!(home = getenv("HOME")))
-        home = getpwuid(getuid())->pw_dir;
-    strcat(cacheDir, home);
-    strcat(cacheDir, "/.openlara/");
+    strcpy(contentDir, argv[0]);
+    int i = strlen(contentDir);
+    while (--i >= 0) {
+        if (contentDir[i] == '/') {
+            contentDir[i + 1] = 0;
+            break;
+        }
+        i--;
+    }
+
+    strcpy(cacheDir, contentDir);
+    strcat(cacheDir, "cache/");
 
     struct stat st = {0};
     if (stat(cacheDir, &st) == -1 && mkdir(cacheDir, 0777) == -1)
         cacheDir[0] = 0;
-    strcpy(saveDir, cacheDir);
+
+    const char *home;
+    if (!(home = getenv("HOME")))
+        home = getpwuid(getuid())->pw_dir;
+    strcpy(saveDir, home);
+    strcat(saveDir, "/.openlara/");
+
+    if (stat(saveDir, &st) == -1 && mkdir(saveDir, 0777) == -1)
+        saveDir[0] = 0;
 
     timeval t;
     gettimeofday(&t, NULL);
     startTime = t.tv_sec;
 
+    Game::init();
+    inputInit();
     sndInit();
-
-    char *lvlName = argc > 1 ? argv[1] : NULL;
-
-    Game::init(lvlName);
-
-    inputInit(); // initialize and grab input devices
 
     while (!Core::isQuit) {
         inputUpdate();
@@ -518,16 +578,16 @@ int main(int argc, char **argv) {
             Game::render();
             Core::waitVBlank();
             eglSwapBuffers(display, surface);
-        }
+        } else
+            usleep(9000);
     };
 
     inputFree();
 
-    sndFree();
     Game::deinit();
+    eglFree();
 
-    eglFree(display, surface, context);
-    wndFree(dmDisplay, dmWindow);
+    sndFree();
 
     return 0;
 }

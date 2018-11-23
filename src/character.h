@@ -16,7 +16,8 @@ struct Character : Controller {
         STAND_SLIDE,
         STAND_HANG,
         STAND_UNDERWATER,
-        STAND_ONWATER
+        STAND_ONWATER,
+        STAND_WADE
     }       stand;
 
     int     input, lastInput;
@@ -49,6 +50,7 @@ struct Character : Controller {
     int     zone;
     int     box;
 
+    bool    burn;
     bool    flying;
     bool    fullChestRotation;
 
@@ -64,9 +66,14 @@ struct Character : Controller {
 
         rotHead  = rotChest = quat(0, 0, 0, 1);
 
+        burn   = false;
         flying = getEntity().type == TR::Entity::ENEMY_BAT;
         fullChestRotation = false;
         updateZone();
+    }
+
+    bool isActiveTarget() {
+        return flags.state == TR::Entity::asActive && !flags.invisible && health > 0.0f;
     }
 
     virtual int getRoomIndex() const {
@@ -74,12 +81,6 @@ struct Character : Controller {
         
         if (level->isCutsceneLevel())
             return index;
-        
-        TR::Level::FloorInfo info;
-        getFloorInfo(index, pos, info);
-
-        if (level->rooms[index].flags.water && info.roomAbove != TR::NO_ROOM && (info.floor - level->rooms[index].info.yTop) <= 512)
-            return info.roomAbove;
         return index;
     }
 
@@ -99,7 +100,7 @@ struct Character : Controller {
 
         int dx, dz;
         TR::Room::Sector &s = level->getSector(getRoomIndex(), int(pos.x), int(pos.z), dx, dz);
-        if (s.boxIndex == 0xFFFF)
+        if (s.boxIndex == TR::NO_BOX)
             return false;
         box  = s.boxIndex;
         zone = getZones()[box];
@@ -112,7 +113,7 @@ struct Character : Controller {
     }
 
     void rotateY(float delta) {
-        angle.y += delta; 
+        angle.y = clampAngle(angle.y + delta);
         velocity = velocity.rotateY(-delta);
     }
 
@@ -121,6 +122,8 @@ struct Character : Controller {
     }
 
     virtual void hit(float damage, Controller *enemy = NULL, TR::HitType hitType = TR::HIT_DEFAULT) {
+        if (getEntity().isEnemy() && health > 0.0f && health <= damage)
+            saveStats.kills++;
         health = max(0.0f, health - damage);
     }
 
@@ -157,14 +160,21 @@ struct Character : Controller {
     virtual int   getStateHang()        { return state; }
     virtual int   getStateUnderwater()  { return state; }
     virtual int   getStateOnwater()     { return state; }
+    virtual int   getStateWade()        { return state; }
     virtual int   getStateDeath()       { return state; }
     virtual int   getStateDefault()     { return state; }
     virtual int   getInput()            { return health <= 0 ? DEATH : 0; }
     virtual bool  useHeadAnimation()    { return false; }
 
     int getNextState() {
-        if (input & DEATH)
-            return getStateDeath();
+        if (input & DEATH) {
+            int deathState = getStateDeath();
+            if (state == deathState || animation.canSetState(deathState)) {
+                if (stand != STAND_AIR)
+                    velocity = vec3(0.0f);
+                return deathState;
+            }
+        }
 
         switch (stand) {
             case STAND_AIR        : return getStateAir();
@@ -173,11 +183,15 @@ struct Character : Controller {
             case STAND_HANG       : return getStateHang();
             case STAND_UNDERWATER : return getStateUnderwater();
             case STAND_ONWATER    : return getStateOnwater();
+            case STAND_WADE       : return getStateWade();
         }
         return animation.state;
     }
 
     virtual void updateState() {
+        if (stand == STAND_UNDERWATER || stand == STAND_ONWATER)
+            burn = false;
+
         int state = getNextState();
         // try to set new state
         if (!animation.setState(state))
@@ -206,7 +220,14 @@ struct Character : Controller {
         return (input & key) && !(lastInput & key);
     }
 
+    void updateRoom() {
+        level->getSector(roomIndex, pos);
+        level->getWaterInfo(getRoomIndex(), pos, waterLevel, waterDepth);
+    }
+
     virtual void update() {
+        updateRoom();
+
         vec3 p = pos;
         lastInput = input;
         input = getInput();
@@ -241,11 +262,22 @@ struct Character : Controller {
         if (health <= 0.0f)
             target = NULL;
 
+        vec3 t(0.0f);
+        if (target) {
+            Box box = target->getBoundingBox();
+            t = (box.min + box.max) * 0.5f;
+        }
+
+        lookAtPos(target ? &t : NULL);
+    }
+
+
+    void lookAtPos(const vec3 *t = NULL) {
         float speed = 8.0f * Core::deltaTime;
         quat rot;
 
         if (jointChest > -1) {
-            if (aim(target, jointChest, rangeChest, rot)) {
+            if (t && aim(*t, jointChest, rangeChest, rot)) {
                 if (fullChestRotation)
                     rotChest = rotChest.slerp(rot, speed);
                 else
@@ -256,7 +288,7 @@ struct Character : Controller {
         }
 
         if (jointHead > -1) {
-            if (aim(target, jointHead, rangeHead, rot))
+            if (t && aim(*t, jointHead, rangeHead, rot))
                 rotHead = rotHead.slerp(rot, speed);
             else
                 rotHead = rotHead.slerp(quat(0, 0, 0, 1), speed);
@@ -300,11 +332,6 @@ struct Character : Controller {
             addBloodSpikes();
     }
 
-    void addRicochet(const vec3 &pos, bool sound) {
-        game->addEntity(TR::Entity::RICOCHET, getRoomIndex(), pos);
-        if (sound)
-            game->playSound(TR::SND_RICOCHET, pos, Sound::PAN);
-    }
 };
 
 #endif

@@ -11,6 +11,12 @@ enum StringID {
     , STR_LOADING
     , STR_HELP_PRESS
     , STR_HELP_TEXT
+    , STR_LEVEL_STATS
+    , STR_HINT_SAVING
+    , STR_HINT_SAVING_DONE
+    , STR_HINT_SAVING_ERROR
+    , STR_YES
+    , STR_NO
     , STR_OFF
     , STR_ON
     , STR_SPLIT
@@ -33,6 +39,9 @@ enum StringID {
     , STR_OPTION
     , STR_INVENTORY
     , STR_ITEMS
+// save game page
+    , STR_SAVEGAME
+    , STR_CURRENT_POSITION
 // inventory option
     , STR_GAME
     , STR_MAP
@@ -80,6 +89,7 @@ enum StringID {
     , STR_JOY_LAST  = STR_JOY_FIRST + jkMAX - 1
 // inventory items
     , STR_UNKNOWN
+    , STR_EXPLOSIVE
     , STR_PISTOLS
     , STR_SHOTGUN
     , STR_MAGNUMS
@@ -101,6 +111,8 @@ const char *helpText =
     "Start - add second player or restore Lara@"
     "H - Show or hide this help@"
     "ALT + ENTER - Fullscreen@"
+    "5 - Save Game@"
+    "9 - Load Game@"
     "C - Look@"
     "R - Slow motion@"
     "T - Fast motion@"
@@ -114,6 +126,12 @@ const char *helpText =
     "DOZY on - Look + Duck + Action + Jump@"
     "DOZY off - Walk";
 
+const char *levelStats = 
+    "%s@@@"
+    "KILLS %d@@"
+    "PICKUPS %d@@"
+    "SECRETS %d of %d@@"
+    "TIME TAKEN %s";
 
 const char *STR[STR_MAX] = {
       "Not implemented yet!"
@@ -121,6 +139,12 @@ const char *STR[STR_MAX] = {
     , "Loading..."
     , "Press H for help"
     , helpText
+    , levelStats
+    , "Saving game..."
+    , "Saving done!"
+    , "SAVING ERROR!"
+    , "YES"
+    , "NO"
     , "Off"
     , "On"
     , "Split Screen"
@@ -143,6 +167,9 @@ const char *STR[STR_MAX] = {
     , "OPTION"
     , "INVENTORY"
     , "ITEMS"
+// save game page
+    , "Save Game?"
+    , "Current Position"
 // inventory option
     , "Game"
     , "Map"
@@ -160,7 +187,7 @@ const char *STR[STR_MAX] = {
     , "Restart Level"
     , "Exit to Title"
     , "Exit Game"
-    , "Select Level"
+    , "Load Game"
 // detail options
     , "Select Detail"
     , "Filtering"
@@ -190,6 +217,7 @@ const char *STR[STR_MAX] = {
     , "NONE", "A", "B", "X", "Y", "L BUMPER", "R BUMPER", "SELECT", "START", "L STICK", "R STICK", "L TRIGGER", "R TRIGGER", "D-LEFT", "D-RIGHT", "D-UP", "D-DOWN"
 // inventory items
     , "Unknown"
+    , "Explosive"
     , "Pistols"
     , "Shotgun"
     , "Magnums"
@@ -207,10 +235,13 @@ const char *STR[STR_MAX] = {
 };
 
 namespace UI {
-    IGame *game;
-    float width, height;
-    float helpTipTime;
-    bool  showHelp;
+    IGame    *game;
+    float    width, height;
+    float    helpTipTime;
+    float    hintTime;
+    StringID hintStr;
+
+    bool     showHelp;
 
     const static uint8 char_width[110] = {
         14, 11, 11, 11, 11, 11, 11, 13, 8, 11, 12, 11, 13, 13, 12, 11, 12, 12, 11, 12, 13, 13, 13, 12, 12, 11, // A-Z
@@ -237,7 +268,21 @@ namespace UI {
         return char_map[c - 32];
     }
 
-    vec2 getTextSize(const char *text) {
+    short2 getLineSize(const char *text) {
+        int x = 0;
+
+        while (char c = *text++) {
+            if (c == ' ' || c == '_') {
+                x += 6;
+            } else if (c == '@') {
+                break;
+            } else 
+                x += char_width[charRemap(c)] + 1;
+        }
+        return short2(x, 16);
+    }
+
+    short2 getTextSize(const char *text) {
         int x = 0, w = 0, h = 16;
 
         while (char c = *text++) {
@@ -252,7 +297,7 @@ namespace UI {
         }
         w = max(w, x);
 
-        return vec2(float(w), float(h));
+        return short2(w, h);
     }
 
     #define MAX_CHARS DYN_MESH_QUADS
@@ -280,14 +325,14 @@ namespace UI {
     void updateAspect(float aspect) {
         height = 480.0f;
         width  = height * aspect;
-        Core::mProj = mat4(0.0f, width, height, 0.0f, 0.0f, 1.0f);
+        Core::mProj = GAPI::ortho(0.0f, width, height, 0.0f, 0.0f, 1.0f);
         Core::setViewProj(Core::mView, Core::mProj);
         Core::active.shader->setParam(uViewProj, Core::mViewProj);
     }
 
     void begin() {
         Core::setDepthTest(false);
-        Core::setBlendMode(bmAlpha);
+        Core::setBlendMode(bmPremult);
         Core::setCullMode(cmNone);
         game->setupBinding();
 
@@ -328,6 +373,19 @@ namespace UI {
         SHADE_GRAY   = 2,
     };
 
+    int getLeftOffset(const char *text, Align align, int width) {
+        if (align != aLeft) {
+            int lineWidth = getLineSize(text).x;
+
+            if (align == aCenter)
+                return (width - lineWidth) / 2;
+
+            if (align == aRight)
+                return width - lineWidth;
+        }
+        return 0;
+    }
+
     void textOut(const vec2 &pos, const char *text, Align align = aLeft, float width = 0, uint8 alpha = 255, ShadeType shade = SHADE_ORANGE, bool isShadow = false) {
         if (!text) return;
        
@@ -339,35 +397,31 @@ namespace UI {
         MeshBuilder *mesh = game->getMesh();
         int seq = level->extra.glyphs;
 
-        int x = int(pos.x);
+        int x = int(pos.x) + getLeftOffset(text, align, int(width));
         int y = int(pos.y);
 
-        if (align == aCenter)
-            x += int((width - getTextSize(text).x) / 2);
-
-        if (align == aRight)
-            x += int(width - getTextSize(text).x);
-
-        int left = x;
-
         while (char c = *text++) {
+
+            if (c == '@') {
+                x = int(pos.x) + getLeftOffset(text, align, int(width));
+                y += 16;
+                continue;
+            }
+
             if (c == ' ' || c == '_') {
                 x += 6;
                 continue;
             }
 
-            if (c == '@') {
-                x = left;
-                y += 16;
-                continue;
-            }
-
             int frame = charRemap(c);
+
+            if (frame >= level->spriteSequences[seq].sCount)
+                continue;
 
             if (buffer.iCount == MAX_CHARS * 6)
                 flush();
 
-            TR::SpriteTexture &sprite = level->spriteTextures[level->spriteSequences[seq].sStart + frame];
+            TR::TextureInfo &sprite = level->spriteTextures[level->spriteSequences[seq].sStart + frame];
 
             TR::Color32 tColor, bColor;
             if (isShadow) {
@@ -419,7 +473,10 @@ namespace UI {
         if (buffer.iCount == MAX_CHARS * 6)
             flush();
 
-        TR::SpriteTexture &sprite = level->spriteTextures[level->spriteSequences[seq].sStart + specChar];
+        if (specChar >= level->spriteSequences[seq].sCount)
+            return;
+
+        TR::TextureInfo &sprite = level->spriteTextures[level->spriteSequences[seq].sStart + specChar];
 
         #ifdef SPLIT_BY_TILE
             if (sprite.tile != curTile
@@ -455,6 +512,7 @@ namespace UI {
         UI::game = game;
         showHelp = false;
         helpTipTime = 5.0f;
+        hintTime = 0.0f;
 //        texInv = loadRAW(64, 64, "btn_inv.raw");
 //        texAction = loadRAW(64, 64, "btn_action.raw");
     }
@@ -465,6 +523,10 @@ namespace UI {
     }
 
     void update() {
+        if (hintTime > 0.0f)
+            hintTime = max(0.0f, hintTime - Core::deltaTime);
+
+
         if (Input::down[ikH]) {
             Input::down[ikH] = false;
             showHelp = !showHelp;
@@ -493,22 +555,25 @@ namespace UI {
         Core::setBlendMode(bmAlpha);
         Core::setCullMode(cmNone);
 
-        Core::mViewProj = mat4(0.0f, float(Core::width), float(Core::height), 0.0f, 0.0f, 1.0f);
+        Core::mViewProj = GAPI::ortho(0.0f, float(Core::width), float(Core::height), 0.0f, 0.0f, 1.0f);
         
         game->setShader(Core::passGUI, Shader::DEFAULT);
 
         float offset = Core::height * 0.25f;
 
-        vec2 pos = vec2(offset, Core::height - offset);
-        if (Input::down[Input::touchKey[Input::zMove]]) {
-            Input::Touch &t = Input::touch[Input::touchKey[Input::zMove] - ikTouchA];
-            renderControl(t.pos, Input::btnRadius, true);
-            pos = t.start;
+        if (Input::btnEnable[Input::bMove]) {
+            vec2 pos = vec2(offset * 0.7f, Core::height - offset * 0.7f) + vec2(-cosf(-PI * 3.0f / 4.0f), sinf(-PI * 3.0f / 4.0f)) * offset;
+            if (Input::down[Input::touchKey[Input::zMove]]) {
+                Input::Touch &t = Input::touch[Input::touchKey[Input::zMove] - ikTouchA];
+                renderControl(t.pos, Input::btnRadius, true);
+                pos = t.start;
+            }
+            renderControl(pos, Input::btnRadius, false);
         }
-        renderControl(pos, Input::btnRadius, false);
 
         for (int i = Input::bWeapon; i < Input::bMAX; i++)
-            renderControl(Input::btnPos[i], Input::btnRadius, Input::btn == i);
+            if (Input::btnEnable[i])
+                renderControl(Input::btnPos[i], Input::btnRadius, Input::btn == i);
 
         Core::setCullMode(cmFront);
         Core::setBlendMode(bmNone);
@@ -526,8 +591,16 @@ namespace UI {
             mesh->addBar(buffer.indices, buffer.vertices, buffer.iCount, buffer.vCount, barTile[type], pos, vec2(size.x * value, size.y), fgColor, fgColor2);
     }
 
+    void showHint(StringID str, float time) {
+        hintStr  = str;
+        hintTime = time;
+    }
+
     void renderHelp() {
         // TODO: Core::eye offset
+        if (hintTime > 0.0f)
+            textOut(vec2(16, 32), hintStr, aLeft, width - 32, 255, UI::SHADE_GRAY);
+
         if (showHelp)
             textOut(vec2(32, 32), STR_HELP_TEXT, aLeft, width - 32, 255, UI::SHADE_GRAY);
 #if 0

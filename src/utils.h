@@ -6,20 +6,24 @@
 #include <float.h>
 
 #ifdef _DEBUG
-    #ifdef _OS_LINUX
+    #if defined(_OS_LINUX) || defined(_OS_RPI) || defined(_OS_CLOVER)
         #define debugBreak() raise(SIGTRAP);
     #else
         #define debugBreak() _asm { int 3 }
     #endif
 
     #define ASSERT(expr) if (expr) {} else { LOG("ASSERT:\n  %s:%d\n  %s => %s\n", __FILE__, __LINE__, __FUNCTION__, #expr); debugBreak(); }
+    #define ASSERTV(expr) ASSERT(expr)
 
     #ifndef _OS_ANDROID
         #define LOG(...) printf(__VA_ARGS__)
     #endif
 
 #else
+    //#define ASSERT(expr) if (expr) {} else { LOG("ASSERT:\n  %s:%d\n  %s => %s\n", __FILE__, __LINE__, __FUNCTION__, #expr); }
     #define ASSERT(expr)
+    #define ASSERTV(expr) (expr) ? 0 : 1
+
     #ifdef _OS_LINUX
         #define LOG(...) printf(__VA_ARGS__); fflush(stdout)
     #else
@@ -63,19 +67,26 @@
 #define PI2     (PI * 2.0f)
 #define DEG2RAD (PI / 180.0f)
 #define RAD2DEG (180.0f / PI)
+
+#define COS30   0.86602540378f
+#define COS45   0.70710678118f
+#define COS60   0.50000000000f
+
 #define SQR(x)  ((x)*(x))
 #define randf() ((float)rand()/RAND_MAX)
 
-typedef signed char     int8;
-typedef signed short    int16;
-typedef signed int      int32;
-typedef unsigned char   uint8;
-typedef unsigned short  uint16;
-typedef unsigned int    uint32;
+typedef signed char        int8;
+typedef signed short       int16;
+typedef signed int         int32;
+typedef signed long long   int64;
+typedef unsigned char      uint8;
+typedef unsigned short     uint16;
+typedef unsigned int       uint32;
+typedef unsigned long long uint64;
 
 #define FOURCC(str)        uint32(((uint8*)(str))[0] | (((uint8*)(str))[1] << 8) | (((uint8*)(str))[2] << 16) | (((uint8*)(str))[3] << 24) )
 
-#define COUNT(arr)         (sizeof(arr) / sizeof(arr[0]))
+#define COUNT(arr)         int(sizeof(arr) / sizeof(arr[0]))
 #define OFFSETOF(T, E)     ((size_t)&(((T*)0)->E))
 #define TEST_BIT(arr, bit) ((arr[bit / 32] >> (bit % 32)) & 1)
 
@@ -178,6 +189,12 @@ int nextPow2(uint32 x) {
     x |= x >> 16;
     x++;
     return x;
+}
+
+inline uint32 log2i(uint32 value) {
+    int res = 0;
+    for(; value; value >>= 1, res++);
+    return res ? res - 1 : res;
 }
 
 uint32 fnv32(const char *data, int32 size, uint32 hash = 0x811c9dc5) {
@@ -466,6 +483,12 @@ struct quat {
 };
 
 struct mat4 {
+
+    enum ProjRange {
+        PROJ_NEG_POS,
+        PROJ_ZERO_POS,
+    };
+
     float e00, e10, e20, e30,
           e01, e11, e21, e31,
           e02, e12, e22, e32,
@@ -494,17 +517,24 @@ struct mat4 {
         e33 = 1.0f;
     }
 
-    mat4(float l, float r, float b, float t, float znear, float zfar) {
+    mat4(ProjRange range, float l, float r, float b, float t, float znear, float zfar) {
         identity();
         e00 = 2.0f / (r - l);
         e11 = 2.0f / (t - b);
         e22 = 2.0f / (znear - zfar);
         e03 = (l + r) / (l - r);
         e13 = (t + b) / (b - t);
-        e23 = znear / (znear - zfar);
+        switch (range) {
+            case PROJ_NEG_POS :
+                e23 = (zfar + znear) / (znear - zfar);
+                break;
+            case PROJ_ZERO_POS :
+                e23 = znear / (znear - zfar);
+                break;
+        }
     }
 
-    mat4(float fov, float aspect, float znear, float zfar) {
+    mat4(ProjRange range, float fov, float aspect, float znear, float zfar) {
         float k = 1.0f / tanf(fov * 0.5f * DEG2RAD);
         identity();
         if (aspect >= 1.0f) {
@@ -514,10 +544,18 @@ struct mat4 {
             e00 = k;
             e11 = k * aspect;
         }
-        e22 = (znear + zfar) / (znear - zfar);
         e33 = 0.0f;
         e32 = -1.0f;
-        e23 = 2.0f * zfar * znear / (znear - zfar);
+        switch (range) {
+            case PROJ_NEG_POS :
+                e22 = (znear + zfar) / (znear - zfar);
+                e23 = 2.0f * zfar * znear / (znear - zfar);
+                break;
+            case PROJ_ZERO_POS :
+                e22 = zfar / (znear - zfar);
+                e23 = znear * e22;
+                break;
+        }
     }
 
     mat4(const vec3 &from, const vec3 &at, const vec3 &up) {
@@ -867,8 +905,9 @@ struct ubyte2 {
     uint8 x, y;
 };
 
-struct ubyte4 {
-    uint8 x, y, z, w;
+union ubyte4 {
+    struct { uint8 x, y, z, w; };
+    uint32 value;
 
     ubyte4() {}
     ubyte4(uint8 x, uint8 y, uint8 z, uint8 w) : x(x), y(y), z(z), w(w) {}
@@ -1150,17 +1189,18 @@ struct Stream;
 extern void osCacheWrite (Stream *stream);
 extern void osCacheRead  (Stream *stream);
 
-extern void osSaveGame   (Stream *stream);
-extern void osLoadGame   (Stream *stream);
+extern void osReadSlot   (Stream *stream);
+extern void osWriteSlot  (Stream *stream);
 
 #ifdef _OS_WEB
 extern void osDownload   (Stream *stream);
 #endif
 
-struct Stream {
-    static char cacheDir[255];
-    static char contentDir[255];
+char cacheDir[255];
+char saveDir[255];
+char contentDir[255];
 
+struct Stream {
     typedef void (Callback)(Stream *stream, void *userData);
     Callback    *callback;
     void        *userData;
@@ -1170,16 +1210,24 @@ struct Stream {
     char        *name;
     int         size, pos;
 
-    enum Endian { eLittle, eBig } endian;
-
-    Stream(const char *name, const void *data, int size) : callback(NULL), userData(NULL), f(NULL), data((char*)data), name(NULL), size(size), pos(0), endian(eLittle) {
+    Stream(const char *name, const void *data, int size, Callback *callback = NULL, void *userData = NULL) : callback(callback), userData(userData), f(NULL), data((char*)data), name(NULL), size(size), pos(0) {
         if (name) {
             this->name = new char[strlen(name) + 1];
             strcpy(this->name, name);
         }
     }
 
-    Stream(const char *name, Callback *callback = NULL, void *userData = NULL) : callback(callback), userData(userData), data(NULL), name(NULL), size(-1), pos(0), endian(eLittle) {
+    Stream(const char *name, Callback *callback = NULL, void *userData = NULL) : callback(callback), userData(userData), f(NULL), data(NULL), name(NULL), size(-1), pos(0) {
+        if (!name && callback) {
+            callback(NULL, userData);
+            delete this;
+            return;
+        }
+
+        if (!name) {
+            ASSERT(false);
+        }
+
         if (contentDir[0] && (!cacheDir[0] || !strstr(name, cacheDir))) {
             char path[255];
             path[0] = 0;
@@ -1207,7 +1255,7 @@ struct Stream {
             #endif
         } else {
             fseek(f, 0, SEEK_END);
-            size = ftell(f);
+            size = (int32)ftell(f);
             fseek(f, 0, SEEK_SET);
 
             if (name) {
@@ -1226,17 +1274,11 @@ struct Stream {
     }
 
     static void cacheRead(const char *name, Callback *callback = NULL, void *userData = NULL) {
-        Stream *stream = new Stream(name, NULL, 0);
-        stream->callback = callback;
-        stream->userData = userData;
-        osCacheRead(stream);
+        osCacheRead(new Stream(name, NULL, 0, callback, userData));
     }
 
     static void cacheWrite(const char *name, const char *data, int size, Callback *callback = NULL, void *userData = NULL) {
-        Stream *stream = new Stream(name, data, size);
-        stream->callback = callback;
-        stream->userData = userData;
-        osCacheWrite(stream);
+        osCacheWrite(new Stream(name, data, size, callback, userData));
     }
 
     static bool exists(const char *name) {
@@ -1250,14 +1292,16 @@ struct Stream {
 
     static bool existsContent(const char *name) {
         char fileName[1024];
-        strcpy(fileName, Stream::contentDir);
+        strcpy(fileName, contentDir);
         strcat(fileName, name);
         return exists(fileName);
     }
 
     void setPos(int pos) {
-        this->pos = pos;
-        if (f) fseek(f, pos, SEEK_SET);
+        if (this->pos != pos) {
+            this->pos = pos;
+            if (f) fseek(f, pos, SEEK_SET);
+        }
     }
 
     void seek(int offset) {
@@ -1266,13 +1310,14 @@ struct Stream {
         pos += offset;
     }
 
-    void raw(void *data, int count) {
-        if (!count) return;
+    int raw(void *data, int count) {
+        if (!count) return 0;
         if (f)
-            fread(data, 1, count, f);
+            count = (int)fread(data, 1, count, f);
         else
             memcpy(data, this->data + pos, count);
         pos += count;
+        return count;
     }
 
     template <typename T>
@@ -1296,20 +1341,50 @@ struct Stream {
             a = NULL;
         return a;
     }
+
+    inline uint8 read() {
+        uint8 x;
+        return read(x);
+    }
+
+    inline uint16 readLE16() {
+        uint16 x;
+        return read(x);
+    }
+
+    inline uint32 readLE32() {
+        uint32 x;
+        return read(x);
+    }
+
+    inline uint16 readBE16() {
+        uint16 x;
+        return swap16(read(x));
+    }
+
+    inline uint32 readBE32() {
+        uint32 x;
+        return swap32(read(x));
+    }
+
+    inline uint64 read64() {
+        uint64 x;
+        return read(x);
+    }
 };
 
 
 #ifdef OS_FILEIO_CACHE
-void osCacheWrite(Stream *stream) {
+void osDataWrite(Stream *stream, const char *dir) {
     char path[255];
-    strcpy(path, Stream::cacheDir);
+    strcpy(path, dir);
     strcat(path, stream->name);
     FILE *f = fopen(path, "wb");
     if (f) {
         fwrite(stream->data, 1, stream->size, f);
         fclose(f);
         if (stream->callback)
-            stream->callback(new Stream(stream->name, NULL, 0), stream->userData);
+            stream->callback(new Stream(stream->name, stream->data, stream->size), stream->userData);
     } else
         if (stream->callback)
             stream->callback(NULL, stream->userData);
@@ -1317,14 +1392,14 @@ void osCacheWrite(Stream *stream) {
     delete stream;
 }
 
-void osCacheRead(Stream *stream) {
+void osDataRead(Stream *stream, const char *dir) {
     char path[255];
-    strcpy(path, Stream::cacheDir);
+    strcpy(path, dir);
     strcat(path, stream->name);
     FILE *f = fopen(path, "rb");
     if (f) {
         fseek(f, 0, SEEK_END);
-        int size = ftell(f);
+        int size = (int)ftell(f);
         fseek(f, 0, SEEK_SET);
         char *data = new char[size];
         fread(data, 1, size, f);
@@ -1338,13 +1413,22 @@ void osCacheRead(Stream *stream) {
     delete stream;
 }
 
-void osSaveGame(Stream *stream) {
-    return osCacheWrite(stream);
+void osCacheWrite(Stream *stream) {
+    osDataWrite(stream, cacheDir);
 }
 
-void osLoadGame(Stream *stream) {
-    return osCacheRead(stream);
+void osCacheRead(Stream *stream) {
+    osDataRead(stream, cacheDir);
 }
+
+void osWriteSlot(Stream *stream) {
+    osDataWrite(stream, saveDir);
+}
+
+void osReadSlot(Stream *stream) {
+    osDataRead(stream, saveDir);
+}
+
 #endif
 
 
@@ -1353,8 +1437,14 @@ void osLoadGame(Stream *stream) {
 
 // multi-threading
 void* osMutexInit() {
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+#if !defined(_OS_WEB) && !defined(_OS_IOS)
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE_NP);
+#endif
+
     pthread_mutex_t *mutex = new pthread_mutex_t();
-    pthread_mutex_init(mutex, NULL);
+    pthread_mutex_init(mutex, &attr);
     return mutex;
 }
 
@@ -1400,15 +1490,62 @@ void osRWUnlockWrite(void *obj) {
 #endif
 
 
+static const uint32 BIT_MASK[] = {
+    0x00000000,
+    0x00000001, 0x00000003, 0x00000007, 0x0000000F,
+    0x0000001F, 0x0000003F, 0x0000007F, 0x000000FF,
+    0x000001FF, 0x000003FF, 0x000007FF, 0x00000FFF,
+    0x00001FFF, 0x00003FFF, 0x00007FFF, 0x0000FFFF,
+    0x0001FFFF, 0x0003FFFF, 0x0007FFFF, 0x000FFFFF,
+    0x001FFFFF, 0x003FFFFF, 0x007FFFFF, 0x00FFFFFF,
+    0x01FFFFFF, 0x03FFFFFF, 0x07FFFFFF, 0x0FFFFFFF,
+    0x1FFFFFFF, 0x3FFFFFFF, 0x7FFFFFFF, 0xFFFFFFFF,
+};
+
+// TODO: refactor for LE, BE, byte and word reading
 struct BitStream {
-    uint8 *data;
-    uint8 *end;
-    uint8 index;
-    uint8 value;
+    uint8  *data;
+    uint8  *end;
+    uint16 index;
+    uint16 value;
 
     BitStream(uint8 *data, int size) : data(data), end(data + size), index(0), value(0) {}
 
-    uint8 readBits(int count) {
+    inline uint32 readBit() {
+       uint32 bit;
+
+       if (!index--) {
+          value = *data++;
+          index = 7;
+       }
+
+       bit = value & 1;
+       value >>= 1;
+
+       return bit;
+    }
+
+    uint32 read(int count) {
+        uint32 bits = 0, mask = 1;
+
+        if (index == 0) {
+            if (count > 7) {
+                count -= 8;
+                mask <<= 8;
+                bits = *data++;
+            }
+        }
+
+        while (count--) {
+            if (readBit())
+                bits += mask;
+            mask <<= 1;
+        }
+
+        return bits;
+    }
+
+    uint8 readBE(int count) {
         uint32 bits = 0;
 
         while (count--) {
@@ -1430,13 +1567,60 @@ struct BitStream {
         return bits;
     }
 
-    uint8 readBit() {
-        return readBits(1);
+    uint8 readBitBE() {
+        return readBE(1);
     }
 
     uint8 readByte() {
         ASSERT(data < end);
         return *data++;
+    }
+
+    uint32 readWord(bool littleEndian) {
+        uint8 a, b;
+        if (littleEndian) {
+            a = data[0];
+            b = data[1];
+        } else {
+            b = data[0];
+            a = data[1];
+        }
+        data += 2;
+        return a + (b << 8);
+    }
+
+    uint32 readU(int count) {
+        if (!index) {
+            value = readWord(true);
+            index = 16;
+        }
+
+        uint32 bits;
+        if (count <= index) {
+            bits = (value >> (index - count)) & BIT_MASK[count];
+            index -= count;
+        } else {
+            bits = value & BIT_MASK[index];
+            count -= index;
+            index = 0;
+
+            while (count >= 16) {
+                bits = (bits << 16) | readWord(true);
+                count -= 16;
+            }
+
+            if (count > 0) {
+                value = readWord(true);
+                index = 16 - count;
+                bits = (bits << count) | (value >> index);
+            }
+        }
+
+        return bits;
+    }
+
+    void skip(int count) {
+        readU(count);
     }
 };
 
@@ -1453,5 +1637,77 @@ namespace String {
     }
 
 }
+
+template <typename T>
+struct Array {
+    int capacity;
+    int length;
+    T   *items;
+
+    Array(int capacity = 32) : capacity(capacity), length(0), items(NULL) {}
+
+    ~Array() { 
+        clear();
+    }
+
+    void reserve(int capacity) {
+        this->capacity = capacity;
+        if (items)
+            items = (T*)realloc(items, capacity * sizeof(T));
+        else
+            items = (T*)malloc(capacity * sizeof(T));
+    }
+
+    int push(const T &item) {
+        if (!items)
+            items = (T*)malloc(capacity * sizeof(T));
+
+        if (length == capacity)
+            reserve(capacity + capacity / 2);
+
+        items[length] = item;
+        return length++;
+    }
+
+    int pop() {
+        ASSERT(length > 0);
+        return --length;
+    }
+
+    void removeFast(int index) {
+        (*this)[index] = (*this)[--length];
+    }
+
+    void remove(int index) {
+        length--;
+        ASSERT(length >= 0);
+        for (int i = index; i < length; i++)
+            items[i] = items[i + 1];
+    }
+
+    void resize(int length) {
+        if (capacity < length)
+            reserve(length);
+        this->length = length;
+    }
+
+    void clear() {
+        length = 0;
+        free(items);
+        items = NULL;
+    }
+
+    void sort() {
+        ::sort(items, length);
+    }
+
+    T& operator[] (int index) {
+        ASSERT(index >= 0 && index < length);
+        return items[index]; 
+    };
+
+    operator T*() const { return items; };
+};
+
 
 #endif

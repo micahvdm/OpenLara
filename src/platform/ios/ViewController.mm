@@ -16,8 +16,13 @@
 
 #include <mach/mach_time.h>
 
-char Stream::cacheDir[255];
-char Stream::contentDir[255];
+bool osJoyReady(int index) {
+    return false;
+}
+
+void osJoyVibrate(int index, float L, float R) {
+    // TODO
+}
 
 int osGetTime() {
     const int64_t kOneMillion = 1000 * 1000;
@@ -104,16 +109,13 @@ void soundInit() {
 	[EAGLContext setCurrentContext:self.context];
 	
 
-    Stream::contentDir[0] = Stream::cacheDir[0] = 0;
+    cacheDir[0] = saveDir[0] = contentDir[0] = 0;
 
     NSString *path = [[NSBundle mainBundle] resourcePath];
-    strcat(Stream::contentDir, [path UTF8String]);
-    strcat(Stream::contentDir, "/");
+    strcat(contentDir, [path UTF8String]);
+    strcat(contentDir, "/");
 
-    Stream *lvl = new Stream("LEVEL2.PSX");
-    Stream *snd = new Stream("05.ogg");
-
-    Game::init(lvl, snd);
+    Game::init();
 
     soundInit();
     Input::reset();
@@ -133,7 +135,7 @@ void soundInit() {
 
 - (void)glkView:(GLKView *)view drawInRect:(CGRect)rect {
     [((GLKView *) self.view) bindDrawable];
-    glGetIntegerv(GL_FRAMEBUFFER_BINDING, (GLint*)&Core::defaultFBO);
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, (GLint*)&GAPI::defaultFBO);
 
 	float scale  = [[UIScreen mainScreen] scale];
     Core::width  = self.view.bounds.size.width * scale;
@@ -152,7 +154,7 @@ void soundInit() {
             continue;
 
         CGPoint   pos = [touch locationInView:self.view];
-        NSUInteger id = int(touch);
+        NSUInteger id = (uintptr_t)touch;
 
         InputKey key = Input::getTouch(id);
         if (key == ikNone) return;
