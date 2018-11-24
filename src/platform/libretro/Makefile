@@ -4,6 +4,8 @@ ifeq ($(platform),)
 		platform = win
 	else ifneq ($(findstring MINGW,$(shell uname -a)),)
 		platform = win
+	else ifneq ($(findstring MSYS,$(shell uname -a)),)
+		platform = win
 	else ifneq ($(findstring Darwin,$(shell uname -a)),)
 		platform = osx
 		arch = intel
@@ -150,6 +152,14 @@ ifeq ($(DEBUG), 1)
 else
    CXXFLAGS += -O3
    CFLAGS += -O3
+endif
+
+ifeq ($(_DEBUG), 1)
+   CXXFLAGS += -D_DEBUG
+   ifeq ($(platform),win)
+      LIBS += -lgdi32
+   endif
+   # TODO: Other platforms?
 endif
 
 ifneq (,$(findstring qnx,$(platform)))
