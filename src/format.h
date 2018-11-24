@@ -151,10 +151,10 @@
     E( KEY_ITEM_2            ) \
     E( KEY_ITEM_3            ) \
     E( KEY_ITEM_4            ) \
-    E( INV_KEY_1             ) \
-    E( INV_KEY_2             ) \
-    E( INV_KEY_3             ) \
-    E( INV_KEY_4             ) \
+    E( INV_KEY_ITEM_1        ) \
+    E( INV_KEY_ITEM_2        ) \
+    E( INV_KEY_ITEM_3        ) \
+    E( INV_KEY_ITEM_4        ) \
     E( KEY_HOLE_1            ) \
     E( KEY_HOLE_2            ) \
     E( KEY_HOLE_3            ) \
@@ -407,10 +407,10 @@
     E( _KEY_ITEM_2           ) \
     E( _KEY_ITEM_3           ) \
     E( _KEY_ITEM_4           ) \
-    E( _INV_KEY_1            ) \
-    E( _INV_KEY_2            ) \
-    E( _INV_KEY_3            ) \
-    E( _INV_KEY_4            ) \
+    E( _INV_KEY_ITEM_1       ) \
+    E( _INV_KEY_ITEM_2       ) \
+    E( _INV_KEY_ITEM_3       ) \
+    E( _INV_KEY_ITEM_4       ) \
     E( _KEY_HOLE_1           ) \
     E( _KEY_HOLE_2           ) \
     E( _KEY_HOLE_3           ) \
@@ -704,10 +704,10 @@
     E( __KEY_ITEM_2          ) \
     E( __KEY_ITEM_3          ) \
     E( __KEY_ITEM_4          ) \
-    E( __INV_KEY_1           ) \
-    E( __INV_KEY_2           ) \
-    E( __INV_KEY_3           ) \
-    E( __INV_KEY_4           ) \
+    E( __INV_KEY_ITEM_1      ) \
+    E( __INV_KEY_ITEM_2      ) \
+    E( __INV_KEY_ITEM_3      ) \
+    E( __INV_KEY_ITEM_4      ) \
     E( __KEY_HOLE_1          ) \
     E( __KEY_HOLE_2          ) \
     E( __KEY_HOLE_3          ) \
@@ -860,6 +860,7 @@ namespace TR {
         NO_FLOOR = -127,
         NO_ROOM  = 0xFF,
         NO_BOX   = 0xFFFF,
+        NO_WATER = 0x7FFFFFFF,
         ACTIVE   = 0x1F,
     };
 
@@ -894,7 +895,6 @@ namespace TR {
             DRAW_LEFTGUN   ,
             SHOT_RIGHTGUN  ,
             SHOT_LEFTGUN   ,
-            FLICKER        = 16,
             UNKNOWN        ,
             MESH_SWAP_1    ,
             MESH_SWAP_2    ,
@@ -903,7 +903,16 @@ namespace TR {
             INV_OFF        ,
             DYN_ON         ,
             DYN_OFF        ,
-            FOOTPRINT      = 32,
+            STATUE_FX      ,
+            RESET_HAIR     ,
+            BOILER_FX      ,
+            ASSAULT_RESET  ,
+            ASSAULT_STOP   ,
+            ASSAULT_START  ,
+            ASSAULT_FINISH ,
+            FOOTPRINT      ,
+        // specific
+            TR1_FLICKER    = 16,
         };
     };
 
@@ -1325,7 +1334,8 @@ namespace TR {
         uint8   waterScheme;
         uint8   filter;
         uint8   align;
-        int32   waterLevel;
+        int32   waterLevel[2]; // water level for normal and flipped level state
+        int32   waterLevelSurface;
 
         struct DynLight {
             int32 id;
@@ -1382,6 +1392,12 @@ namespace TR {
         }
 
         Sector* getSector(int sx, int sz) {
+            if (sz <= 0 || sz >= zSectors - 1) {
+                sz = clamp(sz, 0, zSectors - 1);
+                sx = clamp(sx, 1, xSectors - 2);
+            } else
+                sx = clamp(sx, 0, xSectors - 1);
+
             ASSERT(sx >= 0 && sx < xSectors && sz >= 0 && sz < zSectors);
             return sectors + sx * zSectors + sz;
         }
@@ -1609,10 +1625,10 @@ namespace TR {
                 REMAP_2( KEY_ITEM_2           );
                 REMAP_2( KEY_ITEM_3           );
                 REMAP_2( KEY_ITEM_4           );
-                REMAP_2( INV_KEY_1            );
-                REMAP_2( INV_KEY_2            );
-                REMAP_2( INV_KEY_3            );
-                REMAP_2( INV_KEY_4            );
+                REMAP_2( INV_KEY_ITEM_1       );
+                REMAP_2( INV_KEY_ITEM_2       );
+                REMAP_2( INV_KEY_ITEM_3       );
+                REMAP_2( INV_KEY_ITEM_4       );
                 REMAP_2( KEY_HOLE_1           );
                 REMAP_2( KEY_HOLE_2           );
                 REMAP_2( KEY_HOLE_3           );
@@ -1748,10 +1764,10 @@ namespace TR {
                 REMAP_3( KEY_ITEM_2           );
                 REMAP_3( KEY_ITEM_3           );
                 REMAP_3( KEY_ITEM_4           );
-                REMAP_3( INV_KEY_1            );
-                REMAP_3( INV_KEY_2            );
-                REMAP_3( INV_KEY_3            );
-                REMAP_3( INV_KEY_4            );
+                REMAP_3( INV_KEY_ITEM_1       );
+                REMAP_3( INV_KEY_ITEM_2       );
+                REMAP_3( INV_KEY_ITEM_3       );
+                REMAP_3( INV_KEY_ITEM_4       );
                 REMAP_3( KEY_HOLE_1           );
                 REMAP_3( KEY_HOLE_2           );
                 REMAP_3( KEY_HOLE_3           );
@@ -1858,10 +1874,10 @@ namespace TR {
                 || type == INV_PUZZLE_2
                 || type == INV_PUZZLE_3
                 || type == INV_PUZZLE_4
-                || type == INV_KEY_1
-                || type == INV_KEY_2
-                || type == INV_KEY_3
-                || type == INV_KEY_4
+                || type == INV_KEY_ITEM_1
+                || type == INV_KEY_ITEM_2
+                || type == INV_KEY_ITEM_3
+                || type == INV_KEY_ITEM_4
                 || type == INV_LEADBAR
                 || type == INV_SCION;
         }
@@ -1930,10 +1946,10 @@ namespace TR {
                 case PUZZLE_3      : return INV_PUZZLE_3;
                 case PUZZLE_4      : return INV_PUZZLE_4;
 
-                case KEY_ITEM_1    : return INV_KEY_1;
-                case KEY_ITEM_2    : return INV_KEY_2;
-                case KEY_ITEM_3    : return INV_KEY_3;
-                case KEY_ITEM_4    : return INV_KEY_4;
+                case KEY_ITEM_1    : return INV_KEY_ITEM_1;
+                case KEY_ITEM_2    : return INV_KEY_ITEM_2;
+                case KEY_ITEM_3    : return INV_KEY_ITEM_3;
+                case KEY_ITEM_4    : return INV_KEY_ITEM_4;
 
                 case LEADBAR       : return INV_LEADBAR;
                 case SCION_PICKUP_QUALOPEC :
@@ -1963,10 +1979,10 @@ namespace TR {
                 case INV_PUZZLE_3      : return PUZZLE_3;
                 case INV_PUZZLE_4      : return PUZZLE_4;
 
-                case INV_KEY_1         : return KEY_ITEM_1;
-                case INV_KEY_2         : return KEY_ITEM_2;
-                case INV_KEY_3         : return KEY_ITEM_3;
-                case INV_KEY_4         : return KEY_ITEM_4;
+                case INV_KEY_ITEM_1    : return KEY_ITEM_1;
+                case INV_KEY_ITEM_2    : return KEY_ITEM_2;
+                case INV_KEY_ITEM_3    : return KEY_ITEM_3;
+                case INV_KEY_ITEM_4    : return KEY_ITEM_4;
 
                 case INV_LEADBAR       : return LEADBAR;
                 case INV_SCION         : return SCION_PICKUP_DROP;
@@ -2383,8 +2399,8 @@ namespace TR {
             int floorIndex;
             int boxIndex;
             int lava;
-            int trigCmdCount;
             int climb;
+            int trigCmdCount;
             Trigger::Type trigger;
             FloorData::TriggerInfo trigInfo;
             FloorData::TriggerCommand trigCmd[MAX_TRIGGER_COMMANDS];
@@ -3732,7 +3748,7 @@ namespace TR {
                 e.type = Entity::remap(version, e.type);
 
                 e.controller = NULL;
-                e.modelIndex = getModelIndex(e.type);
+                e.modelIndex = 0;
 
             // turn off interpolation for some entities
                 e.flags.smooth = !((id == LVL_TR2_CUT_1 && (e.type == Entity::CUT_6 || e.type == Entity::CUT_8 || e.type == Entity::CUT_9))
@@ -3886,10 +3902,10 @@ namespace TR {
                     case Entity::INV_PUZZLE_3        : extra.inv.puzzle[2]   = i; break;
                     case Entity::INV_PUZZLE_4        : extra.inv.puzzle[3]   = i; break;
 
-                    case Entity::INV_KEY_1           : extra.inv.key[0]      = i; break;
-                    case Entity::INV_KEY_2           : extra.inv.key[1]      = i; break;
-                    case Entity::INV_KEY_3           : extra.inv.key[2]      = i; break;
-                    case Entity::INV_KEY_4           : extra.inv.key[3]      = i; break;
+                    case Entity::INV_KEY_ITEM_1      : extra.inv.key[0]      = i; break;
+                    case Entity::INV_KEY_ITEM_2      : extra.inv.key[1]      = i; break;
+                    case Entity::INV_KEY_ITEM_3      : extra.inv.key[2]      = i; break;
+                    case Entity::INV_KEY_ITEM_4      : extra.inv.key[3]      = i; break;
                                                                          
                     case Entity::INV_LEADBAR         : extra.inv.leadbar     = i; break;
                     case Entity::INV_SCION           : extra.inv.scion       = i; break;
@@ -3939,6 +3955,67 @@ namespace TR {
                 }
             }
         }
+
+    void initModelIndices(bool simpleItems) {
+        #define OVERRIDE(TYPE) { TR::Entity::TYPE, TR::Entity::INV_##TYPE }
+
+        struct {
+            TR::Entity::Type src, dst;
+        } overrides[] = {
+        // weapon
+            OVERRIDE(PISTOLS),
+            OVERRIDE(SHOTGUN),
+            OVERRIDE(MAGNUMS),
+            OVERRIDE(UZIS),
+            OVERRIDE(AUTOPISTOLS),
+            OVERRIDE(HARPOON),
+            OVERRIDE(M16),
+            OVERRIDE(GRENADE),
+        // ammo
+            OVERRIDE(AMMO_PISTOLS),
+            OVERRIDE(AMMO_SHOTGUN),
+            OVERRIDE(AMMO_MAGNUMS),
+            OVERRIDE(AMMO_UZIS),
+            OVERRIDE(AMMO_AUTOPISTOLS),
+            OVERRIDE(AMMO_HARPOON),
+            OVERRIDE(AMMO_M16),
+            OVERRIDE(AMMO_GRENADE),
+        // items
+            OVERRIDE(MEDIKIT_BIG),
+            OVERRIDE(MEDIKIT_SMALL),
+            OVERRIDE(FLARES),
+        // key items
+            OVERRIDE(KEY_ITEM_1),
+            OVERRIDE(KEY_ITEM_2),
+            OVERRIDE(KEY_ITEM_3),
+            OVERRIDE(KEY_ITEM_4),
+        // puzzle items
+            OVERRIDE(PUZZLE_1),
+            OVERRIDE(PUZZLE_2),
+            OVERRIDE(PUZZLE_3),
+            OVERRIDE(PUZZLE_4),
+        // other items
+            OVERRIDE(LEADBAR),
+            OVERRIDE(QUEST_ITEM_1),
+            OVERRIDE(QUEST_ITEM_2),
+            { TR::Entity::SCION_PICKUP_QUALOPEC, TR::Entity::INV_SCION },
+            { TR::Entity::SCION_PICKUP_DROP,     TR::Entity::INV_SCION },
+        };
+
+        for (int i = 0; i < entitiesCount; i++) {
+            TR::Entity &e = entities[i];
+            e.modelIndex = getModelIndex(e.type);
+            if (!simpleItems) {
+                for (int j = 0; j < COUNT(overrides); j++)
+                    if (e.type == overrides[j].src) {
+                        e.modelIndex = getModelIndex(overrides[j].dst);
+                        break;
+                    }
+            }
+        }
+
+        #undef OVERRIDE
+    }
 
         LevelID getTitleId() const {
             return TR::getTitleId(version);
@@ -4099,6 +4176,7 @@ namespace TR {
                         f.flags.doubleSided = false;
                         f.triangle    = true;
                         f.colored     = false;
+                        f.water       = false;
                         f.flip        = false;
                         f.vertices[0] = vStart + t.i0;
                         f.vertices[1] = vStart + t.i1;
@@ -4134,6 +4212,7 @@ namespace TR {
                         f.flags.doubleSided = false;
                         f.triangle    = false;
                         f.colored     = false;
+                        f.water       = false;
                         f.flip        = false;
                         f.vertices[0] = vStart + r.i0;
                         f.vertices[1] = vStart + r.i1;
@@ -4807,6 +4886,7 @@ namespace TR {
                         f.flags.texture     = (info & 0xFF) | (r.tex << 8);
                         f.triangle = true;
                         f.colored  = false;
+                        f.water    = false;
                         f.flip     = false;
 
                         f.vertices[0] = r.i0;
@@ -4827,6 +4907,7 @@ namespace TR {
                         f.flags.texture     = info & 0xFFFF;
                         f.triangle = false;
                         f.colored  = false;
+                        f.water    = false;
                         f.flip     = false;
 
                         struct {
@@ -5502,13 +5583,6 @@ namespace TR {
 
                 int sx = (x - room.info.x) / 1024;
                 int sz = (z - room.info.z) / 1024;
-
-                if (sz <= 0 || sz >= room.zSectors - 1) {
-                    sz = clamp(sz, 0, room.zSectors - 1);
-                    sx = clamp(sx, 1, room.xSectors - 2);
-                } else
-                    sx = clamp(sx, 0, room.xSectors - 1);
-
                 sector = room.getSector(sx, sz);
 
                 int nextRoom = getNextRoom(sector);

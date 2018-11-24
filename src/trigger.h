@@ -234,29 +234,26 @@ struct MuzzleFlash : Controller {
     }
 
     virtual void update() {
+        timer += Core::deltaTime;
         if (timer < MUZZLE_FLASH_TIME) {
-            timer += Core::deltaTime;
+            float intensity = clamp((MUZZLE_FLASH_TIME - timer) * 20.0f, EPS, 1.0f);
 
-            if (timer < MUZZLE_FLASH_TIME) {
-                float intensity = clamp((MUZZLE_FLASH_TIME - timer) * 20.0f, EPS, 1.0f);
-
-                vec4 lightPos   = vec4(owner->getJoint(joint).pos, 0);
-                vec4 lightColor = FLASH_LIGHT_COLOR * vec4(intensity, intensity, intensity, 1.0f / sqrtf(intensity));
-                if (lightIndex > -1) {
-                    ASSERT(lightIndex + 1 < MAX_LIGHTS);
-                    Core::lightPos[lightIndex]   = lightPos;
-                    Core::lightColor[lightIndex] = lightColor;
-                } else
-                    getRoom().addDynLight(owner->entity, lightPos, lightColor, true);
-            } else {
-                if (lightIndex > -1) {
-                    ASSERT(lightIndex < MAX_LIGHTS);
-                    Core::lightPos[lightIndex]   = vec4(0);
-                    Core::lightColor[lightIndex] = vec4(0, 0, 0, 1);
-                } else
-                    getRoom().removeDynLight(owner->entity);
-                game->removeEntity(this);
-            }
+            vec4 lightPos   = vec4(owner->getJoint(joint).pos, 0);
+            vec4 lightColor = FLASH_LIGHT_COLOR * vec4(intensity, intensity, intensity, 1.0f / sqrtf(intensity));
+            if (lightIndex > -1) {
+                ASSERT(lightIndex + 1 < MAX_LIGHTS);
+                Core::lightPos[lightIndex]   = lightPos;
+                Core::lightColor[lightIndex] = lightColor;
+            } else
+                getRoom().addDynLight(owner->entity, lightPos, lightColor, true);
+        } else {
+            if (lightIndex > -1) {
+                ASSERT(lightIndex < MAX_LIGHTS);
+                Core::lightPos[lightIndex]   = vec4(0);
+                Core::lightColor[lightIndex] = vec4(0, 0, 0, 1);
+            } else
+                getRoom().removeDynLight(owner->entity);
+            game->removeEntity(this);
         }
     }
 
@@ -1534,7 +1531,10 @@ struct Bubble : Sprite {
             h = s.ceiling * 256;
             room = s.roomAbove;
         }
-        time -= (pos.y - h) / speed - (1.0f / SPRITE_FPS);
+        if (pos.y < h)
+            time = 1.0f / SPRITE_FPS;
+        else
+            time -= (pos.y - h) / speed - (1.0f / SPRITE_FPS);
         activate();
     }
 
@@ -1566,6 +1566,15 @@ struct Explosion : Sprite {
 
     virtual bool getSaveData(SaveEntity &data) {
         return false;
+    }
+};
+
+
+struct BreakableWindow : Controller {
+
+    BreakableWindow(IGame *game, int entity) : Controller(game, entity) {
+        initMeshOverrides();
+        layers[0].mask = 0x00000001;
     }
 };
 
