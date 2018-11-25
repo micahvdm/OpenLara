@@ -141,8 +141,8 @@ void osJoyVibrate(int index, float L, float R)
 {
    if(set_rumble_cb)
    {
-      uint16_t left  = int(0xffffff * max(1.0f, L));
-      uint16_t right = int(0xffffff * max(1.0f, R));
+      uint16_t left  = int(0xffff * max(0.0f, min(L, 1.0f)));
+      uint16_t right = int(0xffff * max(0.0f, min(R, 1.0f)));
       set_rumble_cb(index, RETRO_RUMBLE_STRONG, left);
       set_rumble_cb(index, RETRO_RUMBLE_WEAK, right);
    }
