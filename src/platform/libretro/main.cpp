@@ -301,14 +301,26 @@ static void update_variables(bool first_startup)
    }
 }
 
-static float DeadZone(float x)
+static vec2 DeadZone(const int x, const int y)
 {
-   return x = fabsf(x) < 0.2f ? 0.0f : x;
+   const float max = 0x8000;     // abs( max value reported by libretro for analog sticks )
+   const float deadzone = 0.25f; // TODO: Depends on pad and personal taste. Should probably be a core option.
+   float xa = (x / max);
+   float ya = (y / max);
+
+   vec2 input(xa,ya);
+
+   if(input.length() < deadzone)
+   {
+      input.x = 0;
+      input.y = 0;
+   }
+
+   return input;
 }
 
 void retro_run(void)
 {
-   unsigned i;
    bool updated = false;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
       update_variables(false);
@@ -316,17 +328,13 @@ void retro_run(void)
    input_poll_cb();
 
    /* Player 1+2 */
-   for (i = 0; i < 2; i++)
+   for (size_t i = 0; i < 2; i++)
    {
-#if 0
+      /* Analog */
       int lsx = input_state_cb(i, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X);
       int lsy = input_state_cb(i, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y);
-      int rsx = input_state_cb(i, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X);
-      int rsy = input_state_cb(i, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y);
 
-      Input::setJoyPos(i, jkL, vec2(DeadZone(lsx), DeadZone(lsy)));
-      Input::setJoyPos(i, jkR, vec2(DeadZone(rsx), DeadZone(rsy)));
-#endif
+      Input::setJoyPos(i, jkL, DeadZone(lsx, lsy));
 
       /* Up */
       if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP))
