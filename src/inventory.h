@@ -126,6 +126,7 @@ static const OptionItem optDetail[] = {
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_LIGHTING, SETTINGS( detail.lighting ), STR_QUALITY_LOW, 0, 2 ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_SHADOWS,  SETTINGS( detail.shadows  ), STR_QUALITY_LOW, 0, 2 ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_WATER,    SETTINGS( detail.water    ), STR_QUALITY_LOW, 0, 2 ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_SIMPLE_ITEMS,    SETTINGS( detail.simple   ), STR_OFF, 0, 1 ),
 #if defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_PSP) || defined(_OS_RPI)
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_VSYNC,    SETTINGS( detail.vsync    ), STR_OFF, 0, 1 ),
 #endif
@@ -177,7 +178,6 @@ static const OptionItem optControls[] = {
     OptionItem( OptionItem::TYPE_KEY,    STR_CTRL_FIRST + cRoll      , SETTINGS( controls[0].keys[ cRoll      ] ), STR_KEY_FIRST ),
     OptionItem( OptionItem::TYPE_KEY,    STR_CTRL_FIRST + cInventory , SETTINGS( controls[0].keys[ cInventory ] ), STR_KEY_FIRST ),
     OptionItem( OptionItem::TYPE_KEY,    STR_CTRL_FIRST + cStart     , SETTINGS( controls[0].keys[ cStart     ] ), STR_KEY_FIRST ),
-
 };
 
 static OptionItem optControlsPlayer[COUNT(optControls)];
@@ -225,6 +225,7 @@ struct Inventory {
         Animation           *anim;
 
         int                 value;
+        vec4                params;
 
         Array<OptionItem>   optLoadSlots;
 
@@ -239,7 +240,7 @@ struct Inventory {
 
         Item() : anim(NULL) {}
 
-        Item(TR::Level *level, TR::Entity::Type type, int count = 1) : type(type), count(count), angle(0.0f), value(0) {
+        Item(TR::Level *level, TR::Entity::Type type, int count = 1) : type(type), count(count), angle(0.0f), value(0), params(0.0f) {
             switch (type) {
                 case TR::Entity::INV_PASSPORT        : desc = Desc( STR_GAME,            PAGE_OPTION,    level->extra.inv.passport        ); break;
                 case TR::Entity::INV_PASSPORT_CLOSED : desc = Desc( STR_GAME,            PAGE_OPTION,    level->extra.inv.passport_closed ); break;
@@ -271,10 +272,10 @@ struct Inventory {
                 case TR::Entity::INV_PUZZLE_3        : desc = Desc( STR_PUZZLE,          PAGE_ITEMS,     level->extra.inv.puzzle[2]       ); break;
                 case TR::Entity::INV_PUZZLE_4        : desc = Desc( STR_PUZZLE,          PAGE_ITEMS,     level->extra.inv.puzzle[3]       ); break;
                                                                                                    
-                case TR::Entity::INV_KEY_1           : desc = Desc( STR_KEY,             PAGE_ITEMS,     level->extra.inv.key[0]          ); break;
-                case TR::Entity::INV_KEY_2           : desc = Desc( STR_KEY,             PAGE_ITEMS,     level->extra.inv.key[1]          ); break;
-                case TR::Entity::INV_KEY_3           : desc = Desc( STR_KEY,             PAGE_ITEMS,     level->extra.inv.key[2]          ); break;
-                case TR::Entity::INV_KEY_4           : desc = Desc( STR_KEY,             PAGE_ITEMS,     level->extra.inv.key[3]          ); break;
+                case TR::Entity::INV_KEY_ITEM_1      : desc = Desc( STR_KEY,             PAGE_ITEMS,     level->extra.inv.key[0]          ); break;
+                case TR::Entity::INV_KEY_ITEM_2      : desc = Desc( STR_KEY,             PAGE_ITEMS,     level->extra.inv.key[1]          ); break;
+                case TR::Entity::INV_KEY_ITEM_3      : desc = Desc( STR_KEY,             PAGE_ITEMS,     level->extra.inv.key[2]          ); break;
+                case TR::Entity::INV_KEY_ITEM_4      : desc = Desc( STR_KEY,             PAGE_ITEMS,     level->extra.inv.key[3]          ); break;
                                                                                                    
                 case TR::Entity::INV_LEADBAR         : desc = Desc( STR_LEAD_BAR,        PAGE_ITEMS,     level->extra.inv.leadbar         ); break;
                 case TR::Entity::INV_SCION           : desc = Desc( STR_SCION,           PAGE_ITEMS,     level->extra.inv.scion           ); break;
@@ -475,19 +476,38 @@ struct Inventory {
             return NULL;
         }
 
-        void update() {
+        void update(bool chosen, float phaseChoose) {
             if (!anim) return;
             anim->update();
 
-            if (type == TR::Entity::INV_PASSPORT) {
+            if (type == TR::Entity::INV_PASSPORT && chosen) {
                 float t = (14 + value * 5) / 30.0f;
-                
+
                 if ( (anim->dir > 0.0f && anim->time > t) ||
                      (anim->dir < 0.0f && anim->time < t)) {
                     anim->dir = 0.0f;
                     anim->time = t;
                     anim->updateInfo();
                 } 
+            }
+ 
+            if (type == TR::Entity::INV_COMPASS) {
+                params.z = params.z + (params.y - params.x) * Core::deltaTime * 8.0f; // acceleration
+                params.z -= params.z * Core::deltaTime; // damping
+                params.x += params.z * Core::deltaTime; // apply speed
+                if (chosen && anim->dir > 0.0f) {
+                    if (phaseChoose >= 1.0f) {
+                        float t = 7.0f / 30.0f;
+                        if (anim->time > t) {
+                            anim->dir = 0.0f;
+                            anim->time = t;
+                            anim->updateInfo();
+                        }
+                    } else {
+                        anim->time = 0.0f;
+                        anim->updateInfo();
+                    }
+                }
             }
         }
 
@@ -506,6 +526,10 @@ struct Inventory {
             matrix.setPos(basis.pos);
 
             anim->getJoints(matrix, -1, true, joints);
+
+            if (m.type == TR::Entity::INV_COMPASS) { // override needle animation
+                joints[1].rotate(quat(vec3(0.0f, 1.0f, 0.0f), -params.x));
+            }
 
             Core::setBasis(joints, m.mCount);
 
@@ -615,12 +639,19 @@ struct Inventory {
             if (!TR::isEmptyLevel(level->id)) {
                 add(TR::Entity::INV_PISTOLS, UNLIMITED_AMMO);
             }
+
+            if (level->id == TR::LVL_TR2_HOUSE) {
+                add(TR::Entity::INV_KEY_ITEM_1);
+                add(TR::Entity::INV_PUZZLE_1);
+            }
         #ifdef _DEBUG
             addWeapons();
-            add(TR::Entity::INV_KEY_1, 3);
-            add(TR::Entity::INV_KEY_2, 3);
-            add(TR::Entity::INV_KEY_3, 3);
-            add(TR::Entity::INV_KEY_4, 3);
+            add(TR::Entity::MEDIKIT_BIG);
+            add(TR::Entity::MEDIKIT_SMALL, 2);
+            add(TR::Entity::INV_KEY_ITEM_1, 3);
+            add(TR::Entity::INV_KEY_ITEM_2, 3);
+            add(TR::Entity::INV_KEY_ITEM_3, 3);
+            add(TR::Entity::INV_KEY_ITEM_4, 3);
 
             add(TR::Entity::INV_PUZZLE_1, 3);
             add(TR::Entity::INV_PUZZLE_2, 3);
@@ -654,6 +685,7 @@ struct Inventory {
     }
 
     void startVideo() {
+        applySounds(true);
         new Stream(playVideo ? TR::getGameVideo(game->getLevel()->id) : NULL, loadVideo, this);
     }
 
@@ -797,6 +829,16 @@ struct Inventory {
         return false;
     }
 
+    void applySounds(bool pause) {
+        for (int i = 0; i < Sound::channelsCount; i++)
+            if (Sound::channels[i]->flags & Sound::PAN) {
+                if (pause)
+                    Sound::channels[i]->pause();
+                else
+                    Sound::channels[i]->resume();
+            }
+    }
+
     void toggle(int playerIndex = 0, Page curPage = PAGE_INVENTORY, TR::Entity::Type type = TR::Entity::NONE) {
         if (titleTimer != 0.0f || (isActive() != active))
             return;
@@ -809,6 +851,8 @@ struct Inventory {
         if (phaseRing == 0.0f || phaseRing == 1.0f) {
             active = !active;
             vec3 p;
+
+            applySounds(active);
 
             if (curPage == PAGE_SAVEGAME) {
                 phaseRing = active ? 1.0f : 0.0f;
@@ -913,6 +957,11 @@ struct Inventory {
                 game->playSound(TR::SND_INV_PAGE);
                 item->value = 1;
                 item->initLoadSlots(level);
+                break;
+            }
+            case TR::Entity::INV_COMPASS : {
+                float angle = normalizeAngle(game->getLara(playerIndex)->angle.y);
+                item->params = vec4(angle + (randf() - 0.5f) * PI * 2.0f, angle, 0.0f, 0.0f); // initial angle, target angle, initial speed, unused
                 break;
             }
             case TR::Entity::INV_CONTROLS :
@@ -1041,6 +1090,7 @@ struct Inventory {
             toggle(0, Inventory::PAGE_OPTION);
         }
         Input::reset();
+        applySounds(false);
     }
 
     void update() {
@@ -1191,7 +1241,6 @@ struct Inventory {
                     if (phaseChoose == 1.0f) {
                         chosen  = false;
                         item->anim->dir = 1.0f;
-                        item->value     = 1000;
                         item->angle     = 0.0f;
                     }
                 } else
@@ -1211,7 +1260,7 @@ struct Inventory {
         int itemIndex = index == targetIndex ? getGlobalIndex(page, index) : -1;
 
         for (int i = 0; i < itemsCount; i++) {
-            items[i]->update();
+            items[i]->update(chosen && itemIndex == i, phaseChoose);
             float &angle = items[i]->angle;
 
             if (itemIndex != i || chosen) {
@@ -1428,6 +1477,23 @@ struct Inventory {
 
         renderItemCount(item, vec2(UI::width / 2 - 160 - eye, 480 - 96), 320);
 
+    // show health bar in inventory when selector is over medikit
+        if (item->type == TR::Entity::INV_MEDIKIT_BIG || item->type == TR::Entity::INV_MEDIKIT_SMALL) {
+            Character *lara = (Character*)game->getLara(playerIndex);
+            if (lara) {
+                float health = lara->health / 1000.0f; // LARA_MAX_HEALTH
+
+                vec2 size = vec2(180, 10);
+                vec2 pos;
+                if (Core::settings.detail.stereo == Core::Settings::STEREO_VR)
+                    pos = vec2((UI::width - size.x) * 0.5f - eye * 4.0f, 96);
+                else
+                    pos = vec2(UI::width - 32 - size.x - eye, 32);
+
+                UI::renderBar(UI::BAR_HEALTH, pos, size, health);
+            }
+        }
+
         if (phaseChoose == 1.0f) {
             switch (item->type) {
                 case TR::Entity::INV_PASSPORT :
@@ -1439,7 +1505,6 @@ struct Inventory {
                     renderOptions(item);
                     break;
                 case TR::Entity::INV_GAMMA     :
-                case TR::Entity::INV_COMPASS   :
                 case TR::Entity::INV_STOPWATCH :
                 case TR::Entity::INV_MAP       :
                     UI::textOut(vec2(-eye, 240), STR_NOT_IMPLEMENTED, UI::aCenter, UI::width);
@@ -1490,6 +1555,10 @@ struct Inventory {
             }
 
             Basis b = basis * Basis(quat(vec3(0, 1, 0), PI + ia - a), vec3(sinf(a), 0, -cosf(a)) * rd - vec3(0, item->desc.page * INVENTORY_HEIGHT - rh, 0));
+
+            if (item->type == TR::Entity::INV_COMPASS) {
+                b.rotate(quat(vec3(1.0f, 0.0f, 0.0f), -phaseChoose * PI * 0.1f));
+            }
 
             item->render(game, b);
 
@@ -1824,7 +1893,7 @@ struct Inventory {
             renderItemText(eye, items[getGlobalIndex(page, index)]);
 
     // inventory controls help
-        if (page == targetPage) {
+        if (page == targetPage && Input::touchTimerVis <= 0.0f) {
             float dx = 32.0f - eye;
             char buf[64];
             sprintf(buf, STR[STR_HELP_SELECT], STR[STR_KEY_FIRST + ikEnter] );

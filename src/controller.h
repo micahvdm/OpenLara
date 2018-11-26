@@ -199,6 +199,16 @@ struct Controller {
         deactivate(true);
     }
 
+    void updateModel() {
+        const TR::Model *model = getModel();
+
+        if (!model || model == animation.model)
+            return;
+        animation.setModel(model);
+        delete[] joints;
+        joints = new Basis[model->mCount];
+    }
+
     bool fixRoomIndex() { // TODO: remove this and fix braid
         vec3 p = getPos();
         if (insideRoom(p, roomIndex))
@@ -231,6 +241,7 @@ struct Controller {
         info.floorIndex   = s.floorIndex;
         info.boxIndex     = s.boxIndex;
         info.lava         = false;
+        info.climb        = 0;
         info.trigger      = TR::Level::Trigger::ACTIVATE;
         info.trigCmdCount = 0;
 
@@ -1008,15 +1019,18 @@ struct Controller {
         return fabsf(d.x) < range && fabsf(d.z) < range && fabsf(d.y) < range;
     }
 
-    virtual void hit(float damage, Controller *enemy = NULL, TR::HitType hitType = TR::HIT_DEFAULT) {}
+    void updateRoom() {
+        level->getSector(roomIndex, pos);
+        level->getWaterInfo(getRoomIndex(), pos, waterLevel, waterDepth);
+    }
 
+    virtual void hit(float damage, Controller *enemy = NULL, TR::HitType hitType = TR::HIT_DEFAULT) {}
     virtual void  doCustomCommand               (int curFrame, int prevFrame) {}
-    virtual void  checkRoom()                   {}
     virtual void  applyFlow(TR::Camera &sink)   {}
 
     virtual void  cmdOffset(const vec3 &offset) {
         pos = pos + offset.rotateY(-angle.y);
-        checkRoom();
+        updateRoom();
     }
 
     virtual void  cmdJump(const vec3 &vel)      {}
@@ -1168,6 +1182,9 @@ struct Controller {
     }
 
     virtual void update() {
+        if (getEntity().modelIndex <= 0)
+            return;
+
         if (explodeMask)
             updateExplosion();
         else
@@ -1341,14 +1358,35 @@ struct Controller {
         return joints[index];
     }
 
+    void renderSprite(Frustum *frustum, MeshBuilder *mesh, Shader::Type type, bool caustics, int frame) {
+        Basis b;
+        b.w   = 1.0f;
+        b.pos = pos;
+        #ifdef MERGE_SPRITES
+            b.rot = Core::mViewInv.getRot();
+        #else
+            b.rot = quat(0, 0, 0, 1);
+        #endif
+        Core::setBasis(&b, 1);
+        mesh->renderSprite(-(getEntity().modelIndex + 1), frame);
+    }
+
+
     virtual void render(Frustum *frustum, MeshBuilder *mesh, Shader::Type type, bool caustics) {
+        if (getEntity().modelIndex < 0) {
+            renderSprite(frustum, mesh, type, caustics, 0);
+            return;
+        }
+        ASSERT(getEntity().modelIndex > 0);
+
+        const TR::Model *model = getModel();
+
         mat4 matrix = getMatrix();
 
         Box box = animation.getBoundingBox(vec3(0, 0, 0), 0);
         if (!explodeMask && frustum && !frustum->isVisible(matrix, box.min, box.max))
             return;
 
-        const TR::Model *model = getModel();
         ASSERT(model);
 
         flags.rendered = true;

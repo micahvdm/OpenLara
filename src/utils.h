@@ -9,7 +9,11 @@
     #if defined(_OS_LINUX) || defined(_OS_RPI) || defined(_OS_CLOVER)
         #define debugBreak() raise(SIGTRAP);
     #else
+      #if defined(_MSC_VER)
         #define debugBreak() _asm { int 3 }
+      #else
+        #define debugBreak() __asm__("int $3")
+      #endif
     #endif
 
     #define ASSERT(expr) if (expr) {} else { LOG("ASSERT:\n  %s:%d\n  %s => %s\n", __FILE__, __LINE__, __FUNCTION__, #expr); debugBreak(); }

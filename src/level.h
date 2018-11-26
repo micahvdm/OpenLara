@@ -348,10 +348,12 @@ struct Level : IGame {
         if (settings.detail.filter != Core::settings.detail.filter)
             atlas->setFilterQuality(settings.detail.filter);
 
-        bool rebuildMesh    = settings.detail.water != Core::settings.detail.water;
+        bool rebuildMesh    = settings.detail.water    != Core::settings.detail.water;
         bool rebuildAmbient = settings.detail.lighting != Core::settings.detail.lighting;
         bool rebuildShadows = settings.detail.shadows  != Core::settings.detail.shadows;
-        bool rebuildWater   = settings.detail.water != Core::settings.detail.water;
+        bool rebuildWater   = settings.detail.water    != Core::settings.detail.water;
+        bool switchModels   = settings.detail.simple   != Core::settings.detail.simple;
+
         bool rebuildShaders = rebuildWater || rebuildAmbient || rebuildShadows;
 
         bool redraw = memcmp(&settings.detail, &Core::settings.detail, sizeof(settings.detail)) != 0;
@@ -392,6 +394,9 @@ struct Level : IGame {
 
         if (redraw && inventory->active && !level.isTitle())
             needRedrawTitleBG = true;
+
+        if (switchModels)
+            resetModels();
     }
 
     virtual TR::Level* getLevel() {
@@ -507,17 +512,7 @@ struct Level : IGame {
         if (room.flags.water) {
             if (waterCache)
                 waterCache->bindCaustics(roomIndex);
-
-            if (room.waterLevel == -1) { // TODO: precalculate
-                int16 rIndex = roomIndex;
-                TR::Room::Sector *sector = level.getWaterLevelSector(rIndex, room.getOffset() + vec3(512, 0, 512));
-                if (sector)
-                    setWaterParams(float(sector->ceiling * 256));
-                else
-                    setWaterParams(float(room.info.yTop));
-            } else
-                setWaterParams(float(room.waterLevel));
-
+            setWaterParams(float(room.waterLevel[level.state.flags.flipped]));
         } else
             setWaterParams(NO_CLIP_PLANE);
 
@@ -795,6 +790,8 @@ struct Level : IGame {
 //==============================
 
     Level(Stream &stream) : level(stream), waitTrack(false), isEnded(false), cutsceneWaitTimer(0.0f), animTexTimer(0.0f), statsTimeDelta(0.0f) {
+        level.initModelIndices(Core::settings.detail.simple == 1);
+
     #ifdef _OS_PSP
         GAPI::freeEDRAM();
     #endif
@@ -809,9 +806,16 @@ struct Level : IGame {
 
         Core::fogParams = TR::getFogParams(level.id);
 
+        inventory->game = this;
+
+        if (!level.isCutsceneLevel()) {
+            inventory->reset();
+            memset(&saveStats, 0, sizeof(saveStats));
+            saveStats.level = level.id;
+        }
+
         initTextures();
         mesh = new MeshBuilder(&level, atlas);
-        initOverrides();
         initEntities();
 
         shadow       = NULL;
@@ -862,14 +866,6 @@ struct Level : IGame {
         }
         */
 
-        inventory->game = this;
-
-        if (!level.isCutsceneLevel()) {
-            inventory->reset();
-            memset(&saveStats, 0, sizeof(saveStats));
-            saveStats.level = level.id;
-        }
-
         saveResult = SAVE_RESULT_SUCCESS;
         if (loadSlot != -1 && saveSlots[loadSlot].getLevelID() == level.id) {
             parseSaveSlot(saveSlots[loadSlot]);
@@ -907,6 +903,16 @@ struct Level : IGame {
         }
 
         Sound::listenersCount = 1;
+    }
+
+    void resetModels() {
+        level.initModelIndices(Core::settings.detail.simple == 1);
+        for (int i = 0; i < level.entitiesCount; i++) {
+            TR::Entity &e = level.entities[i];
+            if (!e.controller) continue;
+            Controller *controller = (Controller*)e.controller;
+            controller->updateModel();
+        }
     }
 
     void addPlayer(int index) {
@@ -997,10 +1003,10 @@ struct Level : IGame {
             case TR::Entity::GEARS_1               :
             case TR::Entity::GEARS_2               :
             case TR::Entity::GEARS_3               : return new Gear(this, index);
-            case TR::Entity::INV_KEY_1             :
-            case TR::Entity::INV_KEY_2             :
-            case TR::Entity::INV_KEY_3             :
-            case TR::Entity::INV_KEY_4             : return new KeyItemInv(this, index);
+            case TR::Entity::INV_KEY_ITEM_1        :
+            case TR::Entity::INV_KEY_ITEM_2        :
+            case TR::Entity::INV_KEY_ITEM_3        :
+            case TR::Entity::INV_KEY_ITEM_4        : return new KeyItemInv(this, index);
             case TR::Entity::TRAP_FLOOR            : return new TrapFloor(this, index);
             case TR::Entity::CRYSTAL               : return new Crystal(this, index);
             case TR::Entity::TRAP_SWING_BLADE      : return new TrapSwingBlade(this, index);
@@ -1106,7 +1112,10 @@ struct Level : IGame {
             case TR::Entity::STONE_ITEM_3           :
             case TR::Entity::STONE_ITEM_4           : return new StoneItem(this, index);
 
-            default                                 : return (level.entities[index].modelIndex > 0) ? new Controller(this, index) : new Sprite(this, index, 0);
+            case TR::Entity::WINDOW_1               :
+            case TR::Entity::WINDOW_2               : return new BreakableWindow(this, index);
+
+            default                                 : return new Controller(this, index);
         }
     }
 
@@ -1420,43 +1429,6 @@ struct Level : IGame {
             */
         }
     #endif
-    }
-
-    void initOverrides() {
-    /*
-        for (int i = 0; i < level.entitiesCount; i++) {
-            int16 &id = level.entities[i].id;
-            switch (id) {
-            // weapon
-                case 84 : id =  99; break; // pistols
-                case 85 : id = 100; break; // shotgun
-                case 86 : id = 101; break; // magnums
-                case 87 : id = 102; break; // uzis
-            // ammo
-                case 88 : id = 103; break; // for pistols
-                case 89 : id = 104; break; // for shotgun
-                case 90 : id = 105; break; // for magnums
-                case 91 : id = 106; break; // for uzis
-            // medikit
-                case 93 : id = 108; break; // big
-                case 94 : id = 109; break; // small
-            // keys
-                case 110 : id = 114; break; 
-                case 111 : id = 115; break; 
-                case 112 : id = 116; break; 
-                case 113 : id = 117; break; 
-                case 126 : id = 127; break; 
-                case 129 : id = 133; break; 
-                case 130 : id = 134; break; 
-                case 131 : id = 135; break; 
-                case 132 : id = 136; break; 
-                case 141 : id = 145; break; 
-                case 142 : id = 146; break; 
-                case 143 : id = 150; break; 
-                case 144 : id = 150; break;
-            }
-        }
-    */
     }
 
     void initReflections() {
@@ -1849,7 +1821,7 @@ struct Level : IGame {
         effectTimer += Core::deltaTime;
 
         switch (effect) {
-            case TR::Effect::FLICKER : {
+            case TR::Effect::TR1_FLICKER : {
                 int idx = effectIdx;
                 switch (effectIdx) {
                     case 0 : if (effectTimer > 3.0f) effectIdx++; break;
