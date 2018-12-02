@@ -6,6 +6,7 @@
 
 #include <glsym/glsym.h>
 #include <libretro.h>
+#include <file/file_path.h>
 
 #include "../../game.h"
 
@@ -160,7 +161,9 @@ void retro_init(void)
 #else
       char slash = '/';
 #endif
-      sprintf(cacheDir, "%s%copenlara-", sysdir, slash);
+      sprintf(cacheDir, "%s%copenlara%ccache%c", sysdir, slash, slash, slash);
+      if (!path_mkdir(cacheDir))
+         sprintf(cacheDir, "%s%copenlara-", sysdir, slash);
    }
    
     struct retro_rumble_interface rumbleInterface;
@@ -592,7 +595,7 @@ bool retro_load_game(const struct retro_game_info *info)
 
    levelpath[0] = '\0';
    strcpy(levelpath, info->path);
-
+   
    basedir[0] = '\0';
    extract_directory(basedir, info->path, sizeof(basedir));
 
