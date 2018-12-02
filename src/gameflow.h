@@ -957,11 +957,11 @@ namespace TR {
                 case VER_TR1_SAT :
                 case VER_TR1_PC  :
                 case VER_TR1_PSX :
-                    sprintf(title, "audio/1/track_%02d.ogg", track);
+                    sprintf(title, "audio/1/track_%02d.wav", track);
                     break;
                 case VER_TR2_PC  :
                 case VER_TR2_PSX :
-                    sprintf(title, "audio/2/track_%02d.ogg", track);
+                    sprintf(title, "audio/2/track_%02d.wav", track);
                     break;
                 case VER_TR3_PC  :
                 case VER_TR3_PSX :
