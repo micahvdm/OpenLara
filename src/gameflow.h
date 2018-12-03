@@ -3,11 +3,6 @@
 
 #include "utils.h"
 
-#if defined(_LIBRETRO)
-#include <platform/libretro/libretro.h>
-const char *openlaradir = cacheDir;
-#endif
-
 #define CHECK_FILE(name) if (Stream::existsContent(name)) return name
 
 namespace TR {
@@ -825,7 +820,7 @@ namespace TR {
                 default          : ASSERT(false);
             }
         } else {
-            strcpy(dst, "openlaradir/level");
+            strcpy(dst, "level/");
             if ((version & VER_TR1) || version == VER_UNKNOWN) strcat(dst, "1/");
             if (version & VER_TR2) strcat(dst, "2/");
             if (version & VER_TR3) strcat(dst, "3/");
@@ -842,28 +837,28 @@ namespace TR {
                     case VER_TR2_PSX : 
                     case VER_TR3_PSX : strcat(dst, ".PSX"); break;
                     case VER_UNKNOWN : 
-                        if (Stream::existsContent("openlaradir/level1/TITLE.PSX")) {
-                            strcpy(dst, "openlaradir/level1/TITLE.PSX");
+                        if (Stream::existsContent("level/1/TITLE.PSX")) {
+                            strcpy(dst, "level/1/TITLE.PSX");
                             return;
                         }
-                        if (Stream::existsContent("openlaradir/level1/TITLE.PHD")) {
-                            strcpy(dst, "openlaradir/level1/TITLE.PHD");
+                        if (Stream::existsContent("level/1/TITLE.PHD")) {
+                            strcpy(dst, "level/1/TITLE.PHD");
                             return;
                         }
-                        if (Stream::existsContent("openlaradir/level2/TITLE.TR2")) {
-                            strcpy(dst, "openlaradir/level2/TITLE.TR2");
+                        if (Stream::existsContent("level/2/TITLE.TR2")) {
+                            strcpy(dst, "level/2/TITLE.TR2");
                             return;
                         }
-                        if (Stream::existsContent("openlaradir/level2/TITLE.PSX")) {
-                            strcpy(dst, "openlaradir/level2/TITLE.PSX");
+                        if (Stream::existsContent("level/2/TITLE.PSX")) {
+                            strcpy(dst, "level/2/TITLE.PSX");
                             return;
                         }
-                        if (Stream::existsContent("openlaradir/level3/TITLE.TR2")) {
-                            strcpy(dst, "openlaradir/level3/TITLE.TR2");
+                        if (Stream::existsContent("level/3/TITLE.TR2")) {
+                            strcpy(dst, "level/3/TITLE.TR2");
                             return;
                         }
-                        if (Stream::existsContent("openlaradir/level3/TITLE.PSX")) {
-                            strcpy(dst, "openlaradir/level3/TITLE.PSX");
+                        if (Stream::existsContent("level/3/TITLE.PSX")) {
+                            strcpy(dst, "level/3/TITLE.PSX");
                             return;
                         }
                         ASSERT(false); //
@@ -878,12 +873,12 @@ namespace TR {
         if (version == VER_TR2_PC) {
             CHECK_FILE("data/MAIN.SFX");    // PC
             CHECK_FILE("MAIN.SFX");         // Android
-            return "openlaradir/audio2/MAIN.SFX";      // Web
+            return "audio/2/MAIN.SFX";      // Web
         }
 
         if (version == VER_TR3_PC) {
             CHECK_FILE("data/MAIN.SFX");    // PC
-            return "openlaradir/audio3/MAIN.SFX";      // Web
+            return "audio/3/MAIN.SFX";      // Web
         }
 
         ASSERT(false);
@@ -934,26 +929,26 @@ namespace TR {
                 case VER_TR1_PC  :
                 case VER_TR1_PSX :
                     sprintf(title, "track_%02d", track);
-                    if (!checkTrack("", title) && !checkTrack("openlaradir/audio1/", title) && !checkTrack("openlaradir/audio", title)) {
+                    if (!checkTrack("", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
                         callback(NULL, userData);
                         return;
                     }
                     break;
                 case VER_TR2_PC  :
                 case VER_TR2_PSX :
-                    //if (Stream::existsContent("openlaradir/audiocdaudio.mp3")) {
-                    //    callback(Sound::openCDAudioMP3("openlaradir/audiocdaudio.dat", "openlaradir/audiocdaudio.mp3", track), userData);
+                    //if (Stream::existsContent("audio/cdaudio.mp3")) {
+                    //    callback(Sound::openCDAudioMP3("audio/cdaudio.dat", "audio/cdaudio.mp3", track), userData);
                     //    return;
                     //}
                     sprintf(title, "track_%02d", track);
-                    if (!checkTrack("", title) && !checkTrack("openlaradir/audio2/", title) && !checkTrack("openlaradir/audio", title)) {
+                    if (!checkTrack("", title) && !checkTrack("audio/2/", title) && !checkTrack("audio/", title)) {
                         callback(NULL, userData);
                         return;
                     }
                     break;
                 case VER_TR3_PC  :
                 case VER_TR3_PSX :
-                    callback(Sound::openCDAudioWAD("openlaradir/audiocdaudio.wad", track), userData);
+                    callback(Sound::openCDAudioWAD("audio/cdaudio.wad", track), userData);
                     return;
                 default : return;
             }
@@ -962,19 +957,19 @@ namespace TR {
                 case VER_TR1_SAT :
                 case VER_TR1_PC  :
                 case VER_TR1_PSX :
-                    sprintf(title, "openlaradir/audio1/track_%02d.wav", track);
+                    sprintf(title, "audio/1/track_%02d.wav", track);
                     break;
                 case VER_TR2_PC  :
                 case VER_TR2_PSX :
-                    sprintf(title, "openlaradir/audio2/track_%02d.wav", track);
+                    sprintf(title, "audio/2/track_%02d.wav", track);
                     break;
                 case VER_TR3_PC  :
                 case VER_TR3_PSX :
                     #ifndef _OS_WEB
-                        callback(Sound::openCDAudioWAD("openlaradir/audio3/cdaudio.wad", track), userData);
+                        callback(Sound::openCDAudioWAD("audio/3/cdaudio.wad", track), userData);
                         return;
                     #else
-                        sprintf(title, "openlaradir/audio3/track_%02d.wav", track);
+                        sprintf(title, "audio/3/track_%02d.wav", track);
                     #endif
                     break;
                 default : return;
@@ -993,18 +988,18 @@ namespace TR {
                 CHECK_FILE("DELDATA/AMERTIT.RAW");  // PSX
                 CHECK_FILE("DELDATA/JAPTIT.RAW");   // PSX JAP
                 CHECK_FILE("BINDATA/USATIT.BIN");   // SEGA
-                return "openlaradir/level1/AMERTIT.PNG";       // WEB
+                return "level/1/AMERTIT.PNG";       // WEB
             case LVL_TR1_GYM :
                 CHECK_FILE("DELDATA/GYMLOAD.RAW");
                 CHECK_FILE("BINDATA/GYM224.BIN");
-                return "openlaradir/level1/GYMLOAD.PNG";
+                return "level/1/GYMLOAD.PNG";
             case LVL_TR1_1  :
             case LVL_TR1_2  :
             case LVL_TR1_3A :
             case LVL_TR1_3B :
                 CHECK_FILE("DELDATA/AZTECLOA.RAW");
                 CHECK_FILE("BINDATA/AZTEC224.BIN");
-                return "openlaradir/level1/AZTECLOA.PNG";
+                return "level/1/AZTECLOA.PNG";
             case LVL_TR1_4  :
             case LVL_TR1_5  :
             case LVL_TR1_6  :
@@ -1012,19 +1007,19 @@ namespace TR {
             case LVL_TR1_7B :
                 CHECK_FILE("DELDATA/GREEKLOA.RAW");
                 CHECK_FILE("BINDATA/GREEK224.BIN");
-                return "openlaradir/level1/GREEKLOA.PNG";
+                return "level/1/GREEKLOA.PNG";
             case LVL_TR1_8A :
             case LVL_TR1_8B :
             case LVL_TR1_8C :
                 CHECK_FILE("DELDATA/EGYPTLOA.RAW");
                 CHECK_FILE("BINDATA/EGYPT224.BIN");
-                return "openlaradir/level1/EGYPTLOA.PNG";
+                return "level/1/EGYPTLOA.PNG";
             case LVL_TR1_10A :
             case LVL_TR1_10B :
             case LVL_TR1_10C :
                 CHECK_FILE("DELDATA/ATLANLOA.RAW");
                 CHECK_FILE("BINDATA/ATLAN224.BIN");
-                return "openlaradir/level1/ATLANLOA.PNG";
+                return "level/1/ATLANLOA.PNG";
         // TR2
             case LVL_TR2_TITLE :
                 CHECK_FILE("TITLE.png");            // Android
@@ -1032,62 +1027,62 @@ namespace TR {
                 CHECK_FILE("pix/title.pcx");        // PC
                 CHECK_FILE("PIXUS/TITLEUS.RAW");    // PSX US
                 CHECK_FILE("PIXJAP/TITLEJAP.RAW");  // PSX US
-                return "openlaradir/level2/TITLEUS.PNG";       // WEB
+                return "level/2/TITLEUS.PNG";       // WEB
             case LVL_TR2_ASSAULT :
             case LVL_TR2_HOUSE   :
                 CHECK_FILE("PIX/MANSION.RAW"); 
-                return "openlaradir/level2/MANSION.PNG";
+                return "level/2/MANSION.PNG";
             case LVL_TR2_WALL     :
             case LVL_TR2_EMPRTOMB :
             case LVL_TR2_FLOATING :
             case LVL_TR2_XIAN     :
                 CHECK_FILE("PIX/CHINA.RAW"); 
-                return "openlaradir/level2/CHINA.PNG";
+                return "level/2/CHINA.PNG";
             case LVL_TR2_BOAT   :
             case LVL_TR2_VENICE :
             case LVL_TR2_OPERA  :
                 CHECK_FILE("PIX/VENICE.RAW"); 
-                return "openlaradir/level2/VENICE.PNG";
+                return "level/2/VENICE.PNG";
             case LVL_TR2_RIG      :
             case LVL_TR2_PLATFORM :
                 CHECK_FILE("PIX/RIG.RAW"); 
-                return "openlaradir/level2/RIG.PNG";
+                return "level/2/RIG.PNG";
             case LVL_TR2_UNWATER :
             case LVL_TR2_KEEL    :
             case LVL_TR2_LIVING  :
             case LVL_TR2_DECK    :
                 CHECK_FILE("PIX/TITAN.RAW"); 
-                return "openlaradir/level2/TITAN.PNG";
+                return "level/2/TITAN.PNG";
             case LVL_TR2_SKIDOO   :
             case LVL_TR2_MONASTRY :
             case LVL_TR2_CATACOMB :
             case LVL_TR2_ICECAVE  :
                 CHECK_FILE("PIX/TIBET.RAW");
-                return "openlaradir/level2/TIBET.PNG";
+                return "level/2/TIBET.PNG";
         // TR3
             case LVL_TR3_TITLE :
                 CHECK_FILE("pix/TITLEUK.BMP");      // PC
                 CHECK_FILE("PIXUS/TITLEUS.RAW");    // PSX
                 CHECK_FILE("PIXJAP/TITLEJAP.RAW");  // PSX
-                return "openlaradir/level3/TITLEUK.PNG";       // WEB
+                return "level/3/TITLEUK.PNG";       // WEB
             case LVL_TR3_HOUSE  :
                 CHECK_FILE("pix/HOUSE.BMP"); 
                 CHECK_FILE("PIX/HOUSE.RAW"); 
-                return "openlaradir/level3/HOUSE.PNG";
+                return "level/3/HOUSE.PNG";
             case LVL_TR3_JUNGLE   :
             case LVL_TR3_TEMPLE   :
             case LVL_TR3_QUADCHAS :
             case LVL_TR3_TONYBOSS :
                 CHECK_FILE("pix/INDIA.BMP"); 
                 CHECK_FILE("PIX/INDIA.RAW"); 
-                return "openlaradir/level3/INDIA.PNG";
+                return "level/3/INDIA.PNG";
             case LVL_TR3_SHORE   :
             case LVL_TR3_CRASH   :
             case LVL_TR3_RAPIDS  :
             case LVL_TR3_TRIBOSS :
                 CHECK_FILE("pix/SOUTHPAC.BMP"); 
                 CHECK_FILE("PIX/SOUTHPAC.RAW"); 
-                return "openlaradir/level3/SOUTHPAC.PNG";
+                return "level/3/SOUTHPAC.PNG";
             case LVL_TR3_ROOFS  :
             case LVL_TR3_SEWER  :
             case LVL_TR3_TOWER  :
@@ -1095,20 +1090,20 @@ namespace TR {
             case LVL_TR3_STPAUL :
                 CHECK_FILE("pix/LONDON.BMP"); 
                 CHECK_FILE("PIX/LONDON.RAW"); 
-                return "openlaradir/level3/LONDON.PNG";
+                return "level/3/LONDON.PNG";
             case LVL_TR3_NEVADA   :
             case LVL_TR3_COMPOUND :
             case LVL_TR3_AREA51   :
                 CHECK_FILE("pix/NEVADA.BMP"); 
                 CHECK_FILE("PIX/NEVADA.RAW"); 
-                return "openlaradir/level3/NEVADA.PNG";
+                return "level/3/NEVADA.PNG";
             case LVL_TR3_ANTARC  :
             case LVL_TR3_MINES   :
             case LVL_TR3_CITY    :
             case LVL_TR3_CHAMBER :
                 CHECK_FILE("pix/ANTARC.BMP"); 
                 CHECK_FILE("PIX/ANTARC.RAW"); 
-                return "openlaradir/level3/ANTARC.PNG";
+                return "level/3/ANTARC.PNG";
 
             default : return NULL;
         }
@@ -1119,22 +1114,22 @@ namespace TR {
             CHECK_FILE("FMV/CORELOGO.FMV");
             CHECK_FILE("FMV/CORE.RPL");
             CHECK_FILE("FMV/CORELOGO.CPK");
-            CHECK_FILE("openlaradir/video1/CORELOGO.FMV");
-            CHECK_FILE("openlaradir/video1/CORE.RPL");
+            CHECK_FILE("video/1/CORELOGO.FMV");
+            CHECK_FILE("video/1/CORE.RPL");
         }
 
         if (version & VER_TR2) {
             CHECK_FILE("FMV/LOGO.FMV");
             CHECK_FILE("FMV/LOGO.RPL");
-            CHECK_FILE("openlaradir/video2/LOGO.FMV");
-            CHECK_FILE("openlaradir/video2/LOGO.RPL");
+            CHECK_FILE("video/2/LOGO.FMV");
+            CHECK_FILE("video/2/LOGO.RPL");
         }
 
         if (version & VER_TR3) {
             CHECK_FILE("FMV/LOGO.FMV");
             CHECK_FILE("fmv/logo.rpl");
-            CHECK_FILE("openlaradir/video3/LOGO.FMV");
-            CHECK_FILE("openlaradir/video3/logo.rpl");
+            CHECK_FILE("video/3/LOGO.FMV");
+            CHECK_FILE("video/3/logo.rpl");
         }
 
         return NULL;
@@ -1147,141 +1142,141 @@ namespace TR {
                 CHECK_FILE("FMV/CAFE.FMV");
                 CHECK_FILE("FMV/CAFE.RPL");
                 CHECK_FILE("FMV/CAFE.CPK");
-                CHECK_FILE("openlaradir/video1/CAFE.FMV");
-                CHECK_FILE("openlaradir/video1/CAFE.RPL");
-                CHECK_FILE("openlaradir/video1/CAFE.CPK");
+                CHECK_FILE("video/1/CAFE.FMV");
+                CHECK_FILE("video/1/CAFE.RPL");
+                CHECK_FILE("video/1/CAFE.CPK");
                 break;
             case LVL_TR1_GYM :
                 CHECK_FILE("FMV/MANSION.FMV");
                 CHECK_FILE("FMV/MANSION.RPL");
                 CHECK_FILE("FMV/MANSION.CPK");
-                CHECK_FILE("openlaradir/video1/MANSION.FMV");
-                CHECK_FILE("openlaradir/video1/MANSION.RPL");
-                CHECK_FILE("openlaradir/video1/MANSION.CPK");
+                CHECK_FILE("video/1/MANSION.FMV");
+                CHECK_FILE("video/1/MANSION.RPL");
+                CHECK_FILE("video/1/MANSION.CPK");
                 break;
             case LVL_TR1_1 :
                 CHECK_FILE("FMV/SNOW.FMV");
                 CHECK_FILE("FMV/SNOW.RPL");
                 CHECK_FILE("FMV/SNOW.CPK");
-                CHECK_FILE("openlaradir/video1/SNOW.FMV");
-                CHECK_FILE("openlaradir/video1/SNOW.RPL");
-                CHECK_FILE("openlaradir/video1/SNOW.CPK");
+                CHECK_FILE("video/1/SNOW.FMV");
+                CHECK_FILE("video/1/SNOW.RPL");
+                CHECK_FILE("video/1/SNOW.CPK");
                 break;
             case LVL_TR1_4 :
                 CHECK_FILE("FMV/LIFT.FMV");
                 CHECK_FILE("FMV/LIFT.RPL");
                 CHECK_FILE("FMV/LIFT.CPK");
-                CHECK_FILE("openlaradir/video1/LIFT.FMV");
-                CHECK_FILE("openlaradir/video1/LIFT.RPL");
-                CHECK_FILE("openlaradir/video1/LIFT.CPK");
+                CHECK_FILE("video/1/LIFT.FMV");
+                CHECK_FILE("video/1/LIFT.RPL");
+                CHECK_FILE("video/1/LIFT.CPK");
                 break;
             case LVL_TR1_8A :
                 CHECK_FILE("FMV/VISION.FMV");
                 CHECK_FILE("FMV/VISION.RPL");
                 CHECK_FILE("FMV/VISION.CPK");
-                CHECK_FILE("openlaradir/video1/VISION.FMV");
-                CHECK_FILE("openlaradir/video1/VISION.RPL");
-                CHECK_FILE("openlaradir/video1/VISION.CPK");
+                CHECK_FILE("video/1/VISION.FMV");
+                CHECK_FILE("video/1/VISION.RPL");
+                CHECK_FILE("video/1/VISION.CPK");
                 break;
             case LVL_TR1_10A :
                 CHECK_FILE("FMV/CANYON.FMV");
                 CHECK_FILE("FMV/CANYON.RPL");
                 CHECK_FILE("FMV/CANYON.CPK");
-                CHECK_FILE("openlaradir/video1/CANYON.FMV");
-                CHECK_FILE("openlaradir/video1/CANYON.RPL");
-                CHECK_FILE("openlaradir/video1/CANYON.CPK");
+                CHECK_FILE("video/1/CANYON.FMV");
+                CHECK_FILE("video/1/CANYON.RPL");
+                CHECK_FILE("video/1/CANYON.CPK");
                 break;
             case LVL_TR1_10B :
                 CHECK_FILE("FMV/PYRAMID.FMV");
                 CHECK_FILE("FMV/PYRAMID.RPL");
                 CHECK_FILE("FMV/PYRAMID.CPK");
-                CHECK_FILE("openlaradir/video1/PYRAMID.FMV");
-                CHECK_FILE("openlaradir/video1/PYRAMID.RPL");
-                CHECK_FILE("openlaradir/video1/PYRAMID.CPK");
+                CHECK_FILE("video/1/PYRAMID.FMV");
+                CHECK_FILE("video/1/PYRAMID.RPL");
+                CHECK_FILE("video/1/PYRAMID.CPK");
                 break;
             case LVL_TR1_CUT_4 :
                 CHECK_FILE("FMV/PRISON.FMV");
                 CHECK_FILE("FMV/PRISON.RPL");
                 CHECK_FILE("FMV/PRISON.CPK");
-                CHECK_FILE("openlaradir/video1/PRISON.FMV");
-                CHECK_FILE("openlaradir/video1/PRISON.RPL");
-                CHECK_FILE("openlaradir/video1/PRISON.CPK");
+                CHECK_FILE("video/1/PRISON.FMV");
+                CHECK_FILE("video/1/PRISON.RPL");
+                CHECK_FILE("video/1/PRISON.CPK");
                 break;
             case LVL_TR1_EGYPT :
                 CHECK_FILE("FMV/END.FMV");
                 CHECK_FILE("FMV/END.RPL");
                 CHECK_FILE("FMV/END.CPK");
-                CHECK_FILE("openlaradir/video1/END.FMV");
-                CHECK_FILE("openlaradir/video1/END.RPL");
-                CHECK_FILE("openlaradir/video1/END.CPK");
+                CHECK_FILE("video/1/END.FMV");
+                CHECK_FILE("video/1/END.RPL");
+                CHECK_FILE("video/1/END.CPK");
                 break;
         // TR2
             case LVL_TR2_TITLE    :
                 CHECK_FILE("FMV/ANCIENT.FMV");
                 CHECK_FILE("fmv/ANCIENT.RPL");
-                CHECK_FILE("openlaradir/video2/ANCIENT.FMV");
-                CHECK_FILE("openlaradir/video2/ANCIENT.RPL");
+                CHECK_FILE("video/2/ANCIENT.FMV");
+                CHECK_FILE("video/2/ANCIENT.RPL");
                 break;
             case LVL_TR2_WALL     :
                 CHECK_FILE("FMV/MODERN.FMV");
                 CHECK_FILE("fmv/MODERN.RPL");
-                CHECK_FILE("openlaradir/video2/MODERN.FMV");
-                CHECK_FILE("openlaradir/video2/MODERN.RPL");
+                CHECK_FILE("video/2/MODERN.FMV");
+                CHECK_FILE("video/2/MODERN.RPL");
                 break;
             case LVL_TR2_RIG      :
                 CHECK_FILE("FMV/LANDING.FMV");
                 CHECK_FILE("fmv/LANDING.RPL");
-                CHECK_FILE("openlaradir/video2/LANDING.FMV");
-                CHECK_FILE("openlaradir/video2/LANDING.RPL");
+                CHECK_FILE("video/2/LANDING.FMV");
+                CHECK_FILE("video/2/LANDING.RPL");
                 break;
             case LVL_TR2_UNWATER  :
                 CHECK_FILE("FMV/MS.FMV");
                 CHECK_FILE("fmv/MS.RPL");
-                CHECK_FILE("openlaradir/video2/MS.FMV");
-                CHECK_FILE("openlaradir/video2/MS.RPL");
+                CHECK_FILE("video/2/MS.FMV");
+                CHECK_FILE("video/2/MS.RPL");
                 break;
             case LVL_TR2_SKIDOO   :
                 CHECK_FILE("FMV/CRASH.FMV");
                 CHECK_FILE("fmv/CRASH.RPL");
-                CHECK_FILE("openlaradir/video2/CRASH.FMV");
-                CHECK_FILE("openlaradir/video2/CRASH.RPL");
+                CHECK_FILE("video/2/CRASH.FMV");
+                CHECK_FILE("video/2/CRASH.RPL");
                 break;
             case LVL_TR2_EMPRTOMB :
                 CHECK_FILE("FMV/JEEP.FMV");
                 CHECK_FILE("fmv/JEEP.RPL");
-                CHECK_FILE("openlaradir/video2/JEEP.FMV");
-                CHECK_FILE("openlaradir/video2/JEEP.RPL");
+                CHECK_FILE("video/2/JEEP.FMV");
+                CHECK_FILE("video/2/JEEP.RPL");
                 break;
             case LVL_TR2_HOUSE    :
                 CHECK_FILE("FMV/END.FMV");
                 CHECK_FILE("fmv/END.RPL");
-                CHECK_FILE("openlaradir/video2/END.FMV");
-                CHECK_FILE("openlaradir/video2/END.RPL");
+                CHECK_FILE("video/2/END.FMV");
+                CHECK_FILE("video/2/END.RPL");
                 break;
         // TR3
             case LVL_TR3_TITLE :
                 CHECK_FILE("FMV/INTRO.FMV");
                 CHECK_FILE("fmv/Intr_Eng.rpl");
-                CHECK_FILE("openlaradir/video3/INTRO.FMV");
-                CHECK_FILE("openlaradir/video3/Intr_Eng.rpl");
+                CHECK_FILE("video/3/INTRO.FMV");
+                CHECK_FILE("video/3/Intr_Eng.rpl");
                 break;
             case LVL_TR3_SHORE :
                 CHECK_FILE("FMV/LAGOON.FMV");
                 CHECK_FILE("fmv/Sail_Eng.rpl");
-                CHECK_FILE("openlaradir/video3/LAGOON.FMV");
-                CHECK_FILE("openlaradir/video3/Sail_Eng.rpl");
+                CHECK_FILE("video/3/LAGOON.FMV");
+                CHECK_FILE("video/3/Sail_Eng.rpl");
                 break;
             case LVL_TR3_ANTARC :
                 CHECK_FILE("FMV/HUEY.FMV");
                 CHECK_FILE("fmv/Crsh_Eng.rpl");
-                CHECK_FILE("openlaradir/video3/HUEY.FMV");
-                CHECK_FILE("openlaradir/video3/Crsh_Eng.rpl");
+                CHECK_FILE("video/3/HUEY.FMV");
+                CHECK_FILE("video/3/Crsh_Eng.rpl");
                 break;
             case LVL_TR3_STPAUL :
                 CHECK_FILE("FMV/END.FMV");
                 CHECK_FILE("fmv/Endgame.rpl");
-                CHECK_FILE("openlaradir/video3/END.FMV");
-                CHECK_FILE("openlaradir/video3/Endgame.rpl");
+                CHECK_FILE("video/3/END.FMV");
+                CHECK_FILE("video/3/Endgame.rpl");
                 break;
             default : ;
         }
