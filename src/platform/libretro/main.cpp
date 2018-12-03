@@ -151,7 +151,7 @@ void osJoyVibrate(int index, float L, float R)
 
 void retro_init(void)
 {
-   contentDir[0] = cacheDir[0] = saveDir[0] = 0;
+   contentDir[0] = cacheDir[0] = saveDir[0] = contDir[0] = 0;
 #ifdef _WIN32
    char slash = '\\';
 #else
@@ -180,7 +180,7 @@ void retro_init(void)
 
 void retro_deinit(void)
 {
-   contentDir[0] = cacheDir[0] = saveDir[0] = 0;
+   contentDir[0] = cacheDir[0] = saveDir[0] = contDir[0] = 0;
 }
 
 unsigned retro_api_version(void)
@@ -603,6 +603,10 @@ bool retro_load_game(const struct retro_game_info *info)
    
    basedir[0] = '\0';
    extract_directory(basedir, info->path, sizeof(basedir));
+
+   strcpy(contDir, basedir);
+   path_parent_dir(contDir);
+   path_parent_dir(contDir);
 
    Core::width  = width;
    Core::height = height;

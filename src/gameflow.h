@@ -966,7 +966,7 @@ namespace TR {
                 case VER_TR3_PC  :
                 case VER_TR3_PSX :
                     #ifndef _OS_WEB
-                        callback(Sound::openCDAudioWAD("audio/3/cdaudio.wad", track), userData);
+                        callback(Sound::openCDAudioWAD("audio/cdaudio.wad", track), userData);
                         return;
                     #else
                         sprintf(title, "audio/3/track_%02d.wav", track);
