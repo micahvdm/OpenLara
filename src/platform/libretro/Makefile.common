@@ -1,11 +1,19 @@
-INCFLAGS    := -I$(CORE_DIR) \
+LIBRETRO_COMM_DIR := $(CORE_DIR)/libretro-common
+
+INCFLAGS		:= -I$(CORE_DIR) \
 					-I$(CORE_DIR)/../.. \
+					-I$(LIBRETRO_COMM_DIR)/include \
 					-I$(CORE_DIR)/glsym
+
 
 LIBS_DIR    := $(CORE_DIR)/../../libs
 SOURCES_C   := $(CORE_DIR)/glsym/rglgen.c \
 					$(LIBS_DIR)/stb_vorbis/stb_vorbis.c \
-					$(LIBS_DIR)/tinf/tinflate.c
+					$(LIBS_DIR)/tinf/tinflate.c \
+					$(LIBRETRO_COMM_DIR)/compat/compat_strl.c \
+					$(LIBRETRO_COMM_DIR)/compat/compat_strcasestr.c \
+					$(LIBRETRO_COMM_DIR)/file/file_path.c \
+					$(LIBRETRO_COMM_DIR)/encodings/encoding_utf.c
 
 ifeq ($(GLES), 1)
 ifeq ($(GLES3), 1)
