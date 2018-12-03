@@ -152,30 +152,35 @@ void osJoyVibrate(int index, float L, float R)
 void retro_init(void)
 {
    contentDir[0] = cacheDir[0] = saveDir[0] = 0;
-   
+#ifdef _WIN32
+   char slash = '\\';
+#else
+   char slash = '/';
+#endif
    const char *sysdir = NULL;
+   const char *savdir = NULL;
    if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &sysdir))
    {
-#ifdef _WIN32
-      char slash = '\\';
-#else
-      char slash = '/';
-#endif
       sprintf(cacheDir, "%s%copenlara%ccache%c", sysdir, slash, slash, slash);
-      if (!path_mkdir(cacheDir))
-         sprintf(cacheDir, "%s%copenlara-", sysdir, slash);
+      path_mkdir(cacheDir);
    }
-   
+   if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &savdir))
+   {
+      sprintf(saveDir, "%s%copenlara%c", savdir, slash, slash);
+      path_mkdir(saveDir);
+   }
+
     struct retro_rumble_interface rumbleInterface;
-    if (environ_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumbleInterface)) 
+    if (environ_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumbleInterface))
     {
         set_rumble_cb = rumbleInterface.set_rumble_state;
-    } 
+    }
+
 }
 
 void retro_deinit(void)
 {
-   contentDir[0] = cacheDir[0] = 0;
+   contentDir[0] = cacheDir[0] = saveDir[0] = 0;
 }
 
 unsigned retro_api_version(void)
