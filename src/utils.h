@@ -1203,6 +1203,7 @@ extern void osDownload   (Stream *stream);
 char cacheDir[255];
 char saveDir[255];
 char contentDir[255];
+char contDir[255];
 
 struct Stream {
     typedef void (Callback)(Stream *stream, void *userData);
@@ -1240,6 +1241,14 @@ struct Stream {
             f = fopen(path, "rb");
         } else
             f = fopen(name, "rb");
+        if (!f) {
+            char path[255];
+            path[0] = 0;
+            strcpy(path, contDir);
+            strcat(path, name);
+            f = fopen(path, "rb");
+            LOG("Loading file \"%s\"\n", path);
+        }
 
         if (!f) {
             #ifdef _OS_WEB
@@ -1287,8 +1296,9 @@ struct Stream {
 
     static bool exists(const char *name) {
         FILE *f = fopen(name, "rb");
-        if (!f)
+        if (!f) {
             return false;
+        }
         else
             fclose(f);
         return true;
@@ -1296,7 +1306,8 @@ struct Stream {
 
     static bool existsContent(const char *name) {
         char fileName[1024];
-        strcpy(fileName, contentDir);
+        //strcpy(fileName, contentDir);
+        strcpy(fileName, contDir);
         strcat(fileName, name);
         return exists(fileName);
     }
