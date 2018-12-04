@@ -44,7 +44,6 @@ static unsigned height        = BASE_HEIGHT;
 Sound::Frame *sndData;
 
 char levelpath[255];
-char basedir[1024];
 
 static retro_video_refresh_t video_cb;
 static retro_audio_sample_t audio_cb;
@@ -151,7 +150,7 @@ void osJoyVibrate(int index, float L, float R)
 
 void retro_init(void)
 {
-   contentDir[0] = cacheDir[0] = saveDir[0] = contDir[0] = 0;
+   contentDir[0] = cacheDir[0] = saveDir[0] = 0;
 #ifdef _WIN32
    char slash = '\\';
 #else
@@ -180,7 +179,7 @@ void retro_init(void)
 
 void retro_deinit(void)
 {
-   contentDir[0] = cacheDir[0] = saveDir[0] = contDir[0] = 0;
+   contentDir[0] = cacheDir[0] = saveDir[0] = 0;
 }
 
 unsigned retro_api_version(void)
@@ -531,6 +530,12 @@ static void extract_directory(char *buf, const char *path, size_t size)
    }
 }
 
+static char * make_relative(char * basePath, char * fullPath)
+{
+   char * t = strstr(fullPath, basePath);
+   return (t+strlen(basePath));
+}
+
 bool retro_load_game(const struct retro_game_info *info)
 {
    struct retro_input_descriptor desc[] = {
@@ -587,25 +592,26 @@ bool retro_load_game(const struct retro_game_info *info)
    }
 
    fprintf(stderr, "Loaded game!\n");
-   (void)info;
 
-
-   levelpath[0] = '\0';
-   strcpy(levelpath, info->path);
-   
-   basedir[0] = '\0';
+   char basedir[1024] = {0};
    extract_directory(basedir, info->path, sizeof(basedir));
 
-   strcpy(contDir, basedir);
-   fill_pathname_parent_dir_name(basedir, contDir, sizeof(basedir));
+   // contentDir acts as the current working directory in OpenLara
+   strcpy(contentDir, basedir);
+   fill_pathname_parent_dir_name(basedir, contentDir, sizeof(basedir));
    if (strcmp(basedir, "level") == 0)
    {
       /* level/X/ */
-      path_parent_dir(contDir);
-      path_parent_dir(contDir);
+      path_parent_dir(contentDir);
+      path_parent_dir(contentDir);
    }
    else /* CD */
-      path_parent_dir(contDir);
+      path_parent_dir(contentDir);
+
+   // make levelpath contain a path relative to contentDir
+   levelpath[0] = '\0';
+   strcpy(levelpath, info->path);
+   strcpy(levelpath, make_relative(contentDir, levelpath));
 
    Core::width  = width;
    Core::height = height;
