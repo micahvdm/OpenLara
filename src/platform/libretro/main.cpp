@@ -453,19 +453,11 @@ void retro_run(void)
 
 static void context_reset(void)
 {
-   char musicpath[255];
-#ifdef _WIN32
-   char slash = '\\';
-#else
-   char slash = '/';
-#endif
    fprintf(stderr, "Context reset!\n");
    rglgen_resolve_symbols(hw_render.get_proc_address);
 
    sndData = new Sound::Frame[SND_RATE * 2 * sizeof(int16_t) / FRAMERATE];
-   snprintf(musicpath, sizeof(musicpath), "%s%c05.ogg",
-         basedir, slash);
-   Game::init(levelpath/*, musicpath */);
+   Game::init(levelpath);
 }
 
 static void context_destroy(void)
@@ -605,8 +597,15 @@ bool retro_load_game(const struct retro_game_info *info)
    extract_directory(basedir, info->path, sizeof(basedir));
 
    strcpy(contDir, basedir);
-   path_parent_dir(contDir);
-   path_parent_dir(contDir);
+   fill_pathname_parent_dir_name(basedir, contDir, sizeof(basedir));
+   if (strcmp(basedir, "level") == 0)
+   {
+      /* level/X/ */
+      path_parent_dir(contDir);
+      path_parent_dir(contDir);
+   }
+   else /* CD */
+      path_parent_dir(contDir);
 
    Core::width  = width;
    Core::height = height;
