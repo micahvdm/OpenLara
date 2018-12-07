@@ -19,6 +19,7 @@
     //#define _GAPI_D3D9   1
 #endif
     //#define _GAPI_VULKAN 1
+    //#define _NAPI_SOCKET
 
     #include <windows.h>
 
@@ -328,6 +329,12 @@ namespace Core {
 #include "input.h"
 #include "sound.h"
 
+#if defined(_NAPI_SOCKET)
+    #include "napi_socket.h"
+#else
+    #include "napi_dummy.h"
+#endif
+
 #define MAX_LIGHTS           4
 #define MAX_RENDER_BUFFERS   32
 #define MAX_CONTACTS         15
@@ -628,6 +635,7 @@ namespace Core {
 
         Input::init();
         Sound::init();
+        NAPI::init();
 
         GAPI::init();
 
@@ -781,7 +789,7 @@ namespace Core {
         delete ditherTex;
 
         GAPI::deinit();
-
+        NAPI::deinit();
         Sound::deinit();
     }
 

@@ -164,8 +164,8 @@ namespace Game {
         #ifdef DEBUG_RENDER
             Debug::deinit();
         #endif
-        delete level;
         delete inventory;
+        delete level;
         UI::deinit();
         delete shaderCache;
         Core::deinit();
@@ -173,6 +173,7 @@ namespace Game {
 
     void updateTick() {
         Input::update();
+        Network::update();
 
         cheatControl(Input::lastState[0]); 
 
@@ -226,7 +227,9 @@ namespace Game {
             level->flipMap();
             Input::down[ikF] = false;
         }
+    #endif
 
+    #ifdef _DEBUG_SHADERS
         if (Input::down[ikCtrl] && Input::down[ik1]) {
             delete shaderCache;
             shaderCache = new ShaderCache();

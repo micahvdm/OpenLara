@@ -275,6 +275,12 @@ struct vec2 {
     float angle()   const { return atan2f(y, x); }
     vec2& rotate(const vec2 &cs) { *this = vec2(x*cs.x - y*cs.y, x*cs.y + y*cs.x); return *this; }
     vec2& rotate(float angle)    { vec2 cs; sincos(angle, &cs.y, &cs.x); return rotate(cs); }
+
+    vec2 lerp(const vec2 &v, const float t) const {
+        if (t <= 0.0f) return *this;
+        if (t >= 1.0f) return v;
+        return *this + (v - *this) * t; 
+    }
 };
 
 struct vec3 {
@@ -1642,6 +1648,27 @@ namespace String {
 
 }
 
+
+template <int N>
+struct FixedStr {
+    char data[N];
+
+    void get(char *dst) {
+        memcpy(dst, data, sizeof(data));
+        dst[sizeof(data)] = 0;
+    }
+
+    FixedStr<N>& operator = (const char *str) {
+        int len = min(sizeof(data), strlen(str));
+        memset(data, 0, sizeof(data));
+        memcpy(data, str, len);
+        return *this;
+    }
+};
+
+typedef FixedStr<16> str16;
+
+
 template <typename T>
 struct Array {
     int capacity;
@@ -1679,7 +1706,8 @@ struct Array {
     }
 
     void removeFast(int index) {
-        (*this)[index] = (*this)[--length];
+        (*this)[index] = (*this)[length - 1];
+        length--;
     }
 
     void remove(int index) {

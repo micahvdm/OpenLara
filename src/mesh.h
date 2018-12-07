@@ -715,6 +715,8 @@ struct MeshBuilder {
             for (int z = 0; z < room.zSectors; z++)
                 for (int x = 0; x < room.xSectors; x++) {
                     TR::Room::Sector &s = room.sectors[x * room.zSectors + z];
+                    if (level->getNextRoom(&s) != TR::NO_ROOM)
+                        continue;
                     if (s.ceiling != TR::NO_FLOOR)
                         value = min( value, s.ceiling * 256 );
                     if (s.roomAbove != TR::NO_ROOM)
@@ -1469,6 +1471,21 @@ struct MeshBuilder {
                 mesh->render(range);
             }
         }
+    }
+
+    void renderModelFull(int modelIndex, bool underwater = false) {
+        Core::setBlendMode(bmPremult);
+        transparent = 0;
+        renderModel(modelIndex, underwater);
+        transparent = 1;
+        renderModel(modelIndex, underwater);
+        Core::setBlendMode(bmAdd);
+        Core::setDepthWrite(false);
+        transparent = 2;
+        renderModel(modelIndex, underwater);
+        Core::setDepthWrite(true);
+        Core::setBlendMode(bmNone);
+        transparent = 0;
     }
 
     void renderSprite(int sequenceIndex, int frame) {

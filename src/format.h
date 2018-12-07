@@ -1440,12 +1440,20 @@ namespace TR {
 
     union FloorData {
         uint16 value;
-        struct Command {
-            uint16 func:5, tri:3, sub:7, end:1;
+        union Command {
+            struct {
+                uint16 func:5, tri:3, sub:7, end:1;
+            };
+            struct {
+                int16 :5, a:5, b:5, :1;
+            } triangle;
         } cmd;
-        struct Slant {
-            int8 x:8, z:8;
-        } slant;
+        struct {
+            int16 slantX:8, slantZ:8;
+        };
+        struct {
+            uint16 a:4, b:4, c:4, d:4;
+        };
         struct TriggerInfo {
             uint16  timer:8, once:1, mask:5, :2;
         } triggerInfo;
@@ -1459,13 +1467,28 @@ namespace TR {
         } triggerCmd;
 
         enum {
-            NONE    ,
-            PORTAL  ,
-            FLOOR   ,
-            CEILING ,
-            TRIGGER ,
-            LAVA    ,
-            CLIMB   ,
+              NONE
+            , PORTAL
+            , FLOOR
+            , CEILING
+            , TRIGGER
+            , LAVA
+            , CLIMB
+            , FLOOR_NW_SE_SOLID
+            , FLOOR_NE_SW_SOLID
+            , CEILING_NW_SE_SOLID
+            , CEILING_NE_SW_SOLID
+            , FLOOR_NW_SE_PORTAL_SE
+            , FLOOR_NW_SE_PORTAL_NW
+            , FLOOR_NE_SW_PORTAL_SW
+            , FLOOR_NE_SW_PORTAL_NE
+            , CEILING_NW_SE_PORTAL_SE
+            , CEILING_NW_SE_PORTAL_NW
+            , CEILING_NE_SW_PORTAL_SW
+            , CEILING_NE_SW_PORTAL_NE
+            , MONKEY
+            , MINECART_LEFT
+            , MINECART_RIGHT
         };
     };
 
@@ -1818,11 +1841,11 @@ namespace TR {
         }
 
         static bool isPuzzleItem(Type type) {
-            return type >= PUZZLE_1 && type <= PUZZLE_4;
+            return (type >= PUZZLE_1 && type <= PUZZLE_4) || (type >= INV_PUZZLE_1 && type <= INV_PUZZLE_4);
         }
         
         static bool isKeyItem(Type type) {
-            return type >= KEY_ITEM_1 && type <= KEY_ITEM_4;
+            return (type >= KEY_ITEM_1 && type <= KEY_ITEM_4) || (type >= INV_KEY_ITEM_1 && type <= INV_KEY_ITEM_4);
         }
 
         static bool isWeapon(Type type) {
@@ -1926,70 +1949,6 @@ namespace TR {
             }
         }
 
-        static Type convToInv(Type type) {
-            switch (type) {
-                case PISTOLS       : return INV_PISTOLS;
-                case SHOTGUN       : return INV_SHOTGUN;
-                case MAGNUMS       : return INV_MAGNUMS;
-                case UZIS          : return INV_UZIS;
- 
-                case AMMO_PISTOLS  : return INV_AMMO_PISTOLS;
-                case AMMO_SHOTGUN  : return INV_AMMO_SHOTGUN;
-                case AMMO_MAGNUMS  : return INV_AMMO_MAGNUMS;
-                case AMMO_UZIS     : return INV_AMMO_UZIS;
-
-                case MEDIKIT_SMALL : return INV_MEDIKIT_SMALL;
-                case MEDIKIT_BIG   : return INV_MEDIKIT_BIG;
-
-                case PUZZLE_1      : return INV_PUZZLE_1;
-                case PUZZLE_2      : return INV_PUZZLE_2;
-                case PUZZLE_3      : return INV_PUZZLE_3;
-                case PUZZLE_4      : return INV_PUZZLE_4;
-
-                case KEY_ITEM_1    : return INV_KEY_ITEM_1;
-                case KEY_ITEM_2    : return INV_KEY_ITEM_2;
-                case KEY_ITEM_3    : return INV_KEY_ITEM_3;
-                case KEY_ITEM_4    : return INV_KEY_ITEM_4;
-
-                case LEADBAR       : return INV_LEADBAR;
-                case SCION_PICKUP_QUALOPEC :
-                case SCION_PICKUP_DROP     :
-                case SCION_PICKUP_HOLDER   : return Entity::INV_SCION;
-                default            : return type;
-            }
-        }
-
-        static Type convFromInv(Type type) {
-            switch (type) {
-                case INV_PISTOLS       : return PISTOLS;
-                case INV_SHOTGUN       : return SHOTGUN;
-                case INV_MAGNUMS       : return MAGNUMS;
-                case INV_UZIS          : return UZIS;
- 
-                case INV_AMMO_PISTOLS  : return AMMO_PISTOLS;
-                case INV_AMMO_SHOTGUN  : return AMMO_SHOTGUN;
-                case INV_AMMO_MAGNUMS  : return AMMO_MAGNUMS;
-                case INV_AMMO_UZIS     : return AMMO_UZIS;
-
-                case INV_MEDIKIT_SMALL : return MEDIKIT_SMALL;
-                case INV_MEDIKIT_BIG   : return MEDIKIT_BIG;
-
-                case INV_PUZZLE_1      : return PUZZLE_1;
-                case INV_PUZZLE_2      : return PUZZLE_2;
-                case INV_PUZZLE_3      : return PUZZLE_3;
-                case INV_PUZZLE_4      : return PUZZLE_4;
-
-                case INV_KEY_ITEM_1    : return KEY_ITEM_1;
-                case INV_KEY_ITEM_2    : return KEY_ITEM_2;
-                case INV_KEY_ITEM_3    : return KEY_ITEM_3;
-                case INV_KEY_ITEM_4    : return KEY_ITEM_4;
-
-                case INV_LEADBAR       : return LEADBAR;
-                case INV_SCION         : return SCION_PICKUP_DROP;
-                default                : return type;
-            }
-        }
-
         static Type getItemForHole(Type hole) {
             switch (hole) {
                 case PUZZLE_HOLE_1 : return PUZZLE_1;
@@ -2023,6 +1982,53 @@ namespace TR {
                 opaque = false;
         }
     };
+
+    #define INV_ITEM_PAIR(TYPE) { Entity::TYPE, Entity::INV_##TYPE }
+
+    static struct {
+        Entity::Type src, dst;
+    } ITEM_TO_INV[] = {
+    // weapon
+        INV_ITEM_PAIR(PISTOLS),
+        INV_ITEM_PAIR(SHOTGUN),
+        INV_ITEM_PAIR(MAGNUMS),
+        INV_ITEM_PAIR(UZIS),
+        INV_ITEM_PAIR(AUTOPISTOLS),
+        INV_ITEM_PAIR(HARPOON),
+        INV_ITEM_PAIR(M16),
+        INV_ITEM_PAIR(GRENADE),
+    // ammo
+        INV_ITEM_PAIR(AMMO_PISTOLS),
+        INV_ITEM_PAIR(AMMO_SHOTGUN),
+        INV_ITEM_PAIR(AMMO_MAGNUMS),
+        INV_ITEM_PAIR(AMMO_UZIS),
+        INV_ITEM_PAIR(AMMO_AUTOPISTOLS),
+        INV_ITEM_PAIR(AMMO_HARPOON),
+        INV_ITEM_PAIR(AMMO_M16),
+        INV_ITEM_PAIR(AMMO_GRENADE),
+    // items
+        INV_ITEM_PAIR(MEDIKIT_BIG),
+        INV_ITEM_PAIR(MEDIKIT_SMALL),
+        INV_ITEM_PAIR(FLARES),
+    // key items
+        INV_ITEM_PAIR(KEY_ITEM_1),
+        INV_ITEM_PAIR(KEY_ITEM_2),
+        INV_ITEM_PAIR(KEY_ITEM_3),
+        INV_ITEM_PAIR(KEY_ITEM_4),
+    // puzzle items
+        INV_ITEM_PAIR(PUZZLE_1),
+        INV_ITEM_PAIR(PUZZLE_2),
+        INV_ITEM_PAIR(PUZZLE_3),
+        INV_ITEM_PAIR(PUZZLE_4),
+    // other items
+        INV_ITEM_PAIR(LEADBAR),
+        INV_ITEM_PAIR(QUEST_ITEM_1),
+        INV_ITEM_PAIR(QUEST_ITEM_2),
+        { Entity::SCION_PICKUP_DROP,     Entity::INV_SCION },
+        { Entity::SCION_PICKUP_QUALOPEC, Entity::INV_SCION },
+    };
+
+    #undef INV_ITEM_PAIR
 
     struct Animation {
         uint32  frameOffset;
@@ -2424,6 +2430,7 @@ namespace TR {
         int     cutEntity;
         mat4    cutMatrix;
         bool    isDemoLevel;
+        bool    simpleItems;
 
         struct Extra {
 
@@ -3956,66 +3963,28 @@ namespace TR {
             }
         }
 
-    void initModelIndices(bool simpleItems) {
-        #define OVERRIDE(TYPE) { TR::Entity::TYPE, TR::Entity::INV_##TYPE }
-
-        struct {
-            TR::Entity::Type src, dst;
-        } overrides[] = {
-        // weapon
-            OVERRIDE(PISTOLS),
-            OVERRIDE(SHOTGUN),
-            OVERRIDE(MAGNUMS),
-            OVERRIDE(UZIS),
-            OVERRIDE(AUTOPISTOLS),
-            OVERRIDE(HARPOON),
-            OVERRIDE(M16),
-            OVERRIDE(GRENADE),
-        // ammo
-            OVERRIDE(AMMO_PISTOLS),
-            OVERRIDE(AMMO_SHOTGUN),
-            OVERRIDE(AMMO_MAGNUMS),
-            OVERRIDE(AMMO_UZIS),
-            OVERRIDE(AMMO_AUTOPISTOLS),
-            OVERRIDE(AMMO_HARPOON),
-            OVERRIDE(AMMO_M16),
-            OVERRIDE(AMMO_GRENADE),
-        // items
-            OVERRIDE(MEDIKIT_BIG),
-            OVERRIDE(MEDIKIT_SMALL),
-            OVERRIDE(FLARES),
-        // key items
-            OVERRIDE(KEY_ITEM_1),
-            OVERRIDE(KEY_ITEM_2),
-            OVERRIDE(KEY_ITEM_3),
-            OVERRIDE(KEY_ITEM_4),
-        // puzzle items
-            OVERRIDE(PUZZLE_1),
-            OVERRIDE(PUZZLE_2),
-            OVERRIDE(PUZZLE_3),
-            OVERRIDE(PUZZLE_4),
-        // other items
-            OVERRIDE(LEADBAR),
-            OVERRIDE(QUEST_ITEM_1),
-            OVERRIDE(QUEST_ITEM_2),
-            { TR::Entity::SCION_PICKUP_QUALOPEC, TR::Entity::INV_SCION },
-            { TR::Entity::SCION_PICKUP_DROP,     TR::Entity::INV_SCION },
-        };
-
-        for (int i = 0; i < entitiesCount; i++) {
-            TR::Entity &e = entities[i];
-            e.modelIndex = getModelIndex(e.type);
-            if (!simpleItems) {
-                for (int j = 0; j < COUNT(overrides); j++)
-                    if (e.type == overrides[j].src) {
-                        e.modelIndex = getModelIndex(overrides[j].dst);
-                        break;
-                    }
-            }
+        static Entity::Type convToInv(Entity::Type type) {
+            for (int j = 0; j < COUNT(ITEM_TO_INV); j++)
+                if (type == ITEM_TO_INV[j].src) {
+                    return ITEM_TO_INV[j].dst;
+                }
+            return type;
         }
 
-        #undef OVERRIDE
-    }
+        static Entity::Type convFromInv(Entity::Type type) {
+            for (int j = 0; j < COUNT(ITEM_TO_INV); j++)
+                if (type == ITEM_TO_INV[j].dst) {
+                    return ITEM_TO_INV[j].src;
+                }
+            return type;
+        }
+
+        void initModelIndices() {
+            for (int i = 0; i < entitiesCount; i++) {
+                TR::Entity &e = entities[i];
+                e.modelIndex = getModelIndex(e.type);
+            }
+        }
 
         LevelID getTitleId() const {
             return TR::getTitleId(version);
@@ -5450,6 +5419,9 @@ namespace TR {
         }
 
         int16 getModelIndex(Entity::Type type) const {
+            if (!simpleItems)
+                type = convToInv(type);
+
         //#ifndef _DEBUG
             if ((type >= Entity::AI_GUARD && type <= Entity::AI_CHECK) || 
                 (type >= Entity::GLOW_2 && type <= Entity::ENEMY_BAT_SWARM) ||
@@ -5495,6 +5467,21 @@ namespace TR {
                     fd++;
                     break;
 
+                case FloorData::FLOOR_NW_SE_SOLID       :
+                case FloorData::FLOOR_NE_SW_SOLID       :
+                case FloorData::CEILING_NW_SE_SOLID     :
+                case FloorData::CEILING_NE_SW_SOLID     :
+                case FloorData::FLOOR_NW_SE_PORTAL_NW   :
+                case FloorData::FLOOR_NW_SE_PORTAL_SE   :
+                case FloorData::FLOOR_NE_SW_PORTAL_NE   :
+                case FloorData::FLOOR_NE_SW_PORTAL_SW   :
+                case FloorData::CEILING_NW_SE_PORTAL_NW :
+                case FloorData::CEILING_NW_SE_PORTAL_SE :
+                case FloorData::CEILING_NE_SW_PORTAL_NE :
+                case FloorData::CEILING_NE_SW_PORTAL_SW :
+                    fd++;
+                    break;
+
                 case FloorData::TRIGGER :
                     fd++;
                     do {} while (!(*fd++).triggerCmd.end);
@@ -5502,25 +5489,10 @@ namespace TR {
 
                 case FloorData::LAVA :
                 case FloorData::CLIMB :
+                case FloorData::MONKEY         :
+                case FloorData::MINECART_LEFT  :
+                case FloorData::MINECART_RIGHT :
                     break;
-
-                case 0x07 :
-                case 0x08 :
-                case 0x09 :
-                case 0x0A :
-                case 0x0B :
-                case 0x0C :
-                case 0x0D :
-                case 0x0E :
-                case 0x0F :
-                case 0x10 :
-                case 0x11 :
-                case 0x12 : fd++; break; // TODO TR3 triangulation
-
-                case 0x13 : break; // TODO TR3 monkeyswing
-
-                case 0x14 : 
-                case 0x15 : break; // TODO TR3 minecart
 
                 default : LOG("unknown func to skip: %d\n", func);
             }
@@ -5531,9 +5503,33 @@ namespace TR {
             if (!sector->floorIndex) return NO_ROOM;
             FloorData *fd = &floors[sector->floorIndex];
         // floor data always in this order
-            if (!fd->cmd.end && fd->cmd.func == FloorData::FLOOR)   fd += 2; // skip floor slant info
-            if (!fd->cmd.end && fd->cmd.func == FloorData::CEILING) fd += 2; // skip ceiling slant info
-            if (fd->cmd.func == FloorData::PORTAL)  return (++fd)->value;
+            if (   fd->cmd.func == FloorData::FLOOR
+                || fd->cmd.func == FloorData::FLOOR_NW_SE_SOLID
+                || fd->cmd.func == FloorData::FLOOR_NE_SW_SOLID
+                || fd->cmd.func == FloorData::FLOOR_NW_SE_PORTAL_SE
+                || fd->cmd.func == FloorData::FLOOR_NW_SE_PORTAL_NW
+                || fd->cmd.func == FloorData::FLOOR_NE_SW_PORTAL_SW
+                || fd->cmd.func == FloorData::FLOOR_NE_SW_PORTAL_NE) {
+
+                if (fd->cmd.end) return NO_ROOM;
+                fd += 2;
+            }
+
+            if (   fd->cmd.func == FloorData::CEILING
+                || fd->cmd.func == FloorData::CEILING_NE_SW_SOLID
+                || fd->cmd.func == FloorData::CEILING_NW_SE_SOLID
+                || fd->cmd.func == FloorData::CEILING_NE_SW_PORTAL_SW
+                || fd->cmd.func == FloorData::CEILING_NE_SW_PORTAL_NE
+                || fd->cmd.func == FloorData::CEILING_NW_SE_PORTAL_SE
+                || fd->cmd.func == FloorData::CEILING_NW_SE_PORTAL_NW) {
+
+                if (fd->cmd.end) return NO_ROOM;
+                fd += 2;
+            }
+
+            if (fd->cmd.func == FloorData::PORTAL)
+                return (++fd)->value;
+
             return NO_ROOM;
         }
 
@@ -5610,6 +5606,8 @@ namespace TR {
         float getFloor(const Room::Sector *sector, const vec3 &pos, int16 *roomIndex = NULL) {
             int x = int(pos.x);
             int z = int(pos.z);
+            int dx = x & 1023;
+            int dz = z & 1023;
 
             while (sector->roomBelow != NO_ROOM) {
                 Room &room = rooms[sector->roomBelow];
@@ -5630,12 +5628,45 @@ namespace TR {
                 cmd = (*fd++).cmd;
                 
                 switch (cmd.func) {
-                    case FloorData::FLOOR   : {
-                        FloorData::Slant slant = (*fd++).slant;
-                        int sx = (int)slant.x;
-                        int sz = (int)slant.z;
-                        int dx = x % 1024;
-                        int dz = z % 1024;
+                    case TR::FloorData::FLOOR                 :
+                    case TR::FloorData::FLOOR_NW_SE_SOLID     : 
+                    case TR::FloorData::FLOOR_NE_SW_SOLID     : 
+                    case TR::FloorData::FLOOR_NW_SE_PORTAL_SE :
+                    case TR::FloorData::FLOOR_NW_SE_PORTAL_NW :
+                    case TR::FloorData::FLOOR_NE_SW_PORTAL_SW :
+                    case TR::FloorData::FLOOR_NE_SW_PORTAL_NE : {
+                        int sx, sz;
+
+                        if (cmd.func == TR::FloorData::FLOOR) {
+                            sx = fd->slantX;
+                            sz = fd->slantZ;
+                        } else {
+                            if (cmd.func == TR::FloorData::FLOOR_NW_SE_SOLID     || 
+                                cmd.func == TR::FloorData::FLOOR_NW_SE_PORTAL_SE ||
+                                cmd.func == TR::FloorData::FLOOR_NW_SE_PORTAL_NW) {
+                                if (dx <= 1024 - dz) {
+                                    floor += cmd.triangle.b * 256;
+                                    sx = fd->a - fd->b;
+                                    sz = fd->c - fd->b;
+                                } else {
+                                    floor += cmd.triangle.a * 256;
+                                    sx = fd->d - fd->c;
+                                    sz = fd->d - fd->a;
+                                }
+                            } else {
+                                if (dx <= dz) {
+                                    floor += cmd.triangle.b * 256;
+                                    sx = fd->d - fd->c;
+                                    sz = fd->c - fd->b;
+                                } else {
+                                    floor += cmd.triangle.a * 256;
+                                    sx = fd->a - fd->b;
+                                    sz = fd->d - fd->a;
+                                }
+                            }
+                        }
+                        fd++;
+
                         floor -= sx * (sx > 0 ? (dx - 1023) : dx) >> 2;
                         floor -= sz * (sz > 0 ? (dz - 1023) : dz) >> 2;
                         break;
@@ -5663,6 +5694,8 @@ namespace TR {
         float getCeiling(const Room::Sector *sector, const vec3 &pos) {
             int x = int(pos.x);
             int z = int(pos.z);
+            int dx = x & 1023;
+            int dz = z & 1023;
 
             ASSERT(sector);
             while (sector->roomAbove != NO_ROOM) {
@@ -5676,23 +5709,71 @@ namespace TR {
                 return float(ceiling);
 
             FloorData *fd = &floors[sector->floorIndex];
-            
-            if (fd->cmd.func == FloorData::FLOOR) {
-                if (fd->cmd.end) return float(ceiling);
-                fd += 2; // skip floor slant
-            }
+            FloorData::Command cmd;
 
-            if (fd->cmd.func == FloorData::CEILING) {
-                FloorData::Slant slant = (++fd)->slant;
-                int sx = (int)slant.x;
-                int sz = (int)slant.z;
-                int dx = x % 1024;
-                int dz = z % 1024;
-                ceiling -= sx * (sx < 0 ? (dx - 1023) : dx) >> 2;
-                ceiling += sz * (sz > 0 ? (dz - 1023) : dz) >> 2;
-            }
+            do {
+                cmd = (*fd++).cmd;
+                
+                switch (cmd.func) {
+                    case TR::FloorData::CEILING                 :
+                    case TR::FloorData::CEILING_NE_SW_SOLID     :
+                    case TR::FloorData::CEILING_NW_SE_SOLID     :
+                    case TR::FloorData::CEILING_NE_SW_PORTAL_SW :
+                    case TR::FloorData::CEILING_NE_SW_PORTAL_NE :
+                    case TR::FloorData::CEILING_NW_SE_PORTAL_SE :
+                    case TR::FloorData::CEILING_NW_SE_PORTAL_NW : { 
+                        int sx, sz;
 
-            // TODO parse triggers to collide with objects (bridges, trap doors/floors etc)
+                        if (cmd.func == TR::FloorData::CEILING) {
+                            sx = fd->slantX;
+                            sz = fd->slantZ;
+                        } else {
+                            if (cmd.func == TR::FloorData::CEILING_NW_SE_SOLID     || 
+                                cmd.func == TR::FloorData::CEILING_NW_SE_PORTAL_SE ||
+                                cmd.func == TR::FloorData::CEILING_NW_SE_PORTAL_NW) {
+                                if (dx <= 1024 - dz) {
+                                    ceiling += cmd.triangle.b * 256;
+                                    sx = fd->c - fd->d;
+                                    sz = fd->b - fd->c;
+                                } else {
+                                    ceiling += cmd.triangle.a * 256;
+                                    sx = fd->b - fd->a;
+                                    sz = fd->a - fd->d;
+                                }
+                            } else {
+                                if (dx <= dz) {
+                                    ceiling += cmd.triangle.b * 256;
+                                    sx = fd->b - fd->a;
+                                    sz = fd->b - fd->c;
+                                } else {
+                                    ceiling += cmd.triangle.a * 256;
+                                    sx = fd->c - fd->d;
+                                    sz = fd->a - fd->d;
+                                }
+                            }
+                        }
+                        fd++;
+
+                        ceiling -= sx * (sx < 0 ? (dx - 1023) : dx) >> 2; 
+                        ceiling += sz * (sz > 0 ? (dz - 1023) : dz) >> 2; 
+                        break;
+                    }
+
+                    case FloorData::TRIGGER :  {
+                        fd++;
+                        FloorData::TriggerCommand trigCmd;
+                        do {
+                            trigCmd = (*fd++).triggerCmd;
+                            if (trigCmd.action != Action::ACTIVATE)
+                                continue;
+                            // TODO controller[trigCmd.args]->getCeiling(&ceiling, x, y, z);
+                        } while (!trigCmd.end);
+                        break;
+                    }
+
+                    default : floorSkipCommand(fd, cmd.func);
+                }
+            } while (!cmd.end);
 
             return float(ceiling);
         }
