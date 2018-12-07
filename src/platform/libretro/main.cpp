@@ -33,8 +33,6 @@ struct retro_hw_render_callback hw_render;
 static unsigned MAX_WIDTH  = 320;
 static unsigned MAX_HEIGHT = 240;
 
-#define SND_FRAME_SIZE  4
-
 static unsigned FRAMERATE     = 60;
 static unsigned SND_RATE      = 44100;
 
@@ -46,7 +44,6 @@ Sound::Frame *sndData;
 char levelpath[255] = {0};
 
 static retro_video_refresh_t video_cb;
-static retro_audio_sample_t audio_cb;
 static retro_audio_sample_batch_t audio_batch_cb;
 static retro_environment_t environ_cb;
 static retro_input_poll_t input_poll_cb;
@@ -453,7 +450,7 @@ static void context_reset(void)
    fprintf(stderr, "Context reset!\n");
    rglgen_resolve_symbols(hw_render.get_proc_address);
 
-   sndData = new Sound::Frame[SND_RATE * 2 * sizeof(int16_t) / FRAMERATE];
+   sndData = new Sound::Frame[SND_RATE / FRAMERATE];
    Game::init(levelpath);
 }
 
