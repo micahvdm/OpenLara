@@ -992,7 +992,7 @@ namespace TR {
                         callback(Sound::openCDAudioWAD("audio/3/cdaudio.wad", track), userData);
                         return;
                     #else
-                        sprintf(title, "audio/3/track_%02d.wav", track);
+                        sprintf(title, "audio/3/track_%02d.ogg", track);
                     #endif
                     break;
                 default : return;
