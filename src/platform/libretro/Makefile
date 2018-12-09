@@ -140,7 +140,7 @@ else ifeq ($(platform), emscripten)
 else
    CC = gcc
    TARGET := $(TARGET_NAME)_libretro.dll
-   SHARED := -shared -static-libgcc -static-libstdc++ -s -Wl,--version-script=link.T -lwinmm -Wl,--no-undefined
+   SHARED := -shared -static-libgcc -static-libstdc++ -Wl,--version-script=link.T -lwinmm -Wl,--no-undefined
    GL_LIB := -lopengl32
    CXXFLAGS += -I..
    CFLAGS += -I..

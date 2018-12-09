@@ -145,7 +145,8 @@ struct Flame : Sprite {
 
         if (flame) {
             flame->owner = owner;
-            flame->jointIndex = jCount > 1 ? (jointIndex & jCount) : -1;
+            flame->jointIndex = jCount > 1 ? jointIndex : -1;
+            ASSERT(flame->jointIndex < jCount);
         }
         return flame;
     }
@@ -1448,7 +1449,7 @@ struct KeyHole : Controller {
 
     virtual const TR::Model* getModel() {
         if (getEntity().isPuzzleHole() && flags.active == TR::ACTIVE) {
-            int doneIdx = TR::Entity::convToInv(TR::Entity::getItemForHole(getEntity().type)) - TR::Entity::INV_PUZZLE_1;
+            int doneIdx = TR::Level::convToInv(TR::Entity::getItemForHole(getEntity().type)) - TR::Entity::INV_PUZZLE_1;
             return &level->models[level->extra.puzzleDone[doneIdx]];
         }
         return Controller::getModel();

@@ -33,8 +33,6 @@ struct retro_hw_render_callback hw_render;
 static unsigned MAX_WIDTH  = 320;
 static unsigned MAX_HEIGHT = 240;
 
-#define SND_FRAME_SIZE  4
-
 static unsigned FRAMERATE     = 60;
 static unsigned SND_RATE      = 44100;
 
@@ -43,11 +41,9 @@ static unsigned height        = BASE_HEIGHT;
 
 Sound::Frame *sndData;
 
-char levelpath[255];
-char basedir[1024];
+char levelpath[255] = {0};
 
 static retro_video_refresh_t video_cb;
-static retro_audio_sample_t audio_cb;
 static retro_audio_sample_batch_t audio_batch_cb;
 static retro_environment_t environ_cb;
 static retro_input_poll_t input_poll_cb;
@@ -151,12 +147,10 @@ void osJoyVibrate(int index, float L, float R)
 
 void retro_init(void)
 {
-   contentDir[0] = cacheDir[0] = saveDir[0] = contDir[0] = 0;
-#ifdef _WIN32
-   char slash = '\\';
-#else
-   char slash = '/';
-#endif
+   contentDir[0] = cacheDir[0] = saveDir[0] = 0;
+
+   const char slash = path_default_slash_c();
+
    const char *sysdir = NULL;
    const char *savdir = NULL;
    if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &sysdir))
@@ -180,7 +174,7 @@ void retro_init(void)
 
 void retro_deinit(void)
 {
-   contentDir[0] = cacheDir[0] = saveDir[0] = contDir[0] = 0;
+   contentDir[0] = cacheDir[0] = saveDir[0] = 0;
 }
 
 unsigned retro_api_version(void)
@@ -456,7 +450,7 @@ static void context_reset(void)
    fprintf(stderr, "Context reset!\n");
    rglgen_resolve_symbols(hw_render.get_proc_address);
 
-   sndData = new Sound::Frame[SND_RATE * 2 * sizeof(int16_t) / FRAMERATE];
+   sndData = new Sound::Frame[SND_RATE / FRAMERATE];
    Game::init(levelpath);
 }
 
@@ -587,25 +581,24 @@ bool retro_load_game(const struct retro_game_info *info)
    }
 
    fprintf(stderr, "Loaded game!\n");
-   (void)info;
 
-
-   levelpath[0] = '\0';
-   strcpy(levelpath, info->path);
-   
-   basedir[0] = '\0';
+   char basedir[1024] = {0};
    extract_directory(basedir, info->path, sizeof(basedir));
 
-   strcpy(contDir, basedir);
-   fill_pathname_parent_dir_name(basedir, contDir, sizeof(basedir));
+   // contentDir acts as the current working directory in OpenLara
+   strcpy(contentDir, basedir);
+   fill_pathname_parent_dir_name(basedir, contentDir, sizeof(basedir));
    if (strcmp(basedir, "level") == 0)
    {
-      /* level/X/ */
-      path_parent_dir(contDir);
-      path_parent_dir(contDir);
+      // level/X/
+      path_parent_dir(contentDir);
+      path_parent_dir(contentDir);
    }
-   else /* CD */
-      path_parent_dir(contDir);
+   else // CD
+      path_parent_dir(contentDir);
+
+   // make levelpath contain a path relative to contentDir
+   strcpy(levelpath, (info->path+strlen(contentDir)));
 
    Core::width  = width;
    Core::height = height;

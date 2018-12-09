@@ -533,18 +533,7 @@ struct Inventory {
 
             Core::setBasis(joints, m.mCount);
 
-            Core::setBlendMode(bmPremult);
-            mesh->transparent = 0;
-            mesh->renderModel(desc.model);
-            mesh->transparent = 1;
-            mesh->renderModel(desc.model);
-            Core::setBlendMode(bmAdd);
-            Core::setDepthWrite(false);
-            mesh->transparent = 2;
-            mesh->renderModel(desc.model);
-            Core::setDepthWrite(true);
-
-            Core::setBlendMode(bmNone);
+            mesh->renderModelFull(desc.model);
         }
 
         void choose() {
@@ -709,7 +698,7 @@ struct Inventory {
     }
 
     int contains(TR::Entity::Type type) {
-        type = TR::Entity::convToInv(type);
+        type = TR::Level::convToInv(type);
         for (int i = 0; i < itemsCount; i++)
             if (items[i]->type == type)
                 return i;
@@ -733,16 +722,17 @@ struct Inventory {
     }
 
     void add(TR::Entity::Type type, int count = 1, bool smart = true) {
-        type = TR::Entity::convToInv(type);
+        type = TR::Level::convToInv(type);
 
         if (smart) {
             switch (type) {
                 case TR::Entity::INV_PISTOLS      :
-                case TR::Entity::INV_AMMO_PISTOLS : 
+                case TR::Entity::INV_AMMO_PISTOLS :
+                    count = UNLIMITED_AMMO; // pistols always has unlimited ammo
                     addAmmo(type, count, 10, TR::Entity::INV_PISTOLS, TR::Entity::INV_AMMO_PISTOLS);
                     break;
                 case TR::Entity::INV_SHOTGUN      :
-                case TR::Entity::INV_AMMO_SHOTGUN : 
+                case TR::Entity::INV_AMMO_SHOTGUN :
                     addAmmo(type, count,  2, TR::Entity::INV_SHOTGUN, TR::Entity::INV_AMMO_SHOTGUN);
                     break;
                 case TR::Entity::INV_MAGNUMS      :
@@ -750,7 +740,7 @@ struct Inventory {
                     addAmmo(type, count, 25, TR::Entity::INV_MAGNUMS, TR::Entity::INV_AMMO_MAGNUMS);
                     break;
                 case TR::Entity::INV_UZIS         :
-                case TR::Entity::INV_AMMO_UZIS    : 
+                case TR::Entity::INV_AMMO_UZIS    :
                     addAmmo(type, count, 50, TR::Entity::INV_UZIS, TR::Entity::INV_AMMO_UZIS);
                     break;
                 default : ;
@@ -1469,11 +1459,65 @@ struct Inventory {
             y = options[i].render(x, y, width, slot == i, &stg);
     }
 
+
+    StringID getItemName(StringID def, TR::LevelID id, TR::Entity::Type type) {
+        if (!TR::Entity::isPuzzleItem(type) && !TR::Entity::isKeyItem(type))
+            return def;
+
+        #define LVLCHECK(L, T, S) if (id == TR::L && type == TR::Entity::INV_##T) return S;
+
+        LVLCHECK(LVL_TR1_2,     KEY_ITEM_1, STR_KEY_SILVER);
+        LVLCHECK(LVL_TR1_2,     PUZZLE_1,   STR_PUZZLE_GOLD_IDOL);
+
+        LVLCHECK(LVL_TR1_3A,    PUZZLE_1,   STR_PUZZLE_COG);
+
+        LVLCHECK(LVL_TR1_4,     KEY_ITEM_1, STR_KEY_NEPTUNE);
+        LVLCHECK(LVL_TR1_4,     KEY_ITEM_2, STR_KEY_ATLAS);
+        LVLCHECK(LVL_TR1_4,     KEY_ITEM_3, STR_KEY_DAMOCLES);
+        LVLCHECK(LVL_TR1_4,     KEY_ITEM_4, STR_KEY_THOR);
+
+        LVLCHECK(LVL_TR1_5,     KEY_ITEM_1, STR_KEY_RUSTY);
+
+        LVLCHECK(LVL_TR1_6,     PUZZLE_1,   STR_PUZZLE_GOLD_BAR);
+
+        LVLCHECK(LVL_TR1_7A,    KEY_ITEM_1, STR_KEY_GOLD);
+        LVLCHECK(LVL_TR1_7A,    KEY_ITEM_2, STR_KEY_SILVER);
+        LVLCHECK(LVL_TR1_7A,    KEY_ITEM_3, STR_KEY_RUSTY);
+
+        LVLCHECK(LVL_TR1_7B,    KEY_ITEM_1, STR_KEY_GOLD);
+        LVLCHECK(LVL_TR1_7B,    KEY_ITEM_2, STR_KEY_RUSTY);
+        LVLCHECK(LVL_TR1_7B,    KEY_ITEM_3, STR_KEY_RUSTY);
+
+        LVLCHECK(LVL_TR1_8A,    KEY_ITEM_1, STR_KEY_SAPPHIRE);
+
+        LVLCHECK(LVL_TR1_8B,    KEY_ITEM_1, STR_KEY_SAPPHIRE);
+        LVLCHECK(LVL_TR1_8B,    PUZZLE_2,   STR_PUZZLE_SCARAB);
+        LVLCHECK(LVL_TR1_8B,    PUZZLE_3,   STR_PUZZLE_HORUS);
+        LVLCHECK(LVL_TR1_8B,    PUZZLE_4,   STR_PUZZLE_ANKH);
+        LVLCHECK(LVL_TR1_8B,    PUZZLE_1,   STR_PUZZLE_HORUS);
+
+        LVLCHECK(LVL_TR1_8C,    KEY_ITEM_1, STR_KEY_GOLD);
+        LVLCHECK(LVL_TR1_8C,    PUZZLE_1,   STR_PUZZLE_ANKH);
+        LVLCHECK(LVL_TR1_8C,    PUZZLE_2,   STR_PUZZLE_SCARAB);
+
+        LVLCHECK(LVL_TR1_10A,   PUZZLE_1,   STR_PUZZLE_FUSE);
+        LVLCHECK(LVL_TR1_10A,   PUZZLE_2,   STR_PUZZLE_PYRAMID);
+
+        LVLCHECK(LVL_TR1_EGYPT, KEY_ITEM_1, STR_KEY_GOLD);
+        LVLCHECK(LVL_TR1_CAT,   KEY_ITEM_1, STR_KEY_ORNATE);
+
+        #undef LVLCHECK
+
+        return def;
+    }
+
     void renderItemText(float eye, Item *item) {
         if (item->type == TR::Entity::INV_PASSPORT && phaseChoose == 1.0f) {
             //
-        } else
-            UI::textOut(vec2(-eye, 480 - 32), item->desc.str, UI::aCenter, UI::width);
+        } else {
+            StringID str = getItemName(item->desc.str, game->getLevel()->id, item->type);
+            UI::textOut(vec2(-eye, 480 - 32), str, UI::aCenter, UI::width);
+        }
 
         renderItemCount(item, vec2(UI::width / 2 - 160 - eye, 480 - 96), 320);
 
@@ -1801,21 +1845,7 @@ struct Inventory {
 
         setupCamera(aspect);
 
-        Core::whiteTex->bind(sShadow);
-        game->setShader(Core::passCompose, Shader::ENTITY, false, false);
-
-        vec4 ambient[6] = {
-            vec4(0.4f), vec4(0.2f), vec4(0.4f), vec4(0.5f), vec4(0.4f), vec4(0.6f)
-        };
-
-        for (int i = 0; i < MAX_LIGHTS; i++) {
-            Core::lightPos[i]   = vec4(0, 0, 0, 0);
-            Core::lightColor[i] = vec4(0, 0, 0, 1);
-        }
-        
-        Core::active.shader->setParam(uLightPos,   Core::lightPos[0],   MAX_LIGHTS);
-        Core::active.shader->setParam(uLightColor, Core::lightColor[0], MAX_LIGHTS);
-        Core::active.shader->setParam(uAmbient,    ambient[0], 6);
+        UI::setupInventoryShading();
 
         renderPage(page);
         if (page != targetPage)

@@ -3,6 +3,8 @@
 
 #include "core.h"
 
+//#define _DEBUG_SHADERS
+
 #ifdef __LIBRETRO__
 #include <libretro.h>
 extern struct retro_hw_render_callback hw_render;
@@ -380,7 +382,7 @@ namespace GAPI {
                 default                : ASSERT(false); LOG("! wrong pass id\n"); return;
             }
 
-            #ifdef _DEBUG
+            #ifdef _DEBUG_SHADERS
                 Stream *stream = NULL;
                 switch (pass) {
                     case Core::passCompose :
@@ -416,7 +418,7 @@ namespace GAPI {
             defines[0] = 0;
 
             for (int i = 0; i < defCount; i++) {
-                #if defined(_GAPI_GLES)
+                #ifdef _GAPI_GLES
                     if (def[i] == SD_SHADOW_SAMPLER)
                         strcat(defines, "#extension GL_EXT_shadow_samplers : require\n"); // ACHTUNG! must be first in the list
                 #endif
@@ -461,7 +463,7 @@ namespace GAPI {
                 }
             }
 
-            #ifdef _DEBUG
+            #ifdef _DEBUG_SHADERS
                 delete[] sourceData;
             #endif
 

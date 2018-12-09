@@ -275,6 +275,12 @@ struct vec2 {
     float angle()   const { return atan2f(y, x); }
     vec2& rotate(const vec2 &cs) { *this = vec2(x*cs.x - y*cs.y, x*cs.y + y*cs.x); return *this; }
     vec2& rotate(float angle)    { vec2 cs; sincos(angle, &cs.y, &cs.x); return rotate(cs); }
+
+    vec2 lerp(const vec2 &v, const float t) const {
+        if (t <= 0.0f) return *this;
+        if (t >= 1.0f) return v;
+        return *this + (v - *this) * t; 
+    }
 };
 
 struct vec3 {
@@ -1203,7 +1209,6 @@ extern void osDownload   (Stream *stream);
 char cacheDir[255];
 char saveDir[255];
 char contentDir[255];
-char contDir[255];
 
 struct Stream {
     typedef void (Callback)(Stream *stream, void *userData);
@@ -1241,14 +1246,6 @@ struct Stream {
             f = fopen(path, "rb");
         } else
             f = fopen(name, "rb");
-        if (!f) {
-            char path[255];
-            path[0] = 0;
-            strcpy(path, contDir);
-            strcat(path, name);
-            f = fopen(path, "rb");
-            LOG("Loading file \"%s\"\n", path);
-        }
 
         if (!f) {
             #ifdef _OS_WEB
@@ -1296,9 +1293,8 @@ struct Stream {
 
     static bool exists(const char *name) {
         FILE *f = fopen(name, "rb");
-        if (!f) {
+        if (!f)
             return false;
-        }
         else
             fclose(f);
         return true;
@@ -1306,8 +1302,7 @@ struct Stream {
 
     static bool existsContent(const char *name) {
         char fileName[1024];
-        //strcpy(fileName, contentDir);
-        strcpy(fileName, contDir);
+        strcpy(fileName, contentDir);
         strcat(fileName, name);
         return exists(fileName);
     }
@@ -1653,6 +1648,27 @@ namespace String {
 
 }
 
+
+template <int N>
+struct FixedStr {
+    char data[N];
+
+    void get(char *dst) {
+        memcpy(dst, data, sizeof(data));
+        dst[sizeof(data)] = 0;
+    }
+
+    FixedStr<N>& operator = (const char *str) {
+        int len = min(sizeof(data), strlen(str));
+        memset(data, 0, sizeof(data));
+        memcpy(data, str, len);
+        return *this;
+    }
+};
+
+typedef FixedStr<16> str16;
+
+
 template <typename T>
 struct Array {
     int capacity;
@@ -1690,7 +1706,8 @@ struct Array {
     }
 
     void removeFast(int index) {
-        (*this)[index] = (*this)[--length];
+        (*this)[index] = (*this)[length - 1];
+        length--;
     }
 
     void remove(int index) {

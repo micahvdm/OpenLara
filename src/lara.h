@@ -62,6 +62,8 @@
 
 #define UNITS_PER_METER     445.0f
 
+#define LARA_VIBRATE_HIT_TIME   0.2f
+
 struct Lara : Character {
 
     // http://www.tombraiderforums.com/showthread.php?t=148859
@@ -320,6 +322,8 @@ struct Lara : Character {
 
     float       hitTimer;
 
+    int32       networkInput;
+
 #ifdef _DEBUG
     //uint16      *dbgBoxes;
     //int         dbgBoxesCount;
@@ -494,8 +498,9 @@ struct Lara : Character {
     Lara(IGame *game, int entity) : Character(game, entity, LARA_MAX_HEALTH), dozy(false), wpnCurrent(TR::Entity::NONE), wpnNext(TR::Entity::NONE), braid(NULL) {
         camera = new Camera(game, this);
 
-        itemHolster = TR::Entity::NONE;
-        hitTimer    = 0.0f;
+        itemHolster  = TR::Entity::NONE;
+        hitTimer     = 0.0f;
+        networkInput = -1;
 
         if (level->extra.laraSkin > -1)
             level->entities[entity].modelIndex = level->extra.laraSkin + 1;
@@ -684,6 +689,13 @@ struct Lara : Character {
 
         if (itemHolster != TR::Entity::NONE)
             meshSwap(1, level->extra.weapons[itemHolster], JOINT_MASK_LEG_L1 | JOINT_MASK_LEG_R1);
+
+        if (getRoom().flags.water) {
+            stand = STAND_UNDERWATER;
+            if (state == STATE_SURF_TREAD || state == STATE_SURF_SWIM || state == STATE_SURF_BACK || state == STATE_SURF_LEFT || state == STATE_SURF_RIGHT)
+                stand = STAND_ONWATER;
+        } else
+            stand = STAND_AIR;
     }
 
     int getRoomByPos(const vec3 &pos) {
@@ -1013,7 +1025,7 @@ struct Lara : Character {
         int count = wpnCurrent == TR::Entity::SHOTGUN ? 6 : 2;
         float nearDist = 32.0f * 1024.0f;
         vec3  nearPos;
-        int   shots = 0;
+        int   shots = 0, hits = 0;
 
         for (int i = 0; i < count; i++) {
             int armIndex;
@@ -1047,6 +1059,7 @@ struct Lara : Character {
             int room;
             vec3 hit = trace(getRoomIndex(), p, t, room, false);
             if (arm->target && checkHit(arm->target, p, hit, hit)) {
+                hits++;
                 TR::Entity::Type type = arm->target->getEntity().type;
                 ((Character*)arm->target)->hit(wpnGetDamage(), this);
                 hit -= d * 64.0f;
@@ -1068,7 +1081,8 @@ struct Lara : Character {
             saveStats.ammoUsed += ((wpnCurrent == TR::Entity::SHOTGUN) ? 1 : 2);
 
             game->playSound(wpnGetSound(), pos, Sound::PAN);
-            game->playSound(TR::SND_RICOCHET, nearPos, Sound::PAN);
+            if (shots != hits)
+                game->playSound(TR::SND_RICOCHET, nearPos, Sound::PAN);
 
              if (wpnAmmo && *wpnAmmo != UNLIMITED_AMMO && wpnCurrent == TR::Entity::SHOTGUN)
                 *wpnAmmo -= 1;
@@ -1561,13 +1575,13 @@ struct Lara : Character {
     virtual void hit(float damage, Controller *enemy = NULL, TR::HitType hitType = TR::HIT_DEFAULT) {
         if (dozy || level->isCutsceneLevel()) return;
 
-        if (health <= 0.0f) return;
+        if (health <= 0.0f && hitType != TR::HIT_FALL) return;
 
         damageTime = LARA_DAMAGE_TIME;
 
         Character::hit(damage, enemy, hitType);
 
-        hitTimer = 0.2f;
+        hitTimer = LARA_VIBRATE_HIT_TIME;
 
         switch (hitType) {
             case TR::HIT_DART      : addBlood(enemy->pos, vec3(0));
@@ -1663,7 +1677,7 @@ struct Lara : Character {
 
         if (hitType == TR::HIT_LAVA) {
             for (int i = 0; i < 10; i++)
-                Flame::add(game, this, int(randf() * 24.0f));
+                Flame::add(game, this, rand() % getModel()->mCount);
         }
 
         if (state != oldState)
@@ -1984,7 +1998,7 @@ struct Lara : Character {
                         return;
                     }
 
-                    if (TR::Entity::convToInv(TR::Entity::getItemForHole(entity.type)) != usedItem) { // check compatibility if user select other
+                    if (TR::Level::convToInv(TR::Entity::getItemForHole(entity.type)) != usedItem) { // check compatibility if user select other
                         game->playSound(TR::SND_NO, pos, Sound::PAN); // uncompatible item
                         return;
                     }
@@ -2806,7 +2820,13 @@ struct Lara : Character {
     }
 
     virtual int getStateDeath() {
-        return (stand == STAND_UNDERWATER || stand == STAND_ONWATER) ? STATE_UNDERWATER_DEATH : (state == STATE_MIDAS_DEATH ? STATE_MIDAS_DEATH : STATE_DEATH);
+        if (stand == STAND_UNDERWATER || stand == STAND_ONWATER)
+            return STATE_UNDERWATER_DEATH;
+        if (state == STATE_MIDAS_DEATH)
+            return STATE_MIDAS_DEATH;
+        if (state == STATE_HANG || state == STATE_HANG_LEFT || state == STATE_HANG_RIGHT || state == STATE_UP_JUMP)
+            return STATE_FALL;
+        return STATE_DEATH;
     }
 
     virtual int getStateDefault() {
@@ -2893,6 +2913,10 @@ struct Lara : Character {
 
     virtual int getInput() { // TODO: updateInput
         if (level->isCutsceneLevel()) return 0;
+
+        if (networkInput != -1)
+            return networkInput;
+
         input = 0;
         int pid = camera->cameraIndex;
 
@@ -3079,12 +3103,25 @@ struct Lara : Character {
             case STATE_PICK_UP : {
                 int pickupFrame = stand == STAND_GROUND ? PICKUP_FRAME_GROUND : PICKUP_FRAME_UNDERWATER;
                 if (animation.isFrameActive(pickupFrame)) {
+                    camera->setup(true);
+
                     for (int i = 0; i < pickupListCount; i++) {
-                        if (pickupList[i]->getEntity().type == TR::Entity::SCION_PICKUP_HOLDER)
+                        Controller *item = pickupList[i];
+
+                        if (item->getEntity().type == TR::Entity::SCION_PICKUP_HOLDER)
                             continue;
-                        pickupList[i]->deactivate();
-                        pickupList[i]->flags.invisible = true;
-                        game->invAdd(pickupList[i]->getEntity().type, 1);
+                        item->deactivate();
+                        item->flags.invisible = true;
+                        game->invAdd(item->getEntity().type, 1);
+
+                        vec4 p = Core::mViewProj * vec4(item->pos, 1.0f);
+                        if (p.w != 0.0f) {
+                            p.x = ( p.x / p.w * 0.5f + 0.5f) * UI::width;
+                            p.y = (-p.y / p.w * 0.5f + 0.5f) * UI::height;
+                        } else
+                            p = vec4(UI::width * 0.5f, UI::height * 0.5f, 0.0f, 0.0f);
+
+                        UI::addPickup(item->getEntity().type, vec2(p.x, p.y));
                         saveStats.pickups++;
                     }
                     pickupListCount = 0;
@@ -3127,10 +3164,12 @@ struct Lara : Character {
             switch (usedItem) {
                 case TR::Entity::INV_MEDIKIT_SMALL :
                 case TR::Entity::INV_MEDIKIT_BIG   :
-                    damageTime = LARA_DAMAGE_TIME;
-                    health = min(LARA_MAX_HEALTH, health + (usedItem == TR::Entity::INV_MEDIKIT_SMALL ? LARA_MAX_HEALTH / 2 : LARA_MAX_HEALTH));
-                    game->playSound(TR::SND_HEALTH, pos, Sound::PAN);
-                    inventory->remove(usedItem);
+                    if (health < LARA_MAX_HEALTH) {
+                        damageTime = LARA_DAMAGE_TIME;
+                        health = min(LARA_MAX_HEALTH, health + (usedItem == TR::Entity::INV_MEDIKIT_SMALL ? LARA_MAX_HEALTH / 2 : LARA_MAX_HEALTH));
+                        game->playSound(TR::SND_HEALTH, pos, Sound::PAN);
+                        inventory->remove(usedItem);
+                    }
                     usedItem = TR::Entity::NONE;
                 default : ;
             }
@@ -3422,7 +3461,7 @@ struct Lara : Character {
             } else {
             // fast distance check for object
                 if (e.type != TR::Entity::HAMMER_HANDLE && e.type != TR::Entity::HAMMER_BLOCK && e.type != TR::Entity::SCION_HOLDER)
-                    if (fabsf(pos.x - controller->pos.x) > 1024 || fabsf(pos.z - controller->pos.z) > 1024 || fabsf(pos.y - controller->pos.y) > 2048) continue;
+                    if (fabsf(pos.x - controller->pos.x) > 2048 || fabsf(pos.z - controller->pos.z) > 2048 || fabsf(pos.y - controller->pos.y) > 2048) continue;
             }
 
             vec3 dir = pos - vec3(0.0f, 128.0f, 0.0f) - controller->pos;
