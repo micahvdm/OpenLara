@@ -209,7 +209,7 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
       .base_height  = BASE_HEIGHT,
       .max_width    = MAX_WIDTH,
       .max_height   = MAX_HEIGHT,
-      .aspect_ratio = 4.0 / 3.0,
+      .aspect_ratio = (float) MAX_WIDTH / MAX_HEIGHT,
    };
 }
 
