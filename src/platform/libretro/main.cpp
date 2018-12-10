@@ -10,6 +10,10 @@
 
 #include "../../game.h"
 
+#ifdef OSX
+#include <pthread.h>
+#endif
+
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 struct retro_hw_render_callback hw_render;
 
