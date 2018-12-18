@@ -588,7 +588,11 @@ bool retro_load_game(const struct retro_game_info *info)
       return false;
    }
 
-   fprintf(stderr, "Loaded game!\n");
+if (!path_is_absolute(info->path))
+   {
+      fprintf(stderr, "Full path to content is required, exiting...\n");
+      return false;
+   }
 
    char basedir[1024] = {0};
    extract_directory(basedir, info->path, sizeof(basedir));
@@ -610,6 +614,8 @@ bool retro_load_game(const struct retro_game_info *info)
 
    Core::width  = width;
    Core::height = height;
+
+   fprintf(stderr, "Loaded game!\n");
 
    return true;
 }
