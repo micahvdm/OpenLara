@@ -1,4 +1,4 @@
-/* Copyright (C) 2010-2017 The RetroArch team
+/* Copyright (C) 2010-2018 The RetroArch team
  *
  * ---------------------------------------------------------------------------------------
  * The following license statement only applies to this libretro SDK code part (glsym).
@@ -20,24 +20,23 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include <stdint.h>
-#include <string.h>
+#ifndef __LIBRETRO_SDK_GLSYM_H__
+#define __LIBRETRO_SDK_GLSYM_H__
 
-#include <glsym/rglgen.h>
-#include <glsym/glsym.h>
+#include "rglgen.h"
 
-void rglgen_resolve_symbols_custom(rglgen_proc_address_t proc,
-      const struct rglgen_sym_map *map)
-{
-   for (; map->sym; map++)
-   {
-      rglgen_func_t func = proc(map->sym);
-      memcpy(map->ptr, &func, sizeof(func));
-   }
-}
+#ifndef HAVE_PSGL
+#if defined(HAVE_OPENGLES2)
+#include "glsym_es2.h"
+#elif defined(HAVE_OPENGLES3)
+#include "glsym_es3.h"
+#else
+#ifdef HAVE_LIBNX
+#include "switch/nx_glsym.h"
+#endif
+#include "glsym_gl.h"
+#endif
+#endif
 
-void rglgen_resolve_symbols(rglgen_proc_address_t proc)
-{
-   rglgen_resolve_symbols_custom(proc, rglgen_symbol_map);
-}
+#endif
 

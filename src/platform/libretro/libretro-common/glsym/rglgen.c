@@ -1,4 +1,4 @@
-/* Copyright (C) 2010-2017 The RetroArch team
+/* Copyright (C) 2010-2018 The RetroArch team
  *
  * ---------------------------------------------------------------------------------------
  * The following license statement only applies to this libretro SDK code part (glsym).
@@ -20,28 +20,24 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef RGLGEN_H__
-#define RGLGEN_H__
+#include <stdint.h>
+#include <string.h>
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include <glsym/rglgen.h>
+#include <glsym/glsym.h>
 
-#include <retro_common_api.h>
-
-#include "rglgen_headers.h"
-
-RETRO_BEGIN_DECLS
-
-struct rglgen_sym_map;
-
-typedef void (*rglgen_func_t)(void);
-typedef rglgen_func_t (*rglgen_proc_address_t)(const char*);
-void rglgen_resolve_symbols(rglgen_proc_address_t proc);
 void rglgen_resolve_symbols_custom(rglgen_proc_address_t proc,
-      const struct rglgen_sym_map *map);
+      const struct rglgen_sym_map *map)
+{
+   for (; map->sym; map++)
+   {
+      rglgen_func_t func = proc(map->sym);
+      memcpy(map->ptr, &func, sizeof(func));
+   }
+}
 
-RETRO_END_DECLS
-
-#endif
+void rglgen_resolve_symbols(rglgen_proc_address_t proc)
+{
+   rglgen_resolve_symbols_custom(proc, rglgen_symbol_map);
+}
 

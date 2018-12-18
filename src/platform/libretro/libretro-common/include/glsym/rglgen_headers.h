@@ -1,4 +1,4 @@
-/* Copyright (C) 2010-2017 The RetroArch team
+/* Copyright (C) 2010-2018 The RetroArch team
  *
  * ---------------------------------------------------------------------------------------
  * The following license statement only applies to this libretro SDK code part (glsym).
@@ -28,9 +28,8 @@
 #include <EGL/eglext.h>
 #endif
 
-#if defined(__APPLE__)
-#include "TargetConditionals.h"
-#if TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR
+#if defined(IOS)
+
 #if defined(HAVE_OPENGLES3)
 #include <OpenGLES/ES3/gl.h>
 #include <OpenGLES/ES3/glext.h>
@@ -38,10 +37,10 @@
 #include <OpenGLES/ES2/gl.h>
 #include <OpenGLES/ES2/glext.h>
 #endif
-#else
+
+#elif defined(__APPLE__)
 #include <OpenGL/gl.h>
 #include <OpenGL/glext.h>
-#endif
 #elif defined(HAVE_PSGL)
 #include <PSGL/psgl.h>
 #include <GLES/glext.h>
@@ -63,8 +62,14 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
+#ifndef HAVE_LIBNX
 #include <GL/gl.h>
 #include <GL/glext.h>
+#else
+/* We need to avoid including <GL/gl.h> on this platform */
+#include "switch/nx_gl.h"
+#include <GL/glext.h>
+#endif /* SWITCH */
 #endif
 
 #ifndef GL_MAP_WRITE_BIT

@@ -3,11 +3,11 @@ LIBRETRO_COMM_DIR := $(CORE_DIR)/libretro-common
 INCFLAGS		:= -I$(CORE_DIR) \
 					-I$(CORE_DIR)/../.. \
 					-I$(LIBRETRO_COMM_DIR)/include \
-					-I$(CORE_DIR)/glsym
+					-I$(LIBRETRO_COMM_DIR)/glsym
 
 
 LIBS_DIR    := $(CORE_DIR)/../../libs
-SOURCES_C   := $(CORE_DIR)/glsym/rglgen.c \
+SOURCES_C   := $(LIBRETRO_COMM_DIR)/glsym/rglgen.c \
 					$(LIBS_DIR)/stb_vorbis/stb_vorbis.c \
 					$(LIBS_DIR)/tinf/tinflate.c \
 					$(LIBRETRO_COMM_DIR)/compat/compat_strl.c \
@@ -17,12 +17,12 @@ SOURCES_C   := $(CORE_DIR)/glsym/rglgen.c \
 
 ifeq ($(GLES), 1)
 ifeq ($(GLES3), 1)
-SOURCES_C	+= $(CORE_DIR)/glsym/glsym_es3.c
+SOURCES_C	+= $(LIBRETRO_COMM_DIR)/glsym/glsym_es3.c
 else
-SOURCES_C	+= $(CORE_DIR)/glsym/glsym_es2.c
+SOURCES_C	+= $(LIBRETRO_COMM_DIR)/glsym/glsym_es2.c
 endif
 else
-SOURCES_C	+= $(CORE_DIR)/glsym/glsym_gl.c
+SOURCES_C	+= $(LIBRETRO_COMM_DIR)/glsym/glsym_gl.c
 endif
 
 SOURCES_CXX := $(CORE_DIR)/main.cpp \
