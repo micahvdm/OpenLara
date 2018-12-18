@@ -198,7 +198,7 @@ void retro_get_system_info(struct retro_system_info *info)
    info->library_name     = "OpenLara";
    info->library_version  = "v1";
    info->need_fullpath    = true;
-   info->valid_extensions = "phd|psx|tr2"; // Anything is fine, we don't care.
+   info->valid_extensions = "phd|psx|tr2|sat";
 }
 
 void retro_get_system_av_info(struct retro_system_av_info *info)
