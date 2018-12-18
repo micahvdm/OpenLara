@@ -463,11 +463,7 @@ static void context_reset(void)
 }
 
 static void context_destroy(void)
-{
-   fprintf(stderr, "Context destroy!\n");
-   delete[] sndData;
-   Game::deinit();
-}
+{}
 
 #ifdef HAVE_OPENGLES
 static bool retro_init_hw_context(void)
@@ -622,6 +618,8 @@ if (!path_is_absolute(info->path))
 
 void retro_unload_game(void)
 {
+   delete[] sndData;
+   Game::deinit();
 }
 
 unsigned retro_get_region(void)
