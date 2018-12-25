@@ -151,21 +151,50 @@ void osJoyVibrate(int index, float L, float R)
 
 void retro_init(void)
 {
-   contentDir[0] = cacheDir[0] = saveDir[0] = 0;
+   contentDir[0] = 0;
 
    const char slash = path_default_slash_c();
 
    const char *sysdir = NULL;
    const char *savdir = NULL;
+   const char *subdir = "openlara";
+   const char *csubdir = "cache";
+
    if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &sysdir))
    {
-      sprintf(cacheDir, "%s%copenlara%ccache%c", sysdir, slash, slash, slash);
-      path_mkdir(cacheDir);
+      strncpy(cacheDir, sysdir, sizeof(cacheDir));
+      fill_pathname_slash(cacheDir, sizeof(cacheDir));
+      strcat(cacheDir, subdir);
+      fill_pathname_slash(cacheDir, sizeof(cacheDir));
+      if (path_mkdir(cacheDir))
+      {
+            strcat(cacheDir, csubdir);
+            fill_pathname_slash(cacheDir, sizeof(cacheDir));
+            if (!path_mkdir(cacheDir))
+            {
+               cacheDir[0] = 0;
+               fprintf(stderr, "[openlara]: Couldn't create cache subdirectory.\n");
+            }
+      }
+      else
+      {
+         cacheDir[0] = 0;
+         fprintf(stderr, "[openlara]: Couldn't create cache subdirectory.\n");
+      }
    }
+
    if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &savdir))
    {
-      sprintf(saveDir, "%s%copenlara%c", savdir, slash, slash);
-      path_mkdir(saveDir);
+      strncpy(saveDir, savdir, sizeof(saveDir));
+      fill_pathname_slash(saveDir, sizeof(saveDir));
+      strcat(saveDir, subdir);
+      fill_pathname_slash(saveDir, sizeof(saveDir));
+      fprintf(stderr, "[openlara]: Saves should be in: %s\n", saveDir);
+      if (!path_mkdir(saveDir))
+      {
+         saveDir[0] = 0;
+         fprintf(stderr, "[openlara]: Couldn't create save subdirectory.\n");
+      }
    }
 
     struct retro_rumble_interface rumbleInterface;
@@ -511,24 +540,6 @@ static bool retro_init_hw_context(void)
 }
 #endif
 
-static void extract_directory(char *buf, const char *path, size_t size)
-{
-   strncpy(buf, path, size - 1);
-   buf[size - 1] = '\0';
-
-   char *base = strrchr(buf, '/');
-   if (!base)
-      base = strrchr(buf, '\\');
-
-   if (base)
-      *base = '\0';
-   else
-   {
-      buf[0] = '.';
-      buf[1] = '\0';
-   }
-}
-
 bool retro_load_game(const struct retro_game_info *info)
 {
    struct retro_input_descriptor desc[] = {
@@ -591,19 +602,19 @@ if (!path_is_absolute(info->path))
    }
 
    char basedir[1024] = {0};
-   extract_directory(basedir, info->path, sizeof(basedir));
+   fill_pathname_basedir(basedir, info->path, sizeof(basedir));
 
    // contentDir acts as the current working directory in OpenLara
    strcpy(contentDir, basedir);
+   path_parent_dir(contentDir);
    fill_pathname_parent_dir_name(basedir, contentDir, sizeof(basedir));
+
    if (strcmp(basedir, "level") == 0)
    {
       // level/X/
       path_parent_dir(contentDir);
-      path_parent_dir(contentDir);
    }
-   else // CD
-      path_parent_dir(contentDir);
+   fprintf(stderr, "[openlara]: contentDir: %s\n", contentDir);
 
    // make levelpath contain a path relative to contentDir
    strcpy(levelpath, (info->path+strlen(contentDir)));
