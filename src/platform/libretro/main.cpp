@@ -10,6 +10,10 @@
 
 #include "../../game.h"
 
+#ifdef OSX
+#include <pthread.h>
+#endif
+
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 struct retro_hw_render_callback hw_render;
 
@@ -147,21 +151,50 @@ void osJoyVibrate(int index, float L, float R)
 
 void retro_init(void)
 {
-   contentDir[0] = cacheDir[0] = saveDir[0] = 0;
+   contentDir[0] = 0;
 
    const char slash = path_default_slash_c();
 
    const char *sysdir = NULL;
    const char *savdir = NULL;
+   const char *subdir = "openlara";
+   const char *csubdir = "cache";
+
    if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &sysdir))
    {
-      sprintf(cacheDir, "%s%copenlara%ccache%c", sysdir, slash, slash, slash);
-      path_mkdir(cacheDir);
+      strncpy(cacheDir, sysdir, sizeof(cacheDir));
+      fill_pathname_slash(cacheDir, sizeof(cacheDir));
+      strcat(cacheDir, subdir);
+      fill_pathname_slash(cacheDir, sizeof(cacheDir));
+      if (path_mkdir(cacheDir))
+      {
+            strcat(cacheDir, csubdir);
+            fill_pathname_slash(cacheDir, sizeof(cacheDir));
+            if (!path_mkdir(cacheDir))
+            {
+               cacheDir[0] = 0;
+               fprintf(stderr, "[openlara]: Couldn't create cache subdirectory.\n");
+            }
+      }
+      else
+      {
+         cacheDir[0] = 0;
+         fprintf(stderr, "[openlara]: Couldn't create cache subdirectory.\n");
+      }
    }
+
    if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &savdir))
    {
-      sprintf(saveDir, "%s%copenlara%c", savdir, slash, slash);
-      path_mkdir(saveDir);
+      strncpy(saveDir, savdir, sizeof(saveDir));
+      fill_pathname_slash(saveDir, sizeof(saveDir));
+      strcat(saveDir, subdir);
+      fill_pathname_slash(saveDir, sizeof(saveDir));
+      fprintf(stderr, "[openlara]: Saves should be in: %s\n", saveDir);
+      if (!path_mkdir(saveDir))
+      {
+         saveDir[0] = 0;
+         fprintf(stderr, "[openlara]: Couldn't create save subdirectory.\n");
+      }
    }
 
     struct retro_rumble_interface rumbleInterface;
@@ -194,7 +227,7 @@ void retro_get_system_info(struct retro_system_info *info)
    info->library_name     = "OpenLara";
    info->library_version  = "v1";
    info->need_fullpath    = true;
-   info->valid_extensions = "phd|psx|tr2"; // Anything is fine, we don't care.
+   info->valid_extensions = "phd|psx|tr2|sat";
 }
 
 void retro_get_system_av_info(struct retro_system_av_info *info)
@@ -220,7 +253,7 @@ void retro_set_environment(retro_environment_t cb)
    struct retro_variable variables[] = {
       {
          "openlara_framerate",
-         "Framerate (restart); 60fps|90fps|120fps|144fps|30fps",
+         "Framerate (restart); 60fps|90fps|120fps|144fps|240fps|15fps|30fps",
       },
       {
          "openlara_resolution",
@@ -287,7 +320,9 @@ static void update_variables(bool first_startup)
 
       if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
       {
-         if (!strcmp(var.value, "30fps"))
+         if (!strcmp(var.value, "15fps"))
+            FRAMERATE     = 15;
+         else if (!strcmp(var.value, "30fps"))
             FRAMERATE     = 30;
          else if (!strcmp(var.value, "60fps"))
             FRAMERATE     = 60;
@@ -296,8 +331,10 @@ static void update_variables(bool first_startup)
          else if (!strcmp(var.value, "120fps"))
             FRAMERATE     = 120;
          else if (!strcmp(var.value, "144fps"))
-            FRAMERATE     = 120;
-      }
+            FRAMERATE     = 144;
+         else if (!strcmp(var.value, "240fps"))
+            FRAMERATE     = 240;
+         }
       else
          FRAMERATE     = 60;
    }
@@ -455,11 +492,7 @@ static void context_reset(void)
 }
 
 static void context_destroy(void)
-{
-   fprintf(stderr, "Context destroy!\n");
-   delete[] sndData;
-   Game::deinit();
-}
+{}
 
 #ifdef HAVE_OPENGLES
 static bool retro_init_hw_context(void)
@@ -506,24 +539,6 @@ static bool retro_init_hw_context(void)
    return true;
 }
 #endif
-
-static void extract_directory(char *buf, const char *path, size_t size)
-{
-   strncpy(buf, path, size - 1);
-   buf[size - 1] = '\0';
-
-   char *base = strrchr(buf, '/');
-   if (!base)
-      base = strrchr(buf, '\\');
-
-   if (base)
-      *base = '\0';
-   else
-   {
-      buf[0] = '.';
-      buf[1] = '\0';
-   }
-}
 
 bool retro_load_game(const struct retro_game_info *info)
 {
@@ -580,22 +595,26 @@ bool retro_load_game(const struct retro_game_info *info)
       return false;
    }
 
-   fprintf(stderr, "Loaded game!\n");
+if (!path_is_absolute(info->path))
+   {
+      fprintf(stderr, "Full path to content is required, exiting...\n");
+      return false;
+   }
 
    char basedir[1024] = {0};
-   extract_directory(basedir, info->path, sizeof(basedir));
+   fill_pathname_basedir(basedir, info->path, sizeof(basedir));
 
    // contentDir acts as the current working directory in OpenLara
    strcpy(contentDir, basedir);
+   path_parent_dir(contentDir);
    fill_pathname_parent_dir_name(basedir, contentDir, sizeof(basedir));
+
    if (strcmp(basedir, "level") == 0)
    {
       // level/X/
       path_parent_dir(contentDir);
-      path_parent_dir(contentDir);
    }
-   else // CD
-      path_parent_dir(contentDir);
+   fprintf(stderr, "[openlara]: contentDir: %s\n", contentDir);
 
    // make levelpath contain a path relative to contentDir
    strcpy(levelpath, (info->path+strlen(contentDir)));
@@ -603,11 +622,15 @@ bool retro_load_game(const struct retro_game_info *info)
    Core::width  = width;
    Core::height = height;
 
+   fprintf(stderr, "Loaded game!\n");
+
    return true;
 }
 
 void retro_unload_game(void)
 {
+   delete[] sndData;
+   Game::deinit();
 }
 
 unsigned retro_get_region(void)

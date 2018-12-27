@@ -127,7 +127,7 @@ static const OptionItem optDetail[] = {
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_SHADOWS,  SETTINGS( detail.shadows  ), STR_QUALITY_LOW, 0, 2 ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_WATER,    SETTINGS( detail.water    ), STR_QUALITY_LOW, 0, 2 ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_SIMPLE_ITEMS,    SETTINGS( detail.simple   ), STR_OFF, 0, 1 ),
-#if defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_PSP) || defined(_OS_RPI)
+#if !defined(__LIBRETRO__) && (defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_PSP) || defined(_OS_RPI))
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_VSYNC,    SETTINGS( detail.vsync    ), STR_OFF, 0, 1 ),
 #endif
 #ifndef _OS_PSP
@@ -163,6 +163,7 @@ static const OptionItem optControls[] = {
 #endif
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_CONTROLS_RETARGET   , SETTINGS( controls[0].retarget           ), STR_OFF,       0, 1 ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_CONTROLS_MULTIAIM   , SETTINGS( controls[0].multiaim           ), STR_OFF,       0, 1 ),
+#ifndef __LIBRETRO__
     OptionItem( OptionItem::TYPE_PARAM,  STR_NOT_IMPLEMENTED         , SETTINGS( ctrlIndex                      ), STR_OPT_CONTROLS_KEYBOARD, 0, 1 ),
     OptionItem( OptionItem::TYPE_KEY,    STR_CTRL_FIRST + cUp        , SETTINGS( controls[0].keys[ cUp        ] ), STR_KEY_FIRST ),
     OptionItem( OptionItem::TYPE_KEY,    STR_CTRL_FIRST + cDown      , SETTINGS( controls[0].keys[ cDown      ] ), STR_KEY_FIRST ),
@@ -178,6 +179,7 @@ static const OptionItem optControls[] = {
     OptionItem( OptionItem::TYPE_KEY,    STR_CTRL_FIRST + cRoll      , SETTINGS( controls[0].keys[ cRoll      ] ), STR_KEY_FIRST ),
     OptionItem( OptionItem::TYPE_KEY,    STR_CTRL_FIRST + cInventory , SETTINGS( controls[0].keys[ cInventory ] ), STR_KEY_FIRST ),
     OptionItem( OptionItem::TYPE_KEY,    STR_CTRL_FIRST + cStart     , SETTINGS( controls[0].keys[ cStart     ] ), STR_KEY_FIRST ),
+#endif
 };
 
 static OptionItem optControlsPlayer[COUNT(optControls)];
@@ -1923,6 +1925,7 @@ struct Inventory {
             renderItemText(eye, items[getGlobalIndex(page, index)]);
 
     // inventory controls help
+#ifndef __LIBRETRO__
         if (page == targetPage && Input::touchTimerVis <= 0.0f) {
             float dx = 32.0f - eye;
             char buf[64];
@@ -1933,6 +1936,7 @@ struct Inventory {
                 UI::textOut(vec2(0, 480 - 64), buf, UI::aRight, UI::width - dx);
             }
         }
+#endif
     }
 };
 
