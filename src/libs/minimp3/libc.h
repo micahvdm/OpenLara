@@ -34,7 +34,7 @@
 #include <math.h>
 #include <stdint.h>
 
-#ifndef __int8_t_defined
+#if !defined(__int8_t_defined) && !defined(__LIBRETRO__)
     #define __int8_t_defined
     typedef unsigned char  uint8_t;
     typedef   signed char   int8_t;
