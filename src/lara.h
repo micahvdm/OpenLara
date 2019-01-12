@@ -1528,6 +1528,7 @@ struct Lara : Character {
     }
 
     void drawGun(int right) {
+        wpnCurrent = TR::Entity::PISTOLS;
         int mask = (right ? JOINT_MASK_ARM_R3 : JOINT_MASK_ARM_L3); // unholster
         if (layers[1].mask & mask)
             mask = (layers[1].mask & ~mask) | (right ? JOINT_MASK_LEG_R1 : JOINT_MASK_LEG_L1); // holster
@@ -3118,10 +3119,13 @@ struct Lara : Character {
                         if (p.w != 0.0f) {
                             p.x = ( p.x / p.w * 0.5f + 0.5f) * UI::width;
                             p.y = (-p.y / p.w * 0.5f + 0.5f) * UI::height;
+                            if (game->getLara(1)) {
+                                p.x *= 0.5f;
+                            }
                         } else
                             p = vec4(UI::width * 0.5f, UI::height * 0.5f, 0.0f, 0.0f);
 
-                        UI::addPickup(item->getEntity().type, vec2(p.x, p.y));
+                        UI::addPickup(item->getEntity().type, camera->cameraIndex, vec2(p.x, p.y));
                         saveStats.pickups++;
                     }
                     pickupListCount = 0;
@@ -3735,8 +3739,7 @@ struct Lara : Character {
             game->setRoomParams(getRoomIndex(), Shader::MIRROR, 1.2f, 1.0f, 0.2f, 1.0f, false);
         /* catsuit test
             game->setRoomParams(getRoomIndex(), Shader::MIRROR, 0.3f, 0.3f, 0.3f, 1.0f, false);
-            Core::active.shader->setParam(uLightColor, Core::lightColor[0], MAX_LIGHTS);
-            Core::active.shader->setParam(uLightPos,   Core::lightPos[0],   MAX_LIGHTS);
+            Core::updateLights();
         */
             environment->bind(sEnvironment);
             Core::setBlendMode(bmAlpha);

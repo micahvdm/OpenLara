@@ -339,9 +339,12 @@ struct Level : IGame {
 
     void initShadow() {
         delete shadow;
-        if (Core::settings.detail.shadows > Core::Settings::LOW)
-            shadow = new Texture(SHADOW_TEX_WIDTH, SHADOW_TEX_HEIGHT, FMT_SHADOW, OPT_TARGET);
-        else
+        if (Core::settings.detail.shadows > Core::Settings::LOW) {
+            if (level.isTitle())
+                shadow = new Texture(32, 32, FMT_SHADOW); // init dummy shadow map
+            else
+                shadow = new Texture(SHADOW_TEX_SIZE, SHADOW_TEX_SIZE, FMT_SHADOW, OPT_TARGET);
+        } else
             shadow = NULL;
     }
 
@@ -508,6 +511,10 @@ struct Level : IGame {
             Core::lightColor[3] = vec4(0, 0, 0, 1);
         }
 
+        if (type == Shader::SPRITE) {
+            alphaTest = true;
+        }
+
         setShader(Core::pass, type, room.flags.water, alphaTest);
 
         if (room.flags.water) {
@@ -518,11 +525,28 @@ struct Level : IGame {
             setWaterParams(NO_CLIP_PLANE);
 
         Core::active.shader->setParam(uParam, Core::params);
-        Core::setMaterial(diffuse, ambient, specular, alpha);
 
-        #ifdef FFP
-            updateLighting(type);
-        #endif
+    #ifdef FFP
+        switch (type) {
+            case Shader::SPRITE :
+            case Shader::ROOM   :
+                ambient = 1.0f;
+                Core::lightColor[0].w = 1.0f;
+                break;
+            case Shader::FLASH  :
+            case Shader::MIRROR :
+                ambient = 1.0f;
+                Core::lightColor[0].w = 
+                Core::lightColor[1].w =
+                Core::lightColor[2].w =
+                Core::lightColor[3].w = 1.0f;
+                break;
+            default : ;
+        }
+    #endif
+
+        Core::setMaterial(diffuse, ambient, specular, alpha);
+        Core::updateLights();
 
         if (Core::settings.detail.shadows > Core::Settings::MEDIUM)
             Core::active.shader->setParam(uContacts, Core::contacts[0], MAX_CONTACTS);
@@ -534,6 +558,7 @@ struct Level : IGame {
         Core::whiteTex->bind(sMask);
         Core::whiteTex->bind(sReflect);
         Core::whiteCube->bind(sEnvironment);
+        if (shadow) shadow->bind(sShadow);
         Core::basis.identity();
     }
 
@@ -553,7 +578,7 @@ struct Level : IGame {
             Core::pass = pass;
             Texture *target = (targets[0]->opt & OPT_CUBEMAP) ? targets[0] : targets[i * stride];
             Core::setTarget(target, RT_CLEAR_COLOR | RT_CLEAR_DEPTH | RT_STORE_COLOR, i);
-            renderView(rIndex, false, false);
+            renderView(rIndex, false);
         }
 
         Core::pass = tmpPass;
@@ -713,7 +738,7 @@ struct Level : IGame {
     void stopChannel(Sound::Sample *channel) {
         if (channel == sndTrack) {
             sndTrack = NULL;
-            if (level.state.flags.track != TR::LEVEL_INFO[level.id].track) // play ambient track
+            if (level.state.flags.track != TR::LEVEL_INFO[level.id].track && TR::LEVEL_INFO[level.id].track != TR::NO_TRACK) // play ambient track
                 playTrack(0);
         }
     }
@@ -829,6 +854,8 @@ struct Level : IGame {
         needRedrawTitleBG = false;
         needRedrawReflections = true;
 
+        initShadow();
+
         if (!(lastTitle = level.isTitle())) {
             ASSERT(players[0] != NULL);
             player = players[0];
@@ -842,8 +869,6 @@ struct Level : IGame {
                 AmbientCache::Cube cube;
                 ambientCache->getAmbient(players[0]->getRoomIndex(), players[0]->pos, cube); // add to queue
             }
-
-            initShadow();
 
             for (int i = 0; i < level.soundSourcesCount; i++) {
                 TR::SoundSource &src = level.soundSources[i];
@@ -1065,7 +1090,7 @@ struct Level : IGame {
             case TR::Entity::CENTAUR_STATUE        : return new CentaurStatue(this, index);
             case TR::Entity::CABIN                 : return new Cabin(this, index);
             case TR::Entity::MUZZLE_FLASH          : return new MuzzleFlash(this, index);
-            case TR::Entity::LAVA_PARTICLE         : return new LavaParticle(this, index);
+            case TR::Entity::LAVA_PARTICLE         : ASSERT(false); return NULL;
             case TR::Entity::TRAP_LAVA_EMITTER     : return new TrapLavaEmitter(this, index);
             case TR::Entity::FLAME                 : return new Flame(this, index);
             case TR::Entity::TRAP_FLAME_EMITTER    : return new TrapFlameEmitter(this, index);
@@ -1368,11 +1393,11 @@ struct Level : IGame {
             }
 
             for (int i = 0; i < level.objectTexturesCount; i++) {
-                TR::ObjectTexture &t = level.objectTextures[i];
+                TR::TextureInfo &t = level.objectTextures[i];
                 short4 uv = t.getMinMax();
                 uv.z++;
                 uv.w++;
-                level.fillObjectTexture((TR::Tile32*)tiles[t.tile.index].data, uv, t.tile.index, t.clut);
+                level.fillObjectTexture((TR::Tile32*)tiles[t.tile].data, uv, &t);
             }
 
             for (int i = 0; i < level.spriteTexturesCount; i++) {
@@ -1380,7 +1405,7 @@ struct Level : IGame {
                 short4 uv = t.getMinMax();
                 uv.z++;
                 uv.w++;
-                level.fillObjectTexture((TR::Tile32*)tiles[t.tile].data, uv, t.tile, t.clut);
+                level.fillObjectTexture((TR::Tile32*)tiles[t.tile].data, uv, &t);
             }
 
             for (int i = 0; i < level.tilesCount; i++) {
@@ -1474,7 +1499,8 @@ struct Level : IGame {
         Core::setBlendMode(bmNone);
         Core::setDepthTest(false);
         setShader(Core::pass, Shader::FLASH, false, false);
-        Core::active.shader->setParam(uMaterial, vec4(1.0f / 1.8f, 0.0f, 0.0f, 0.0f));
+        Core::setMaterial(1.0f / 1.8f, 0.0f, 0.0f, 0.0f);
+
         // anim.getJoints(Basis(quat(0, 0, 0, 1), vec3(0)), 0, false));//Basis(anim.getJointRot(0), vec3(0)));
         Core::setBasis(&b, 1);
 
@@ -1554,10 +1580,6 @@ struct Level : IGame {
             }
 
             setRoomParams(roomIndex, Shader::ROOM, 1.0f, intensityf(level.rooms[roomIndex].ambient), 0.0f, 1.0f, transp == 1);
-            GAPI::Shader *sh = Core::active.shader;
-
-            sh->setParam(uLightColor, Core::lightColor[0], MAX_LIGHTS);
-            sh->setParam(uLightPos,   Core::lightPos[0],   MAX_LIGHTS);
 
             basis.pos = level.rooms[roomIndex].getOffset();
             Core::setBasis(&basis, 1);
@@ -1591,8 +1613,6 @@ struct Level : IGame {
                     continue;
 
                 setRoomParams(roomIndex, Shader::SPRITE, 1.0f, 1.0f, 0.0f, 1.0f, true);
-                Core::active.shader->setParam(uLightColor, Core::lightColor[0], MAX_LIGHTS);
-                Core::active.shader->setParam(uLightPos,   Core::lightPos[0],   MAX_LIGHTS);
 
                 basis.pos = level.rooms[roomIndex].getOffset();
                 Core::setBasis(&basis, 1);
@@ -1618,23 +1638,31 @@ struct Level : IGame {
         if (!entity.isLara() && !entity.isActor() && !room.flags.visible)
             return;
 
-        bool isModel = entity.modelIndex > 0;
+        bool isModel;
 
-        if (isModel) {
-            if (!mesh->models[controller->getModel()->index].geometry[mesh->transparent].count) return;
+        if (entity.type != TR::Entity::TRAP_LAVA_EMITTER) {
+            isModel = entity.modelIndex > 0;
+            if (isModel) {
+                if (!mesh->models[controller->getModel()->index].geometry[mesh->transparent].count) return;
+            } else {
+                if (level.spriteSequences[-(entity.modelIndex + 1)].transp != mesh->transparent) return;
+            }
         } else {
-            if (level.spriteSequences[-(entity.modelIndex + 1)].transp != mesh->transparent) return;
+            if (mesh->transparent != 2) {
+                return;
+            }
+            isModel = false;
         }
-
-        float intensity = controller->intensity < 0.0f ? intensityf(room.ambient) : controller->intensity;
 
         Shader::Type type = isModel ? Shader::ENTITY : Shader::SPRITE;
         if (entity.type == TR::Entity::CRYSTAL)
             type = Shader::MIRROR;
 
         if (isModel) { // model
-            setRoomParams(roomIndex, type, 1.0f, intensity, controller->specular, 1.0f, mesh->transparent == 1);
+            float intensity = controller->intensity < 0.0f ? intensityf(room.ambient) : controller->intensity;
+
             setMainLight(controller);
+            setRoomParams(roomIndex, type, 1.0f, intensity, controller->specular, 1.0f, mesh->transparent == 1);
 
             vec3 pos = controller->getPos();
             if (ambientCache) {
@@ -1653,9 +1681,6 @@ struct Level : IGame {
                 }
                 Core::active.shader->setParam(uAmbient, controller->ambient[0], 6);
             }
-
-            Core::active.shader->setParam(uLightPos,   Core::lightPos[0],   MAX_LIGHTS);
-            Core::active.shader->setParam(uLightColor, Core::lightColor[0], MAX_LIGHTS);
         }
 
         controller->render(camera->frustum, mesh, type, room.flags.water);
@@ -1704,15 +1729,17 @@ struct Level : IGame {
         if ((Input::lastState[0] == cInventory || Input::lastState[1] == cInventory) && !level.isTitle() && inventory->titleTimer < 1.0f && !inventory->active) {
             int playerIndex = (Input::lastState[0] == cInventory) ? 0 : 1;
 
-            if (level.isCutsceneLevel()) { // skip cutscene level
-                loadNextLevel();
-                return;
-            }
+            if (getLara(playerIndex)) {
+                if (level.isCutsceneLevel()) { // skip cutscene level
+                    loadNextLevel();
+                    return;
+                }
 
-            if (player->health <= 0.0f)
-                inventory->toggle(playerIndex, Inventory::PAGE_OPTION, TR::Entity::INV_PASSPORT);
-            else
-                inventory->toggle(playerIndex);
+                if (player->health <= 0.0f)
+                    inventory->toggle(playerIndex, Inventory::PAGE_OPTION, TR::Entity::INV_PASSPORT);
+                else
+                    inventory->toggle(playerIndex);
+            }
         }
 
         bool invActive = inventory->isActive();
@@ -1744,7 +1771,9 @@ struct Level : IGame {
             return;
         }
 
-        UI::update();
+        if (!inventory->isActive()) {
+            UI::update();
+        }
 
         float volWater, volTrack;
 
@@ -1862,106 +1891,6 @@ struct Level : IGame {
         }
     }
 
-#ifdef FFP
-    void updateLighting(Shader::Type type) {
-        float ambient = Core::active.material.y;
-        int lightMask = 0;
-        switch (type) {
-            case Shader::SPRITE :
-            case Shader::ROOM   :
-                ambient   = 1.0f;
-                lightMask = 2; 
-                break;
-            case Shader::ENTITY :
-                lightMask = 1 | 2;
-                break;
-            case Shader::FLASH  :
-            case Shader::MIRROR :
-                ambient = 1.0f;
-                break;
-            default : ;
-        }
-
-        #ifdef _OS_PSP
-            if (lightMask & 1)
-                sceGuEnable(GU_LIGHT0);
-            else
-                sceGuDisable(GU_LIGHT0);
-
-            if (lightMask & 2)
-                sceGuEnable(GU_LIGHT1);
-            else
-                sceGuDisable(GU_LIGHT1);
-
-            ubyte4 amb;
-            amb.x = amb.y = amb.z = clamp(int(ambient * 255), 0, 255);
-            amb.w = 255;
-            sceGuAmbient(*(uint32*)&amb);
-
-            for (int i = 0; i < 2 /*MAX_LIGHTS*/; i++) {
-                ScePspFVector3 pos;
-                pos.x = Core::lightPos[i].x;
-                pos.y = Core::lightPos[i].y;
-                pos.z = Core::lightPos[i].z;
-
-                sceGuLight(i, GU_POINTLIGHT, GU_DIFFUSE, &pos);
-
-                ubyte4 color;
-                color.x = clamp(int(Core::lightColor[i].x * 255), 0, 255);
-                color.y = clamp(int(Core::lightColor[i].y * 255), 0, 255);
-                color.z = clamp(int(Core::lightColor[i].z * 255), 0, 255);
-                color.w = 255;
-
-                sceGuLightColor(i, GU_DIFFUSE, *(uint32*)&color);
-                sceGuLightAtt(i, 1.0f, 0.0f, Core::lightColor[i].w * Core::lightColor[i].w);
-            }
-        #else
-            if (lightMask & 1)
-                glDisable(GL_LIGHT0);
-            else
-                glEnable(GL_LIGHT0);
-
-            if (lightMask & 2)
-                glDisable(GL_LIGHT1);
-            else
-                glEnable(GL_LIGHT1);
-
-            vec4 amb(vec3(ambient), 1.0f);
-            glLightModelfv(GL_LIGHT_MODEL_AMBIENT, (GLfloat*)&amb);
-
-            for (int i = 0; i < 2 /*MAX_LIGHTS*/; i++) {
-                vec4 pos(Core::lightPos[i].xyz(), 1.0f);
-                vec4 color(Core::lightColor[i].xyz(), 1.0f);
-                float att = Core::lightColor[i].w;
-                att *= att;
-
-                glLightfv(GL_LIGHT0 + i, GL_POSITION, (GLfloat*)&pos);
-                glLightfv(GL_LIGHT0 + i, GL_DIFFUSE,  (GLfloat*)&color);
-                glLightfv(GL_LIGHT0 + i, GL_QUADRATIC_ATTENUATION, (GLfloat*)&att);
-            }
-        #endif
-    }
-
-    void beginLighting() {
-        Core::mModel.identity();
-        #ifdef _OS_PSP
-            sceGuEnable(GU_LIGHTING);
-        #else
-            glEnable(GL_COLOR_MATERIAL);
-            glEnable(GL_LIGHTING);
-        #endif
-    }
-
-    void endLighting() {
-        #ifdef _OS_PSP
-            sceGuDisable(GU_LIGHTING);
-        #else
-            glDisable(GL_COLOR_MATERIAL);
-            glDisable(GL_LIGHTING);
-        #endif
-    }
-#endif
-
     void setup() {
         camera->setup(Core::pass == Core::passCompose);
         setupBinding();
@@ -1980,12 +1909,9 @@ struct Level : IGame {
             PROFILE_MARKER("ENTITY_SPRITES");
 
             if (mesh->dynICount) {
-                setRoomParams(0, Shader::SPRITE, 1.0f, 1.0f, 0.0f, 1.0f, mesh->transparent == 1);
-
                 Core::lightPos[0]   = vec4(0, 0, 0, 0);
                 Core::lightColor[0] = vec4(0, 0, 0, 1);
-                Core::active.shader->setParam(uLightPos,   Core::lightPos[0],   MAX_LIGHTS);
-                Core::active.shader->setParam(uLightColor, Core::lightColor[0], MAX_LIGHTS);
+                setRoomParams(0, Shader::SPRITE, 1.0f, 1.0f, 0.0f, 1.0f, mesh->transparent == 1);
 
                 Basis b;
                 b.w   = 1.0f;
@@ -2160,7 +2086,7 @@ struct Level : IGame {
         Core::fogParams = oldFog;
     }
 
-    virtual void renderView(int roomIndex, bool water, bool showUI, int roomsCount = 0, int *roomsList = NULL) {
+    virtual void renderView(int roomIndex, bool water, int roomsCount = 0, int *roomsList = NULL) {
         PROFILE_MARKER("VIEW");
 
         if (water && waterCache)
@@ -2205,7 +2131,7 @@ struct Level : IGame {
             for (int i = 0; i < roomsCount; i++)
                 waterCache->setVisible(roomsList[i]);
 
-            waterCache->renderReflect();
+            waterCache->renderReflection();
 
             Core::Pass pass = Core::pass;
             waterCache->simulate();
@@ -2229,16 +2155,9 @@ struct Level : IGame {
 
         prepareRooms(roomsList, roomsCount);
 
-        #ifdef FFP
-            beginLighting();
-        #endif
 
         renderOpaque(roomsList, roomsCount);
         renderTransparent(roomsList, roomsCount);
-
-        #ifdef FFP
-            endLighting();
-        #endif
 
         if (camera->isUnderwater())
             renderAdditive(roomsList, roomsCount);
@@ -2249,7 +2168,7 @@ struct Level : IGame {
             if (!camera->isUnderwater())
                 waterCache->renderRays();
             waterCache->renderMask();
-            waterCache->copyScreenToRefract();
+            waterCache->copyScreenToRefraction();
             setMainLight(player);
             waterCache->compose();
             if (camera->isUnderwater())
@@ -2270,9 +2189,6 @@ struct Level : IGame {
             Core::setTarget(NULL, RT_STORE_COLOR);
             waterCache->blitTexture(screen);
         }
-
-        if (showUI)
-            renderUI();
 
         Core::pass = pass;
     }
@@ -2308,16 +2224,21 @@ struct Level : IGame {
         Core::mView    = Core::mViewInv.inverseOrtho();
         Core::mProj    = GAPI::perspective(90.0f, 1.0f, znear, zfar);
 
+        Core::mLightProj = Core::mProj * Core::mView;
+
         mat4 bias;
         bias.identity();
-        //bias.e03 = bias.e13 = bias.e23 = bias.e00 = bias.e11 = bias.e22 = 0.5f;
-        Core::mLightProj = bias * (Core::mProj * Core::mView);
+        bias.e03 = bias.e13 = bias.e23 = bias.e00 = bias.e11 = bias.e22 = 0.5f;
+    #if defined(_GAPI_D3D9) || defined(_GAPI_GXM)
+        bias.e11 = -bias.e11;
+    #endif
+        Core::mLightProj = bias * Core::mLightProj;
 
         camera->frustum->pos = Core::viewPos.xyz();
         camera->frustum->calcPlanes(Core::mViewProj);
 
         setup();
-        renderView(roomIndex, false, false);
+        renderView(roomIndex, false);
     }
 /*
     void renderShadowEntity(int index, Controller *controller, Controller *player) {
@@ -2689,12 +2610,13 @@ struct Level : IGame {
         
         if (Core::settings.detail.stereo != Core::Settings::STEREO_VR) {
             switch (eye) {
-                case -1 : vp = Viewport(vX + vp.x - vp.x / 2, vY + vp.y, vp.width / 2, vp.height);      break;
+                case -1 : vp = Viewport(vX + vp.x - vp.x / 2, vY + vp.y, vp.width / 2, vp.height);   break;
                 case +1 : vp = Viewport(vX + vW / 2 + vp.x / 2, vY + vp.y, vp.width / 2, vp.height); break;
             }
         }
 
         Core::eye = float(eye);
+        Core::setViewport(vp.x, vp.y, vp.width, vp.height);
 
         if (isUI)
             UI::updateAspect(aspect);
@@ -2776,14 +2698,14 @@ struct Level : IGame {
                 Core::setTarget(NULL, CLEAR_ALL);
                 Core::eye = -1.0f;
                 setup();
-                renderView(camera->getRoomIndex(), true, false);
+                renderView(camera->getRoomIndex(), true);
 
                 Core::defaultTarget = Core::eyeTex[1];
                 Core::viewportDef = vec4(0, 0, float(Core::defaultTarget->width), float(Core::defaultTarget->height));
                 Core::setTarget(NULL, CLEAR_ALL);
                 Core::eye =  1.0f;
                 setup();
-                renderView(camera->getRoomIndex(), true, false);
+                renderView(camera->getRoomIndex(), true);
 
                 Core::settings.detail.vr = false;
 
@@ -2797,18 +2719,47 @@ struct Level : IGame {
 
                 setViewport(view, -1, false);
                 setup();
-                renderView(camera->getRoomIndex(), true, showUI);
+                renderView(camera->getRoomIndex(), true);
 
                 setViewport(view,  1, false);
                 setup();
-                renderView(camera->getRoomIndex(), true, showUI);
+                renderView(camera->getRoomIndex(), true);
 
                 Core::eye = oldEye;
             } else {
                 setViewport(view, int(Core::eye), false);
                 setup();
-                renderView(camera->getRoomIndex(), true, showUI);
+                renderView(camera->getRoomIndex(), true);
             }
+        }
+
+        if (showUI) {
+            Core::Pass pass = Core::pass;
+
+            for (int view = 0; view < viewsCount; view++) {
+                player = players[view];
+                camera = player->camera;
+
+                setClipParams(1.0f, NO_CLIP_PLANE);
+                params->waterHeight = params->clipHeight;
+
+                if (Core::settings.detail.stereo == Core::Settings::STEREO_ON) { // left/right SBS stereo
+                    float oldEye = Core::eye;
+
+                    setViewport(view, -1, false);
+                    renderUI();
+
+                    setViewport(view, 1, false);
+                    renderUI();
+
+                    Core::eye = oldEye;
+                } else {
+                    setViewport(view, int(Core::eye), false);
+                    renderUI();
+                }
+            }
+
+            Core::pass = pass;
         }
 
         Core::viewportDef = vp;
@@ -2826,6 +2777,8 @@ struct Level : IGame {
         UI::updateAspect(camera->aspect);
 
         UI::renderPickups();
+
+        Core::resetLights();
 
     // render health & oxygen bars
         vec2 size = vec2(180, 10);
@@ -2894,6 +2847,8 @@ struct Level : IGame {
 
     void renderInventory() {
         Core::setTarget(NULL, RT_CLEAR_DEPTH | RT_STORE_COLOR);
+
+        Core::resetLights();
 
         if (!(level.isTitle() || inventory->titleTimer > 0.0f))
             inventory->renderBackground();

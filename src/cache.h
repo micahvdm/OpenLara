@@ -7,6 +7,7 @@
 #include "camera.h"
 
 #define NO_CLIP_PLANE  1000000.0f
+//#define LOG_SHADERS
 
 struct ShaderCache {
     enum Effect { FX_NONE = 0, FX_UNDERWATER = 1, FX_ALPHA_TEST = 2, FX_CLIP_PLANE = 4 };
@@ -19,7 +20,7 @@ struct ShaderCache {
 
         LOG("shader: cache warm-up...\n");
         prepareCompose(FX_NONE);
-        if (Core::settings.detail.water > Core::Settings::LOW)
+        if (Core::settings.detail.water > Core::Settings::LOW && !Core::support.clipDist)
             prepareCompose(FX_CLIP_PLANE);
 
         prepareAmbient(FX_NONE);
@@ -50,26 +51,22 @@ struct ShaderCache {
     #define rsShadow (RS_DEPTH_TEST | RS_DEPTH_WRITE | RS_CULL_BACK)
 
     void prepareCompose(int fx) {
-        compile(Core::passCompose, Shader::SPRITE, fx, rsBase);
-
         compile(Core::passCompose, Shader::MIRROR, fx,                 rsBase);
+
         compile(Core::passCompose, Shader::ROOM,   fx,                 rsFull);
         compile(Core::passCompose, Shader::ROOM,   fx,                 rsFull | RS_DISCARD);
         compile(Core::passCompose, Shader::ROOM,   fx | FX_UNDERWATER, rsFull);
         compile(Core::passCompose, Shader::ROOM,   fx | FX_UNDERWATER, rsFull | RS_DISCARD);
 
         compile(Core::passCompose, Shader::ENTITY, fx,                 rsFull);
+        compile(Core::passCompose, Shader::ENTITY, fx,                 rsFull | RS_DISCARD);
         compile(Core::passCompose, Shader::ENTITY, fx | FX_UNDERWATER, rsFull);
         compile(Core::passCompose, Shader::ENTITY, fx | FX_UNDERWATER, rsFull | RS_DISCARD);
-        compile(Core::passCompose, Shader::ENTITY, fx,                 rsFull | RS_DISCARD);
 
-        compile(Core::passCompose, Shader::SPRITE, fx,                 rsFull);
-        compile(Core::passCompose, Shader::SPRITE, fx | FX_UNDERWATER, rsFull);
         compile(Core::passCompose, Shader::SPRITE, fx,                 rsFull | RS_DISCARD);
         compile(Core::passCompose, Shader::SPRITE, fx | FX_UNDERWATER, rsFull | RS_DISCARD);
 
         compile(Core::passCompose, Shader::FLASH,  fx,                 rsFull | RS_BLEND_MULT);
-        compile(Core::passCompose, Shader::FLASH,  fx,                 rsFull | RS_BLEND_MULT | RS_DISCARD);
     }
 
     void prepareAmbient(int fx) {
@@ -79,14 +76,12 @@ struct ShaderCache {
         compile(Core::passAmbient, Shader::ROOM,   fx | FX_UNDERWATER, rsFull | RS_DISCARD);
         compile(Core::passAmbient, Shader::SPRITE, fx,                 rsFull | RS_DISCARD);
         compile(Core::passAmbient, Shader::SPRITE, fx | FX_UNDERWATER, rsFull | RS_DISCARD);
-        compile(Core::passAmbient, Shader::FLASH,  fx,                 rsFull);
+        compile(Core::passAmbient, Shader::FLASH,  fx,                 rsFull); // sky
     }
 
     void prepareShadows(int fx) {
         compile(Core::passShadow, Shader::ENTITY, fx, rsShadow);
         compile(Core::passShadow, Shader::ENTITY, fx, rsShadow | RS_DISCARD);
-        compile(Core::passShadow, Shader::MIRROR, fx, rsShadow);
-        compile(Core::passShadow, Shader::MIRROR, fx, rsShadow | RS_DISCARD);
     }
 
     void prepareWater(int fx) {
@@ -168,7 +163,48 @@ struct ShaderCache {
 
         #undef SD_ADD
 
-        LOG("shader: %s(%d) %s%s%s\n", Core::passNames[pass], type, (fx & FX_UNDERWATER) ? "u" : "", (fx & FX_ALPHA_TEST) ? "a" : "", (fx & FX_CLIP_PLANE) ? "c" : "");
+        #ifdef LOG_SHADERS
+        {
+            static const char *DefineName[SD_MAX]  = { SHADER_DEFINES(DECL_STR) };
+
+            int id = 0;
+            /*
+            id |= flags[ 5];
+            id |= flags[ 6];
+            id |= flags[ 7];
+            id |= flags[ 8];
+            id |= flags[ 9];
+            id |= flags[10];
+            id |= flags[11];
+            */
+            char defines[1024];
+            defines[0] = 0;
+
+            for (int i = 0; i < defCount; i++) { // base shader defines
+                strcat(defines, " /D");
+                strcat(defines, DefineName[def[i]]);
+                strcat(defines, "=1");
+            }
+
+            const char *name = NULL;
+
+            switch (pass) {
+                case passCompose : name = "compose"; break;
+                case passShadow  : name = "shadow";  break;
+                case passAmbient : name = "ambient"; break;
+                case passWater   : name = "water" ;  break;
+                case passFilter  : name = "filter";  break;
+                case passGUI     : name = "gui";     break;
+            }
+
+            char buf[256];
+            sprintf(buf, "%s_%d_%02X", name, type, id);
+            LOG("fxc /nologo /T vs_3_0 /O3 /Gec /Vn %s_vs /Fh d3d9/%s_vs.h %s.hlsl /DVERTEX%s\n", buf, buf, name, defines);
+            LOG("fxc /nologo /T vs_3_0 /O3 /Gec /Vn %s_ps /Fh d3d9/%s_ps.h %s.hlsl /DPIXEL%s\n", buf, buf, name, defines);
+        }
+        #endif
+
+
         return shaders[pass][type][fx] = new Shader(pass, type, def, defCount);
     #else
         return NULL;
@@ -187,6 +223,9 @@ struct ShaderCache {
 
     void bind(Core::Pass pass, Shader::Type type, int fx) {
         Core::pass = pass;
+
+        if (Core::support.clipDist)
+            fx &= ~ShaderCache::FX_CLIP_PLANE;
 
         Shader *shader = getShader(pass, type, fx);
         if (shader)
@@ -819,7 +858,7 @@ struct WaterCache {
         return screen;
     }
 
-    void copyScreenToRefract() {
+    void copyScreenToRefraction() {
         PROFILE_MARKER("WATER_REFRACT_COPY");
     // get refraction texture
         int x, y;
@@ -838,7 +877,7 @@ struct WaterCache {
     }
 
     void simulate() {
-       PROFILE_MARKER("WATER_SIMULATE");
+        PROFILE_MARKER("WATER_SIMULATE");
     // simulate water
         Core::setDepthTest(false);
         Core::setBlendMode(bmNone);
@@ -857,7 +896,7 @@ struct WaterCache {
         Core::setDepthTest(true);
     }
 
-    void renderReflect() {
+    void renderReflection() {
         if (!visible) return;
         PROFILE_MARKER("WATER_REFLECT");
 
@@ -919,7 +958,7 @@ struct WaterCache {
         // render reflections frame
             float sign = underwater ? -1.0f : 1.0f;
             game->setClipParams(sign, waterLevel * sign);
-            game->renderView(TR::NO_ROOM, false, false, roomsCount, roomsList);
+            game->renderView(TR::NO_ROOM, false, roomsCount, roomsList);
         }
 
         game->setClipParams(1.0f, NO_CLIP_PLANE);
@@ -937,8 +976,7 @@ struct WaterCache {
 
         // render water plane
             game->setShader(Core::passWater, Shader::WATER_COMPOSE);
-            Core::active.shader->setParam(uLightPos,    Core::lightPos[0],   1);
-            Core::active.shader->setParam(uLightColor,  Core::lightColor[0], 1);
+            Core::updateLights();
 
             Core::active.shader->setParam(uParam, vec4(float(refract->origWidth) / refract->width, float(refract->origHeight) / refract->height, 0.05f, 0.03f));
 

@@ -5,6 +5,8 @@
 #include <math.h>
 #include <float.h>
 
+//#define TEST_SLOW_FIO
+
 #ifdef _DEBUG
     #if defined(_OS_LINUX) || defined(_OS_RPI) || defined(_OS_CLOVER)
         #define debugBreak() raise(SIGTRAP);
@@ -26,7 +28,7 @@
 #else
     //#define ASSERT(expr) if (expr) {} else { LOG("ASSERT:\n  %s:%d\n  %s => %s\n", __FILE__, __LINE__, __FUNCTION__, #expr); }
     #define ASSERT(expr)
-    #define ASSERTV(expr) (expr) ? 0 : 1
+    #define ASSERTV(expr) (expr) ? 1 : 0
 
     #ifdef _OS_LINUX
         #define LOG(...) printf(__VA_ARGS__); fflush(stdout)
@@ -34,6 +36,11 @@
         #define LOG(...) printf(__VA_ARGS__)
     //    #define LOG(...) 0
     #endif
+#endif
+
+#ifdef _OS_PSV
+    #undef LOG
+    #define LOG(...) psvDebugScreenPrintf(__VA_ARGS__)
 #endif
 
 #if defined(_OS_ANDROID) && !defined(__LIBRETRO__)
@@ -1285,6 +1292,8 @@ char cacheDir[255];
 char saveDir[255];
 char contentDir[255];
 
+#define STREAM_BUFFER_SIZE (16 * 1024)
+
 struct Stream {
     typedef void (Callback)(Stream *stream, void *userData);
     Callback    *callback;
@@ -1293,16 +1302,19 @@ struct Stream {
     FILE        *f;
     char        *data;
     char        *name;
-    int         size, pos;
+    int         size, pos, fpos;
 
-    Stream(const char *name, const void *data, int size, Callback *callback = NULL, void *userData = NULL) : callback(callback), userData(userData), f(NULL), data((char*)data), name(NULL), size(size), pos(0) {
+    char        *buffer;
+    int         bufferIndex;
+
+    Stream(const char *name, const void *data, int size, Callback *callback = NULL, void *userData = NULL) : callback(callback), userData(userData), f(NULL), data((char*)data), name(NULL), size(size), pos(0), buffer(NULL) {
         if (name) {
             this->name = new char[strlen(name) + 1];
             strcpy(this->name, name);
         }
     }
 
-    Stream(const char *name, Callback *callback = NULL, void *userData = NULL) : callback(callback), userData(userData), f(NULL), data(NULL), name(NULL), size(-1), pos(0) {
+    Stream(const char *name, Callback *callback = NULL, void *userData = NULL) : callback(callback), userData(userData), f(NULL), data(NULL), name(NULL), size(-1), pos(0), buffer(NULL) {
         if (!name && callback) {
             callback(NULL, userData);
             delete this;
@@ -1342,6 +1354,9 @@ struct Stream {
             fseek(f, 0, SEEK_END);
             size = (int32)ftell(f);
             fseek(f, 0, SEEK_SET);
+            fpos = 0;
+
+            bufferIndex = -1;
 
             if (name) {
                 this->name = new char[strlen(name) + 1];
@@ -1355,6 +1370,7 @@ struct Stream {
 
     ~Stream() {
         delete[] name;
+        delete[] buffer;
         if (f) fclose(f);
     }
 
@@ -1368,10 +1384,8 @@ struct Stream {
 
     static bool exists(const char *name) {
         FILE *f = fopen(name, "rb");
-        if (!f)
-            return false;
-        else
-            fclose(f);
+        if (!f) return false;
+        fclose(f);
         return true;
     }
 
@@ -1383,37 +1397,98 @@ struct Stream {
     }
 
     void setPos(int pos) {
-        if (this->pos != pos) {
-            this->pos = pos;
-            if (f) fseek(f, pos, SEEK_SET);
-        }
+        this->pos = pos;
     }
 
     void seek(int offset) {
-        if (!offset) return;
-        if (f) fseek(f, offset, SEEK_CUR);
         pos += offset;
     }
 
-    int raw(void *data, int count) {
-        if (!count) return 0;
-        if (f)
-            count = (int)fread(data, 1, count, f);
-        else
+    void raw(void *data, int count) {
+        if (!count) return;
+
+        if (f) {
+            uint8 *ptr = (uint8*)data;
+
+            while (count > 0) {
+                int bIndex = pos / STREAM_BUFFER_SIZE;
+
+                if (bufferIndex != bIndex) {
+                    bufferIndex = bIndex;
+
+                    size_t readed;
+                    int part;
+
+                    if (fpos == pos) {
+                        part = min(count / STREAM_BUFFER_SIZE * STREAM_BUFFER_SIZE, size - fpos);
+                        if (part > STREAM_BUFFER_SIZE) {
+                            readed = fread(ptr, 1, part, f);
+
+                            #ifdef TEST_SLOW_FIO
+                                LOG("%s read %d + %d\n", name, fpos, (int)readed);
+                                Sleep(5);
+                            #endif
+
+                            ASSERT(part == readed);
+                            count -= readed;
+                            fpos  += readed;
+                            pos   += readed;
+                            ptr   += readed;
+
+                            if (count <= 0) {
+                                bufferIndex = -1;
+                                break;
+                            }
+
+                            bufferIndex = pos / STREAM_BUFFER_SIZE;
+                        }
+                    }
+
+                    if (fpos != bufferIndex * STREAM_BUFFER_SIZE) {
+                        fpos = bufferIndex * STREAM_BUFFER_SIZE;
+                        fseek(f, fpos, SEEK_SET);
+
+                        #ifdef TEST_SLOW_FIO
+                            LOG("%s seek %d\n", name, fpos);
+                            Sleep(5);
+                        #endif
+                    }
+
+                    if (!buffer) {
+                        buffer = new char[STREAM_BUFFER_SIZE];
+                    }
+
+                    part   = min(STREAM_BUFFER_SIZE, size - fpos);
+                    readed = fread(buffer, 1, part, f);
+
+                    #ifdef TEST_SLOW_FIO
+                        LOG("%s read %d + %d\n", name, fpos, readed);
+                        Sleep(5);
+                    #endif
+
+                    ASSERT(part == readed);
+                    fpos += readed;
+                }
+
+                ASSERT(buffer);
+
+                int bPos   = pos % STREAM_BUFFER_SIZE;
+                int delta  = min(STREAM_BUFFER_SIZE - bPos, count);
+
+                memcpy(ptr, buffer + bPos, delta);
+                count -= delta;
+                pos   += delta;
+                ptr   += delta;
+            }
+        } else {
             memcpy(data, this->data + pos, count);
-        pos += count;
-        return count;
+            pos += count;
+        }
     }
 
     template <typename T>
     inline T& read(T &x) {
         raw(&x, sizeof(x));
-    /*
-        if (endian == eBig) {
-            if (sizeof(T) == 2) x = T(swap16(x));
-            if (sizeof(T) == 4) x = T(swap32(x));
-        }
-    */
         return x;
     }
 
@@ -1524,9 +1599,7 @@ void osReadSlot(Stream *stream) {
 void* osMutexInit() {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
-#if !defined(_OS_WEB) && !defined(_OS_IOS)
-    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE_NP);
-#endif
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
 
     pthread_mutex_t *mutex = new pthread_mutex_t();
     pthread_mutex_init(mutex, &attr);
@@ -1734,7 +1807,7 @@ struct FixedStr {
     }
 
     FixedStr<N>& operator = (const char *str) {
-        int len = min(sizeof(data), strlen(str));
+        size_t len = min(sizeof(data), strlen(str));
         memset(data, 0, sizeof(data));
         memcpy(data, str, len);
         return *this;

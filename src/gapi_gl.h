@@ -358,6 +358,27 @@ namespace GAPI {
         const char *DefineName[SD_MAX]  = { SHADER_DEFINES(DECL_STR) };
     #endif
 
+    static const struct Binding {
+        bool vec; // true - vec4, false - mat4
+        int  reg;
+    } bindings[uMAX] = {
+        { true,  94 }, // uFlags
+        { true,   0 }, // uParam
+        { true,   1 }, // uTexParam
+        { false,  2 }, // uViewProj
+        { true,   6 }, // uBasis
+        { false, 70 }, // uLightProj
+        { true,  74 }, // uMaterial
+        { true,  75 }, // uAmbient
+        { true,  81 }, // uFogParams
+        { true,  82 }, // uViewPos
+        { true,  83 }, // uLightPos
+        { true,  87 }, // uLightColor
+        { true,  91 }, // uRoomSize
+        { true,  92 }, // uPosScale
+        { true,  98 }, // uContacts
+    };
+
     struct Shader {
     #ifdef FFP
         void init(Core::Pass pass, int type, int *def, int defCount) {}
@@ -370,7 +391,12 @@ namespace GAPI {
         GLuint  ID;
         int32   uID[uMAX];
 
-        void init(Core::Pass pass, int type, int *def, int defCount) {
+        vec4  cbMem[98 + MAX_CONTACTS];
+        int   cbCount[uMAX];
+
+        bool  rebind;
+
+        void init(Pass pass, int type, int *def, int defCount) {
             const char *source;
             switch (pass) {
                 case Core::passCompose :
@@ -478,6 +504,8 @@ namespace GAPI {
 
             for (int ut = 0; ut < uMAX; ut++)
                 uID[ut] = glGetUniformLocation(ID, (GLchar*)UniformName[ut]);
+
+            rebind = true;
         }
 
         void deinit() {
@@ -560,20 +588,48 @@ namespace GAPI {
         void bind() {
             if (Core::active.shader != this) {
                 Core::active.shader = this;
-                glUseProgram(ID);
+                memset(cbCount, 0, sizeof(cbCount));
+                rebind = true;
             }
         }
 
+        void setup() {
+            if (rebind) {
+                glUseProgram(ID);
+                rebind = false;
+            }
+
+            for (int uType = 0; uType < uMAX; uType++) {
+                if (!cbCount[uType]) continue;
+
+                const Binding &b = bindings[uType];
+
+                if (b.vec)
+                    glUniform4fv(uID[uType], cbCount[uType] / 4, (GLfloat*)(cbMem + b.reg));
+                else
+                    glUniformMatrix4fv(uID[uType], cbCount[uType] / 16, false, (GLfloat*)(cbMem + b.reg));
+
+                Core::stats.cb++;
+            }
+
+            memset(cbCount, 0, sizeof(cbCount));
+        }
+        
+        void setParam(UniformType uType, float *value, int count) {
+            cbCount[uType] = count;
+            memcpy(cbMem + bindings[uType].reg, value, count * 4);
+        }
+
         void setParam(UniformType uType, const vec4 &value, int count = 1) {
-            if (uID[uType] != -1) glUniform4fv(uID[uType], count, (GLfloat*)&value);
+            if (uID[uType] != -1) setParam(uType, (float*)&value, count * 4);
         }
 
         void setParam(UniformType uType, const mat4 &value, int count = 1) {
-            if (uID[uType] != -1) glUniformMatrix4fv(uID[uType], count, false, (GLfloat*)&value);
+            if (uID[uType] != -1) setParam(uType, (float*)&value, count * 16);
         }
 
         void setParam(UniformType uType, const Basis &value, int count = 1) {
-            if (uID[uType] != -1) glUniform4fv(uID[uType], count * 2, (GLfloat*)&value);
+            if (uID[uType] != -1) setParam(uType, (float*)&value, count * 8);
         }
     #endif
     };
@@ -616,7 +672,7 @@ namespace GAPI {
                 glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, color);
             }
 
-            glTexParameteri(target, GL_TEXTURE_MIN_FILTER, filter ? (mipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR ) : ( mipmaps ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST ));
+            glTexParameteri(target, GL_TEXTURE_MIN_FILTER, filter ? (mipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR) : (mipmaps ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST));
             glTexParameteri(target, GL_TEXTURE_MAG_FILTER, filter ? GL_LINEAR : GL_NEAREST);
 
             static const struct FormatDesc {
@@ -727,15 +783,15 @@ namespace GAPI {
 
 // Mesh
     struct Mesh {
-        Index        *iBuffer;
-        GAPI::Vertex *vBuffer;
-        GLuint       *VAO;
-        GLuint       ID[2];
+        Index  *iBuffer;
+        Vertex *vBuffer;
+        GLuint *VAO;
+        GLuint ID[2];
 
-        int          iCount;
-        int          vCount;
-        int          aCount;
-        bool         dynamic;
+        int    iCount;
+        int    vCount;
+        int    aCount;
+        bool   dynamic;
 
         Mesh(bool dynamic) : iBuffer(NULL), vBuffer(NULL), VAO(NULL), dynamic(dynamic) {
             ID[0] = ID[1] = 0;
@@ -1004,6 +1060,7 @@ namespace GAPI {
         support.texFloat       = false;
         support.texHalfLinear  = false;
         support.texHalf        = false;
+        support.clipDist       = false;
     #else
         support.shaderBinary   = extSupport(ext, "_program_binary");
         support.VAO            = extSupport(ext, "_vertex_array_object");
@@ -1020,6 +1077,7 @@ namespace GAPI {
         support.texFloat       = support.texFloatLinear || extSupport(ext, "_texture_float");
         support.texHalfLinear  = support.colorHalf || extSupport(ext, "GL_ARB_texture_float") || extSupport(ext, "_texture_half_float_linear") || extSupport(ext, "_color_buffer_half_float");
         support.texHalf        = support.texHalfLinear || extSupport(ext, "_texture_half_float");
+        support.clipDist       = false; // TODO
 
         #ifdef PROFILE
             support.profMarker = extSupport(ext, "_KHR_debug");
@@ -1235,12 +1293,63 @@ namespace GAPI {
     #endif
     }
 
+    void updateLights(vec4 *lightPos, vec4 *lightColor, int count) {
+    #ifdef FFP
+        int lightsCount = 0;
+
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity();
+
+        vec4 amb(vec3(Core::active.material.y), 1.0f);
+        glLightModelfv(GL_LIGHT_MODEL_AMBIENT, (GLfloat*)&amb);
+
+        for (int i = 0; i < count; i++) {
+            GLenum light = GL_LIGHT0 + i;
+
+            if (lightColor[i].w != 1.0f) {
+                glEnable(light);
+                lightsCount++;
+            } else {
+                glDisable(light);
+                continue;
+            }
+
+            vec4 pos(lightPos[i].xyz(), 1.0f);
+            vec4 color(lightColor[i].xyz(), 1.0f);
+            float att = lightColor[i].w * lightColor[i].w;
+
+            glLightfv(light, GL_POSITION, (GLfloat*)&pos);
+            glLightfv(light, GL_DIFFUSE,  (GLfloat*)&color);
+            glLightfv(light, GL_QUADRATIC_ATTENUATION, (GLfloat*)&att);
+        }
+
+        glPopMatrix();
+
+        if (lightsCount) {
+            glEnable(GL_COLOR_MATERIAL);
+            glEnable(GL_LIGHTING);        
+        } else {
+            glDisable(GL_COLOR_MATERIAL);
+            glDisable(GL_LIGHTING);
+        }
+    #else
+        if (Core::active.shader) {
+            Core::active.shader->setParam(uLightColor, lightColor[0], count);
+            Core::active.shader->setParam(uLightPos,   lightPos[0],   count);
+        }
+    #endif
+    }
+
     void DIP(Mesh *mesh, const MeshRange &range) {
     #ifdef FFP
         mat4 m = mView * mModel;
         glMatrixMode(GL_MODELVIEW);
         glLoadMatrixf((GLfloat*)&m);
     #endif
+        if (Core::active.shader) {
+            Core::active.shader->setup();
+        }
 
         glDrawElements(GL_TRIANGLES, range.iCount, GL_UNSIGNED_SHORT, mesh->iBuffer + range.iStart);
     }

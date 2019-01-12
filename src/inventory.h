@@ -127,7 +127,7 @@ static const OptionItem optDetail[] = {
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_SHADOWS,  SETTINGS( detail.shadows  ), STR_QUALITY_LOW, 0, 2 ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_WATER,    SETTINGS( detail.water    ), STR_QUALITY_LOW, 0, 2 ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_SIMPLE_ITEMS,    SETTINGS( detail.simple   ), STR_OFF, 0, 1 ),
-#if !defined(__LIBRETRO__) && (defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_PSP) || defined(_OS_RPI))
+#if !defined(__LIBRETRO__) && (defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_PSP) || defined(_OS_RPI) || defined(_OS_PSV))
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_VSYNC,    SETTINGS( detail.vsync    ), STR_OFF, 0, 1 ),
 #endif
 #ifndef _OS_PSP
@@ -1139,21 +1139,36 @@ struct Inventory {
 
         bool ready = active && phaseRing == 1.0f && phasePage == 1.0f;
 
-        Input::Joystick &joy = Input::joy[Core::settings.controls[playerIndex].joyIndex];
+        Input::Joystick &joy     = Input::joy[Core::settings.controls[playerIndex].joyIndex];
+        Input::Joystick &joyMain = Input::joy[0];
 
         ControlKey key = cMAX;
         if (Input::down[ikCtrl] || Input::down[ikEnter] || Input::lastState[playerIndex] == cAction || joy.down[jkA])
             key = cAction;
-        else if (Input::down[ikAlt]   || joy.down[jkB]     || Input::lastState[playerIndex] == cInventory)
+        else if (Input::down[ikAlt]   || joy.down[jkB])
             key = cInventory;
-        else if (Input::down[ikLeft]  || joy.down[jkLeft]  || joy.L.x < -0.5f)
+        else if (Input::down[ikLeft]  || joy.down[jkLeft]  || joy.L.x < -0.5f || joyMain.down[jkLeft]  || joyMain.L.x < -0.5f)
             key = cLeft;
-        else if (Input::down[ikRight] || joy.down[jkRight] || joy.L.x >  0.5f)
+        else if (Input::down[ikRight] || joy.down[jkRight] || joy.L.x >  0.5f || joyMain.down[jkRight] || joyMain.L.x > 0.5f)
             key = cRight;
         else if (Input::down[ikUp]    || joy.down[jkUp]    || joy.L.y < -0.5f)
             key = cUp;
         else if (Input::down[ikDown]  || joy.down[jkDown]  || joy.L.y >  0.5f)
             key = cDown;
+
+        #ifdef _OS_NX
+        // swap A/B keys for Nintendo (Japanese) UX style
+        if (Input::touchTimerVis == 0.0f) {
+            if (key == cAction) {
+                key = cInventory;
+            } else if (key == cInventory) {
+                key = cAction;
+            }
+        }
+        #endif
+
+        if (Input::lastState[playerIndex] == cInventory)
+            key = cInventory;
 
         Item *item = items[getGlobalIndex(page, index)];
 
@@ -1531,10 +1546,15 @@ struct Inventory {
 
                 vec2 size = vec2(180, 10);
                 vec2 pos;
-                if (Core::settings.detail.stereo == Core::Settings::STEREO_VR)
+                if (Core::settings.detail.stereo == Core::Settings::STEREO_VR) {
                     pos = vec2((UI::width - size.x) * 0.5f - eye * 4.0f, 96);
-                else
-                    pos = vec2(UI::width - 32 - size.x - eye, 32);
+                } else {
+                    if (game->getLara(1) && playerIndex == 0) {
+                        pos = vec2(32 - eye, 32);
+                    } else {
+                        pos = vec2(UI::width - 32 - size.x - eye, 32);
+                    }
+                }
 
                 UI::renderBar(UI::BAR_HEALTH, pos, size, health);
             }
@@ -1566,7 +1586,7 @@ struct Inventory {
         float alpha = 1.0f - phaseRing * phase;
         alpha *= alpha;
         alpha = 1.0f - alpha;
-        Core::active.shader->setParam(uMaterial, vec4(1.0f, 0.4f, 0.0f, alpha));
+        Core::setMaterial(1.0f, 0.0f, 0.0f, alpha);
 
         int count = getItemsCount(page);
 
@@ -1730,10 +1750,22 @@ struct Inventory {
         vertices[2].texCoord = short4(32767,     0, 0, 0);
         vertices[3].texCoord = short4(    0,     0, 0, 0);
 
+        Texture *backTex = NULL;
+    #ifdef FFP
+        backTex = Core::blackTex;
+
+        mat4 m;
+        m.identity();
+        Core::setViewProj(m, m);
+        Core::mModel.identity();
+        Core::mModel.scale(vec3(1.0f / 32767.0f));
+    #else
         if (Core::settings.detail.stereo == Core::Settings::STEREO_VR || !background[0]) {
-            Core::blackTex->bind(sDiffuse); // black background 
+            backTex = Core::blackTex; // black background 
         } else
-            background[0]->bind(sDiffuse); // blured grayscale image
+            backTex = background[0]; // blured grayscale image
+    #endif
+        backTex->bind(sDiffuse);
 
         game->setShader(Core::passFilter, Shader::FILTER_UPSCALE, false, false);
         Core::active.shader->setParam(uParam, vec4(float(Core::active.textures[sDiffuse]->width), float(Core::active.textures[sDiffuse]->height), 0.0f, 0.0f));
@@ -1755,10 +1787,9 @@ struct Inventory {
             alpha = 255;
 
         float sy = 1.0f;
-    #ifndef _OS_WEB
-        if (background[0])
-            sy = (480.0f / 640.0f) * ((float)background[0]->width / (float)background[0]->height);
-    #endif
+
+        if (background[0] && background[0]->origWidth / background[0]->origHeight == 2) // PSX images aspect correction
+            sy = (480.0f / 640.0f) * ((float)background[0]->origWidth / (float)background[0]->origHeight);
 
         if (Core::settings.detail.stereo == Core::Settings::STEREO_VR) {
             if (game->getLevel()->isTitle())
@@ -1822,6 +1853,8 @@ struct Inventory {
             if ((game->getLevel()->version & TR::VER_TR1) && !playLogo)
                 sy = 1.2f;
 
+            Core::resetLights();
+
             background[0] = video->frameTex[0];
             renderTitleBG(1.0f, sy, 255);
 
@@ -1843,11 +1876,9 @@ struct Inventory {
     // items
         game->setupBinding();
 
-        Core::mLightProj.identity();
-
         setupCamera(aspect);
 
-        UI::setupInventoryShading();
+        UI::setupInventoryShading(vec3(0.0f));
 
         renderPage(page);
         if (page != targetPage)
@@ -1883,6 +1914,8 @@ struct Inventory {
 
     void renderUI() {
         if (!active || phaseRing < 1.0f) return;
+
+        Core::resetLights();
 
         static const StringID pageTitle[PAGE_MAX] = { STR_OPTION, STR_INVENTORY, STR_ITEMS, STR_SAVEGAME, STR_LEVEL_STATS };
 
@@ -1929,10 +1962,18 @@ struct Inventory {
         if (page == targetPage && Input::touchTimerVis <= 0.0f) {
             float dx = 32.0f - eye;
             char buf[64];
-            sprintf(buf, STR[STR_HELP_SELECT], STR[STR_KEY_FIRST + ikEnter] );
+            const char *bSelect = STR[STR_KEY_FIRST + ikEnter];
+            const char *bBack   = STR[STR_KEY_FIRST + Core::settings.controls[playerIndex].keys[cInventory].key];
+
+            #ifdef _OS_NX
+                bSelect = "A";
+                bBack   = "B";
+            #endif
+
+            sprintf(buf, STR[STR_HELP_SELECT], bSelect);
             UI::textOut(vec2(dx, 480 - 64), buf, UI::aLeft, UI::width);
             if (chosen) {
-                sprintf(buf, STR[STR_HELP_BACK], STR[STR_KEY_FIRST + Core::settings.controls[playerIndex].keys[ cInventory ].key] );
+                sprintf(buf, STR[STR_HELP_BACK], bBack);
                 UI::textOut(vec2(0, 480 - 64), buf, UI::aRight, UI::width - dx);
             }
         }

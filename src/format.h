@@ -895,7 +895,6 @@ namespace TR {
             DRAW_LEFTGUN   ,
             SHOT_RIGHTGUN  ,
             SHOT_LEFTGUN   ,
-            UNKNOWN        ,
             MESH_SWAP_1    ,
             MESH_SWAP_2    ,
             MESH_SWAP_3    ,
@@ -2519,10 +2518,10 @@ namespace TR {
 
                     stream.seek(-4);
                 // get file name without extension
-                    int len = strlen(stream.name);
+                    size_t len = strlen(stream.name);
                     char *name = new char[len + 1];
                     memcpy(name, stream.name, len);
-                    for (int i = len - 1; i >= 0; i--) {
+                    for (int i = int(len) - 1; i >= 0; i--) {
                         if (name[i] == '/' || name[i] == '\\')
                             break;
                         if (name[i] == '.') {
@@ -2549,7 +2548,7 @@ namespace TR {
                         cin = new Stream(name);
                     } else {
                         len = strlen(name);
-                        for (int i = len - 1; i >= 0; i--)
+                        for (int i = int(len) - 1; i >= 0; i--)
                             if (name[i] == '/' || name[i] == '\\') {
                                 char *newName = new char[len + 11 + 1];
                                 name[i] = 0;
@@ -3998,12 +3997,7 @@ namespace TR {
 
             stream.read(f.flags.value);
 
-        #ifndef SPLIT_BY_TILE
             f.colored = colored;
-        #else
-            f.colored = false;
-        #endif
-
             f.water = false;
             f.flip  = false;
         }

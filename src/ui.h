@@ -6,6 +6,7 @@
 #include "controller.h"
 
 #define PICKUP_SHOW_TIME 5.0f
+//#define UI_SHOW_FPS
 
 enum StringID {
       STR_NOT_IMPLEMENTED
@@ -295,6 +296,7 @@ namespace UI {
     struct PickupItem {
         float      time;
         vec2       pos;
+        int        playerIndex;
         int        modelIndex;
         Animation *animation;
     };
@@ -506,6 +508,9 @@ namespace UI {
     }
 
     void deinit() {
+        for (int i = 0; i < pickups.length; i++) {
+            delete pickups[i].animation;
+        }
         pickups.clear();
     }
 
@@ -521,6 +526,11 @@ namespace UI {
         if (helpTipTime > 0.0f)
             helpTipTime -= Core::deltaTime;
 
+        float w = UI::width;
+        if (game->getLara(1)) {
+            w *= 0.5f;
+        }
+
         int i = 0;
         while (i < pickups.length) {
             PickupItem &item = pickups[i];
@@ -529,7 +539,7 @@ namespace UI {
                 delete item.animation;
                 pickups.remove(i);
             } else {
-                vec2 target = vec2(UI::width - 48.0f - Core::eye * 16.0f - (i % 4) * 96.0f, UI::height - 48.0f - (i / 4) * 96.0f);
+                vec2 target = vec2(w - 48.0f - Core::eye * 16.0f - (i % 4) * 96.0f, UI::height - 48.0f - (i / 4) * 96.0f);
                 item.pos = item.pos.lerp(target, Core::deltaTime * 5.0f);
                 i++;
             }
@@ -542,7 +552,7 @@ namespace UI {
         m.translate(vec3(pos.x, pos.y, 0.0));
         m.scale(vec3(scale.x, scale.y, 1.0));
         Core::active.shader->setParam(uViewProj, m);
-        Core::active.shader->setParam(uMaterial, vec4(1.0f, 1.0f, 1.0f, active ? 0.7f : 0.5f));
+        Core::setMaterial(1.0f, 1.0f, 1.0f, active ? 0.7f : 0.5f);
         game->getMesh()->renderCircle();
     }
 
@@ -605,48 +615,65 @@ namespace UI {
             textOut(vec2(16, 32), hintStr, aLeft, width - 32, 255, UI::SHADE_GRAY);
         }
 
+    #if !defined(__LIBRETRO__) && (defined(_OS_WEB) || defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_MAC) || defined(_OS_RPI))
         if (showHelp) {
             textOut(vec2(32, 32), STR_HELP_TEXT, aLeft, width - 32, 255, UI::SHADE_GRAY);
-        } 
-#ifndef __LIBRETRO__
-        else {
+        } else {
             if (helpTipTime > 0.0f) {
                 textOut(vec2(0, height - 32), STR_HELP_PRESS, aCenter, width, 255, UI::SHADE_ORANGE);
             }
         }
-#endif
+    #endif
+
+    #ifdef UI_SHOW_FPS
+        char buf[256];
+        sprintf(buf, "%d", Core::stats.fps);
+        textOut(vec2(0, 16), buf, aLeft, width, 255, UI::SHADE_ORANGE);
+    #endif
     }
 
-    void addPickup(TR::Entity::Type type, const vec2 &pos) {
+    void addPickup(TR::Entity::Type type, int playerIndex, const vec2 &pos) {
         TR::Level *level = game->getLevel();
 
         PickupItem item;
-        item.time       = PICKUP_SHOW_TIME;
-        item.pos        = pos;
-        item.modelIndex = level->getModelIndex(TR::Level::convToInv(type));
+        item.time        = PICKUP_SHOW_TIME;
+        item.pos         = pos;
+        item.playerIndex = playerIndex;
+        item.modelIndex  = level->getModelIndex(TR::Level::convToInv(type));
         if (item.modelIndex <= 0)
             return;
-        item.animation  = new Animation(level, &level->models[item.modelIndex - 1]);
+        item.animation   = new Animation(level, &level->models[item.modelIndex - 1]);
 
         pickups.push(item);
     }
 
-    void setupInventoryShading() {
-        Core::whiteTex->bind(sShadow);
+    void setupInventoryShading(vec3 offset) {
+        Core::mView.identity();
+        Core::mProj = GAPI::perspective(1.0f, 1.0f, 1.0f, 2.0f);
+        Core::mLightProj = Core::mProj * Core::mView;
+
         game->setShader(Core::passCompose, Shader::ENTITY, false, false);
+        Core::setMaterial(1.0f, 0.0f, 0.0f, 1.0f);
 
-        vec4 ambient[6] = {
-            vec4(0.4f), vec4(0.2f), vec4(0.4f), vec4(0.5f), vec4(0.4f), vec4(0.6f)
-        };
+        vec4 o = vec4(offset, 0.0f);
 
-        for (int i = 0; i < MAX_LIGHTS; i++) {
-            Core::lightPos[i]   = vec4(0, 0, 0, 0);
-            Core::lightColor[i] = vec4(0, 0, 0, 1);
-        }
-        
-        Core::active.shader->setParam(uLightPos,   Core::lightPos[0],   MAX_LIGHTS);
-        Core::active.shader->setParam(uLightColor, Core::lightColor[0], MAX_LIGHTS);
-        Core::active.shader->setParam(uAmbient,    ambient[0], 6);
+        // center
+        Core::lightPos[0]   = vec4(0.0f, 0.0f, 0.0f, 0.0f) + o;
+        Core::lightColor[0] = vec4(0.4f, 0.4f, 0.4f, 1.0f / 2048.0f);
+        // camera view
+        Core::lightPos[1]   = vec4(0.0f, 0.0f, -2048.0f, 0.0f) + o;
+        Core::lightColor[1] = vec4(0.9f, 0.9f, 0.9f, 1.0f / 2048.0f);
+        // left
+        Core::lightPos[2]   = vec4(-1536.0f,  256.0f, 0.0f, 0.0f) + o;
+        Core::lightColor[2] = vec4(0.8f, 0.8f, 0.5f, 1.0f / 4096.0f);
+        // right
+        Core::lightPos[3]   = vec4( 1536.0f, -256.0f, 0.0f, 0.0f) + o;
+        Core::lightColor[3] = vec4(0.8f, 0.6f, 0.8f, 1.0f / 4096.0f);
+
+        Core::updateLights();
+
+        vec4 ambient[6] = { vec4(0), vec4(0), vec4(0), vec4(0), vec4(0), vec4(0) };
+        Core::active.shader->setParam(uAmbient, ambient[0], 6);
     }
 
     void renderPickups() {
@@ -658,7 +685,9 @@ namespace UI {
         mat4 mView = Core::mView;
         Core::mView.scale(vec3(0.5f));
         Core::setViewProj(Core::mView, Core::mProj);
-        setupInventoryShading();
+
+        vec3 lightOffset = vec3(UI::width - 64.0f, UI::height - 64.0f, 2048.0f);
+        setupInventoryShading(lightOffset);
 
         Basis joints[MAX_SPHERES];
 
@@ -667,6 +696,9 @@ namespace UI {
         MeshBuilder *mesh = game->getMesh();
         for (int i = 0; i < pickups.length; i++) {
             const PickupItem &item = pickups[i];
+
+            if (item.playerIndex != game->getCamera()->cameraIndex)
+                continue;
 
             float offset = 0.0f;
             if (item.time < 1.0f) {
@@ -690,7 +722,7 @@ namespace UI {
             alpha *= alpha;
             alpha = 1.0f - alpha;
 
-            Core::active.shader->setParam(uMaterial, vec4(1.0f, 0.4f, 0.0f, alpha));
+            Core::setMaterial(1.0f, 0.0f, 0.0f, alpha);
 
             mesh->renderModelFull(item.modelIndex - 1);
         }
