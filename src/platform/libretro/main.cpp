@@ -474,7 +474,6 @@ void retro_run(void)
    audio_batch_cb(samples, audio_frames);
 
    Core::deltaTime             = 1.0 / FRAMERATE;
-   Core::settings.detail.vsync = false;
 
    updated = Game::update();
    if (updated)

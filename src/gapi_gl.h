@@ -179,7 +179,6 @@ extern struct retro_hw_render_callback hw_render;
         PFNGLACTIVETEXTUREPROC              glActiveTexture;
     #endif
 
-#ifndef __LIBRETRO__
 // VSync
     #ifdef _OS_WIN
         typedef BOOL (WINAPI * PFNWGLSWAPINTERVALEXTPROC) (int interval);
@@ -188,7 +187,6 @@ extern struct retro_hw_render_callback hw_render;
         typedef int (*PFNGLXSWAPINTERVALSGIPROC) (int interval);
         PFNGLXSWAPINTERVALSGIPROC glXSwapIntervalSGI;
     #endif
-#endif
 
     #if defined(_OS_WIN) || defined(_OS_LINUX)
         PFNGLGENERATEMIPMAPPROC             glGenerateMipmap;
@@ -1213,7 +1211,6 @@ namespace GAPI {
     }
 
     void setVSync(bool enable) {
-#ifndef __LIBRETRO__
         #ifdef _OS_WIN
             if (wglSwapIntervalEXT) wglSwapIntervalEXT(enable ? 1 : 0);
         #elif _OS_LINUX
@@ -1221,7 +1218,6 @@ namespace GAPI {
         #elif defined(_OS_RPI) || defined(_OS_CLOVER) || defined(_OS_NX)
             eglSwapInterval(display, enable ? 1 : 0);
         #endif
-#endif
     }
 
     void waitVBlank() {}
