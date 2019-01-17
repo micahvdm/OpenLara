@@ -120,43 +120,6 @@ extern void  osJoyVibrate    (int index, float L, float R);
 
 #define OS_LOCK(mutex) Core::Lock _lock(mutex)
 
-/*
-extern void* osRWLockInit    ();
-extern void  osRWLockFree    (void *obj);
-extern void  osRWLockRead    (void *obj);
-extern void  osRWUnlockRead  (void *obj);
-extern void  osRWLockWrite   (void *obj);
-extern void  osRWUnlockWrite (void *obj);
-
-struct RWLock {
-    void *obj;
-
-    RWLock()           { obj = osRWLockInit(); }
-    ~RWLock()          { osRWLockFree(obj);    }
-    void lockRead()    { osRWLockRead(obj);    }
-    void unlockRead()  { osRWUnlockRead(obj);  }
-    void lockWrite()   { osRWLockWrite(obj);   }
-    void unlockWrite() { osRWUnlockWrite(obj); }
-};
-
-struct LockRead {
-    RWLock &lock;
-
-    LockRead(RWLock &lock) : lock(lock) { lock.lockRead(); }
-    ~LockRead() { lock.unlockRead(); }
-};
-
-struct LockWrite {
-    RWLock &lock;
-
-    LockWrite(RWLock &lock) : lock(lock) { lock.lockWrite(); }
-    ~LockWrite() { lock.unlockWrite(); }
-};
-
-#define OS_LOCK_READ(rwLock)  LockRead  _rLock(rwLock)
-#define OS_LOCK_WRITE(rwLock) LockWrite _wLock(rwLock)
-*/
-
 enum InputKey { ikNone,
 // keyboard
     ikLeft, ikRight, ikUp, ikDown, ikSpace, ikTab, ikEnter, ikEscape, ikShift, ikCtrl, ikAlt,
@@ -343,6 +306,7 @@ namespace Core {
 #define MAX_LIGHTS           4
 #define MAX_RENDER_BUFFERS   32
 #define MAX_CONTACTS         15
+#define NOISE_TEX_SIZE       32
 
 struct Shader;
 struct Texture;
@@ -379,8 +343,8 @@ enum TexFormat {
     FMT_RGBA, 
     FMT_RGB16,
     FMT_RGBA16,
-    FMT_RGBA_FLOAT,
-    FMT_RGBA_HALF,
+    FMT_RG_FLOAT,
+    FMT_RG_HALF,
     FMT_DEPTH,
     FMT_SHADOW,
     FMT_MAX,
@@ -487,11 +451,12 @@ struct MeshRange {
     E( WATER_MASK     ) \
     E( WATER_COMPOSE  ) \
     /* filter types */ \
-    E( FILTER_UPSCALE         ) \
-    E( FILTER_DOWNSAMPLE      ) \
-    E( FILTER_GRAYSCALE       ) \
-    E( FILTER_BLUR            ) \
-    E( FILTER_EQUIRECTANGULAR ) \
+    E( FILTER_UPSCALE          ) \
+    E( FILTER_DOWNSAMPLE       ) \
+    E( FILTER_DOWNSAMPLE_DEPTH ) \
+    E( FILTER_GRAYSCALE        ) \
+    E( FILTER_BLUR             ) \
+    E( FILTER_EQUIRECTANGULAR  ) \
     /* options */ \
     E( UNDERWATER      ) \
     E( ALPHA_TEST      ) \
@@ -543,7 +508,7 @@ namespace Core {
     vec4 fogParams;
     vec4 contacts[MAX_CONTACTS];
 
-    Texture *whiteTex, *whiteCube, *blackTex, *ditherTex;
+    Texture *whiteTex, *whiteCube, *blackTex, *ditherTex, *noiseTex;
 
     enum Pass { passCompose, passShadow, passAmbient, passWater, passFilter, passGUI, passMAX } pass;
 
@@ -686,6 +651,7 @@ namespace Core {
         data = 0;
         blackTex  = new Texture(1, 1, FMT_RGBA, OPT_NEAREST, &data);
 
+    // generate dithering texture
         uint8 ditherData[] = {
             0x00, 0x7F, 0x1F, 0x9F, 0x07, 0x87, 0x27, 0xA7,
             0xBF, 0x3F, 0xDF, 0x5F, 0xC7, 0x47, 0xE7, 0x67,
@@ -697,6 +663,15 @@ namespace Core {
             0xFB, 0x7B, 0xDB, 0x5B, 0xF3, 0x73, 0xD3, 0x53,
         };
         ditherTex = new Texture(8, 8, FMT_LUMINANCE, OPT_REPEAT | OPT_NEAREST, &ditherData);
+
+    // generate noise texture
+        uint8 *noiseData = new uint8[SQR(NOISE_TEX_SIZE)];
+        for (int i = 0; i < SQR(NOISE_TEX_SIZE); i++) {
+            noiseData[i] = rand() % 255;
+        }
+        noiseTex = new Texture(NOISE_TEX_SIZE, NOISE_TEX_SIZE, FMT_LUMINANCE, OPT_REPEAT, noiseData);
+        delete[] noiseData;
+
 
 // init settings
         settings.version = SETTINGS_VERSION;
@@ -804,6 +779,7 @@ namespace Core {
         delete whiteCube;
         delete blackTex;
         delete ditherTex;
+        delete noiseTex;
 
         GAPI::deinit();
         NAPI::deinit();
@@ -951,19 +927,19 @@ namespace Core {
             renderState &= ~RS_DEPTH_TEST;
     }
 
-    void setTarget(GAPI::Texture *target, int op, int face = 0) {
-        if (!target)
-            target = defaultTarget;
+    void setTarget(GAPI::Texture *color, GAPI::Texture *depth, int op, int face = 0) {
+        if (!color)
+            color = defaultTarget;
 
-        bool color = !target || (target->fmt != FMT_DEPTH && target->fmt != FMT_SHADOW);
-        setColorWrite(color, color, color, color);
+        bool isColor = !color || (color->fmt != FMT_DEPTH && color->fmt != FMT_SHADOW);
+        setColorWrite(isColor, isColor, isColor, isColor);
 
-        if (target == defaultTarget) // backbuffer
+        if (color == defaultTarget) // backbuffer
             setViewport(viewportDef);
         else
-            setViewport(0, 0, target->origWidth, target->origHeight);
+            setViewport(0, 0, color->origWidth, color->origHeight);
 
-        reqTarget.texture = target;
+        reqTarget.texture = color;
         reqTarget.op      = op;
         reqTarget.face    = face;
         renderState |= RS_TARGET;
@@ -1028,7 +1004,7 @@ namespace Core {
 
     void endFrame() {
         if (active.target != defaultTarget) {
-            GAPI::setTarget(NULL, 0);
+            GAPI::setTarget(NULL, NULL, 0);
             validateRenderState();
         }
         GAPI::endFrame();

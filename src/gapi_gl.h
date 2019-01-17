@@ -3,7 +3,9 @@
 
 #include "core.h"
 
-//#define _DEBUG_SHADERS
+#if defined(_DEBUG) || defined(PROFILE)
+    //#define _DEBUG_SHADERS
+#endif
 
 #ifdef __LIBRETRO__
 #include <libretro.h>
@@ -25,6 +27,9 @@ extern struct retro_hw_render_callback hw_render;
     #define GL_TEXTURE_COMPARE_FUNC     0x884D
     #define GL_COMPARE_REF_TO_TEXTURE   0x884E
 
+    #define GL_RG                       0x8227
+    #define GL_RG16F                    0x822F
+    #define GL_RG32F                    0x8230
     #define GL_RGBA16F                  0x881A
     #define GL_RGBA32F                  0x8814
     #define GL_HALF_FLOAT               0x140B
@@ -58,10 +63,12 @@ extern struct retro_hw_render_callback hw_render;
     #define GL_TEXTURE_COMPARE_FUNC     0x884D
     #define GL_COMPARE_REF_TO_TEXTURE   0x884E
 
+    #undef  GL_RG
     #undef  GL_RGBA32F
     #undef  GL_RGBA16F
     #undef  GL_HALF_FLOAT
 
+    #define GL_RG           GL_RGBA
     #define GL_RGBA32F      GL_RGBA
     #define GL_RGBA16F      GL_RGBA
     #define GL_HALF_FLOAT   GL_HALF_FLOAT_OES
@@ -106,10 +113,17 @@ extern struct retro_hw_render_callback hw_render;
         #define GL_CLAMP_TO_BORDER          0x812D
         #define GL_TEXTURE_BORDER_COLOR     0x1004
 
+        // TODO: WTF?
+        #undef  GL_RG
         #undef  GL_RGBA32F
         #undef  GL_RGBA16F
+        #undef  GL_RG32F
+        #undef  GL_RG16F
         #undef  GL_HALF_FLOAT
 
+        #define RG              GL_RGBA
+        #define GL_RG16F        GL_RGBA
+        #define GL_RG32F        GL_RGBA
         #define GL_RGBA32F      GL_RGBA
         #define GL_RGBA16F      GL_RGBA
         #define GL_HALF_FLOAT   GL_HALF_FLOAT_OES
@@ -125,6 +139,9 @@ extern struct retro_hw_render_callback hw_render;
         #include <OpenGL/glext.h>
         #include <AGL/agl.h>
 
+        #define GL_RG                       0x8227
+        #define GL_RG16F                    0x822F
+        #define GL_RG32F                    0x8230
         #define GL_RGBA16F                  0x881A
         #define GL_RGBA32F                  0x8814
         #define GL_HALF_FLOAT               0x140B
@@ -634,6 +651,20 @@ namespace GAPI {
 
 
 // Texture
+	static const struct FormatDesc {
+		GLuint ifmt, fmt;
+		GLenum type;
+	} formats[FMT_MAX] = {
+		{ GL_LUMINANCE,       GL_LUMINANCE,       GL_UNSIGNED_BYTE          }, // LUMINANCE
+		{ GL_RGBA,            GL_RGBA,            GL_UNSIGNED_BYTE          }, // RGBA
+		{ GL_RGB,             GL_RGB,             GL_UNSIGNED_SHORT_5_6_5   }, // RGB16
+		{ GL_RGBA,            GL_RGBA,            GL_UNSIGNED_SHORT_5_5_5_1 }, // RGBA16
+		{ GL_RG32F,           GL_RG,              GL_FLOAT                  }, // RG_FLOAT
+		{ GL_RG16F,           GL_RG,              GL_HALF_FLOAT             }, // RG_HALF
+		{ GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT         }, // DEPTH
+		{ GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT         }, // SHADOW
+	};
+
     struct Texture {
         uint32     ID;
         int        width, height, origWidth, origHeight;
@@ -673,63 +704,58 @@ namespace GAPI {
             glTexParameteri(target, GL_TEXTURE_MIN_FILTER, filter ? (mipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR) : (mipmaps ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST));
             glTexParameteri(target, GL_TEXTURE_MAG_FILTER, filter ? GL_LINEAR : GL_NEAREST);
 
-            static const struct FormatDesc {
-                GLuint ifmt, fmt;
-                GLenum type;
-            } formats[FMT_MAX] = {
-                { GL_LUMINANCE,       GL_LUMINANCE,       GL_UNSIGNED_BYTE          }, // LUMINANCE
-                { GL_RGBA,            GL_RGBA,            GL_UNSIGNED_BYTE          }, // RGBA
-                { GL_RGB,             GL_RGB,             GL_UNSIGNED_SHORT_5_6_5   }, // RGB16
-                { GL_RGBA,            GL_RGBA,            GL_UNSIGNED_SHORT_5_5_5_1 }, // RGBA16
-                { GL_RGBA32F,         GL_RGBA,            GL_FLOAT                  }, // RGBA_FLOAT
-                { GL_RGBA16F,         GL_RGBA,            GL_HALF_FLOAT             }, // RGBA_HALF
-                { GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT         }, // DEPTH
-                { GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT         }, // SHADOW
-            };
+            FormatDesc desc = getFormat();
 
+            void *pix = (width == origWidth && height == origHeight) ? data : NULL;
+
+            for (int i = 0; i < 6; i++) {
+                glTexImage2D(cube ? (GL_TEXTURE_CUBE_MAP_POSITIVE_X + i) : GL_TEXTURE_2D, 0, desc.ifmt, width, height, 0, desc.fmt, desc.type, pix);
+                if (!cube) break;
+            }
+			
+            if (pix != data) {
+                update(data);
+			}
+        }
+
+        void deinit() {
+            if (ID) {
+                glDeleteTextures(1, &ID);
+			}
+        }
+
+        FormatDesc getFormat() {
             FormatDesc desc = formats[fmt];
 
+            if ((fmt == FMT_RG_FLOAT || fmt == FMT_RG_HALF) && !Core::support.texRG) {
+                desc.ifmt = (fmt == FMT_RG_FLOAT) ? GL_RGBA32F : GL_RGBA16F;
+                desc.fmt  = GL_RGBA;
+            }
+
             #ifdef _OS_WEB // fucking firefox!
-                if (fmt == FMT_RGBA_FLOAT) {
+                if (fmt == FMT_RG_FLOAT) {
                     if (Core::support.texFloat) {
                         desc.ifmt = GL_RGBA;
                         desc.type = GL_FLOAT;
                     }
                 }
 
-                if (fmt == FMT_RGBA_HALF) {
+                if (fmt == FMT_RG_HALF) {
                     if (Core::support.texHalf) {
                         desc.ifmt = GL_RGBA;
                         desc.type = GL_HALF_FLOAT_OES;
                     }
                 }
             #else
-                if ((fmt == FMT_RGBA_FLOAT && !Core::support.colorFloat) || (fmt == FMT_RGBA_HALF && !Core::support.colorHalf)) {
+                if ((fmt == FMT_RG_FLOAT && !Core::support.colorFloat) || (fmt == FMT_RG_HALF && !Core::support.colorHalf)) {
                     desc.ifmt = GL_RGBA;
                     #ifdef _GAPI_GLES
-                        if (fmt == FMT_RGBA_HALF)
+                        if (fmt == FMT_RG_HALF)
                             desc.type = GL_HALF_FLOAT_OES;
                     #endif
                 }
             #endif
-
-
-            void *pix = data;
-            if (data && !Core::support.texNPOT && (width != origWidth || height != origHeight))
-                pix = NULL;
-
-            for (int i = 0; i < 6; i++) {
-                glTexImage2D(cube ? (GL_TEXTURE_CUBE_MAP_POSITIVE_X + i) : GL_TEXTURE_2D, 0, desc.ifmt, width, height, 0, desc.fmt, desc.type, pix);
-                if (!cube) break;
-            }
-
-            if (pix != data)
-                update(data);
-        }
-
-        void deinit() {
-            if (ID)
-                glDeleteTextures(1, &ID);
+            return desc;
         }
 
         void generateMipMap() {
@@ -744,7 +770,8 @@ namespace GAPI {
 
         void update(void *data) {
             bind(0);
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, origWidth, origHeight, GL_RGBA, GL_UNSIGNED_BYTE, data);
+			FormatDesc desc = getFormat();
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, origWidth, origHeight, desc.fmt, desc.type, data);
         }
 
         void bind(int sampler) {
