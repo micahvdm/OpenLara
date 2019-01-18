@@ -68,6 +68,8 @@ struct Lara : Character {
 
     // http://www.tombraiderforums.com/showthread.php?t=148859
     enum {
+        ANIM_RUN                = 0,
+
         ANIM_STAND_LEFT         = 2,
         ANIM_STAND_RIGHT        = 3,
 
@@ -276,8 +278,6 @@ struct Lara : Character {
         JOINT_MASK_BRAID      = JOINT_MASK_HEAD   | JOINT_MASK_CHEST  | JOINT_MASK_ARM_L1 | JOINT_MASK_ARM_L2 | JOINT_MASK_ARM_R1 | JOINT_MASK_ARM_R2,
     };
 
-    bool dozy;
-
     struct Weapon {
         enum State { IS_HIDDEN, IS_ARMED, IS_FIRING };
         struct Anim {
@@ -321,6 +321,9 @@ struct Lara : Character {
     Camera      *camera;
 
     float       hitTimer;
+
+    bool        dozy;
+    bool        canJump;
 
     int32       networkInput;
 
@@ -495,12 +498,15 @@ struct Lara : Character {
 
     } *braid;
 
-    Lara(IGame *game, int entity) : Character(game, entity, LARA_MAX_HEALTH), dozy(false), wpnCurrent(TR::Entity::NONE), wpnNext(TR::Entity::NONE), braid(NULL) {
+    Lara(IGame *game, int entity) : Character(game, entity, LARA_MAX_HEALTH), wpnCurrent(TR::Entity::NONE), wpnNext(TR::Entity::NONE), braid(NULL) {
         camera = new Camera(game, this);
 
         itemHolster  = TR::Entity::NONE;
         hitTimer     = 0.0f;
         networkInput = -1;
+
+        dozy    = false;
+        canJump = true;
 
         if (level->extra.laraSkin > -1)
             level->entities[entity].modelIndex = level->extra.laraSkin + 1;
@@ -1528,6 +1534,7 @@ struct Lara : Character {
     }
 
     void drawGun(int right) {
+        wpnCurrent = TR::Entity::PISTOLS;
         int mask = (right ? JOINT_MASK_ARM_R3 : JOINT_MASK_ARM_L3); // unholster
         if (layers[1].mask & mask)
             mask = (layers[1].mask & ~mask) | (right ? JOINT_MASK_LEG_R1 : JOINT_MASK_LEG_L1); // holster
@@ -2452,14 +2459,14 @@ struct Lara : Character {
     }
 
     bool checkClimb() {
-        if ((input & (FORTH | ACTION)) == (FORTH | ACTION) && (animation.index == ANIM_STAND || animation.index == ANIM_STAND_NORMAL) && emptyHands() && collision.side == Collision::FRONT) { // TODO: get rid of animation.index
+        if ((input & (FORTH | ACTION)) == (FORTH | ACTION) && !(input & (LEFT | RIGHT)) && (animation.index == ANIM_STAND || animation.index == ANIM_STAND_NORMAL) && emptyHands() && collision.side == Collision::FRONT) { // TODO: get rid of animation.index
             float floor   = collision.info[Collision::FRONT].floor;
             float ceiling = collision.info[Collision::FRONT].ceiling; 
 
             float h = pos.y - floor;
 
             int aIndex = animation.index;
-            if (floor == ceiling || h < 256)
+            if (floor - ceiling < 768 || h < 256)
                 ;// do nothing
             else if (h <= 2 * 256 + 128) {
                 aIndex = ANIM_CLIMB_2;
@@ -2518,11 +2525,23 @@ struct Lara : Character {
             return res;
         }
 
+        if (state == STATE_RUN) {
+            if (animation.index == ANIM_RUN_START) {
+                canJump = false;
+            } else if (animation.index == ANIM_RUN) {
+                if (animation.frameIndex >= 4 && animation.frameIndex <= 5) {
+                    canJump = true;
+                }
+            } else {
+                canJump = true;
+            }
+        }
+
         // jump button is pressed
         if (input & JUMP) {
             if ((input & FORTH) && state == STATE_FORWARD_JUMP)
                 return STATE_RUN;
-            if (state == STATE_RUN)
+            if (state == STATE_RUN && canJump)
                 return STATE_FORWARD_JUMP;
             if (animation.index == ANIM_SLIDE_BACK) // TODO: animation index? %)
                 return STATE_SLIDE_BACK;
@@ -3118,10 +3137,13 @@ struct Lara : Character {
                         if (p.w != 0.0f) {
                             p.x = ( p.x / p.w * 0.5f + 0.5f) * UI::width;
                             p.y = (-p.y / p.w * 0.5f + 0.5f) * UI::height;
+                            if (game->getLara(1)) {
+                                p.x *= 0.5f;
+                            }
                         } else
                             p = vec4(UI::width * 0.5f, UI::height * 0.5f, 0.0f, 0.0f);
 
-                        UI::addPickup(item->getEntity().type, vec2(p.x, p.y));
+                        UI::addPickup(item->getEntity().type, camera->cameraIndex, vec2(p.x, p.y));
                         saveStats.pickups++;
                     }
                     pickupListCount = 0;
@@ -3735,8 +3757,7 @@ struct Lara : Character {
             game->setRoomParams(getRoomIndex(), Shader::MIRROR, 1.2f, 1.0f, 0.2f, 1.0f, false);
         /* catsuit test
             game->setRoomParams(getRoomIndex(), Shader::MIRROR, 0.3f, 0.3f, 0.3f, 1.0f, false);
-            Core::active.shader->setParam(uLightColor, Core::lightColor[0], MAX_LIGHTS);
-            Core::active.shader->setParam(uLightPos,   Core::lightPos[0],   MAX_LIGHTS);
+            Core::updateLights();
         */
             environment->bind(sEnvironment);
             Core::setBlendMode(bmAlpha);

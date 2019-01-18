@@ -1,9 +1,9 @@
 #include "common.hlsl"
 
 struct VS_OUTPUT {
-	float4 pos			: POSITION;
-	float2 texCoord		: TEXCOORD0;
-	float4 diffuse		: COLOR0;
+	float4 pos      : POSITION;
+	float2 texCoord : TEXCOORD0;
+	float4 diffuse  : COLOR0;
 };
 
 #ifdef VERTEX
@@ -18,6 +18,6 @@ VS_OUTPUT main(VS_INPUT In) {
 #else // PIXEL
 
 float4 main(VS_OUTPUT In) : COLOR0 {
-	return (In.diffuse * tex2D(sDiffuse, In.texCoord.xy)).bgra;
+	return In.diffuse * tex2Dlod(sDiffuse, float4(In.texCoord, 0, 0));
 }
 #endif

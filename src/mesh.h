@@ -651,16 +651,14 @@ struct MeshBuilder {
     }
 
     void roomRemoveWaterSurfaces(TR::Room &room, int &iCount, int &vCount) {
+        for (int i = 0; i < room.data.fCount; i++)
+            room.data.faces[i].water = false;
 
-        if (Core::settings.detail.water == Core::Settings::LOW) {
-            for (int i = 0; i < room.data.fCount; i++)
-                room.data.faces[i].water = false;
+        if (Core::settings.detail.water == Core::Settings::LOW)
             return;
-        }
 
         for (int i = 0; i < room.data.fCount; i++) {
             TR::Face &f = room.data.faces[i];
-            if (f.water) continue;
 
             short3 &a = room.data.vertices[f.vertices[0]].pos;
             short3 &b = room.data.vertices[f.vertices[1]].pos;
@@ -1391,6 +1389,9 @@ struct MeshBuilder {
     #endif
         {
             #ifndef MERGE_MODELS
+                if (models[modelIndex].parts[transparent][i] == 0)
+                    continue;
+
                 Basis &basis = Core::active.basis[i];
                 if (basis.w == 0.0f) {
                     part += models[modelIndex].parts[transparent][i];

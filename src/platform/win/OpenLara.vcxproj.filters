@@ -57,6 +57,7 @@
     <ClInclude Include="..\..\network.h" />
     <ClInclude Include="..\..\napi_socket.h" />
     <ClInclude Include="..\..\napi_dummy.h" />
+    <ClInclude Include="..\..\gapi_gxm.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\shaders\filter.glsl">
@@ -88,5 +89,11 @@
     <Filter Include="libs\tinf">
       <UniqueIdentifier>{80edb27c-40cf-4f7a-a854-88eeba24a5fb}</UniqueIdentifier>
     </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="OpenLara.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="icon.ico" />
   </ItemGroup>
 </Project>

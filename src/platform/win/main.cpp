@@ -25,9 +25,9 @@
 // hint to the driver to use discrete GPU
 extern "C" {
 // NVIDIA
-  __declspec(dllexport) int NvOptimusEnablement = 1;
+    __declspec(dllexport) int NvOptimusEnablement = 1;
 // AMD
-  __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+    __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 }
 
 #ifdef VR_SUPPORT
@@ -56,34 +56,6 @@ void osMutexLock(void *obj) {
 void osMutexUnlock(void *obj) {
     LeaveCriticalSection((CRITICAL_SECTION*)obj);
 }
-
-/*
-void* osRWLockInit() {
-    SRWLOCK *lock = new SRWLOCK();
-    InitializeSRWLock(lock);
-    return lock;
-}
-
-void osRWLockFree(void *obj) {
-    delete (SRWLOCK*)obj;
-}
-
-void osRWLockRead(void *obj) {
-    AcquireSRWLockShared((SRWLOCK*)obj);
-}
-
-void osRWUnlockRead(void *obj) {
-    ReleaseSRWLockShared((SRWLOCK*)obj);
-}
-
-void osRWLockWrite(void *obj) {
-    AcquireSRWLockExclusive((SRWLOCK*)obj);
-}
-
-void osRWUnlockWrite(void *obj) {
-    ReleaseSRWLockExclusive((SRWLOCK*)obj);
-}
-*/
 
 // timing
 int osStartTime = 0;
@@ -121,8 +93,7 @@ InputKey mouseToInputKey(int msg) {
 }
 
 // joystick
-typedef struct _XINPUT_GAMEPAD
-{
+typedef struct _XINPUT_GAMEPAD {
     WORD                                wButtons;
     BYTE                                bLeftTrigger;
     BYTE                                bRightTrigger;
@@ -132,14 +103,12 @@ typedef struct _XINPUT_GAMEPAD
     SHORT                               sThumbRY;
 } XINPUT_GAMEPAD, *PXINPUT_GAMEPAD;
 
-typedef struct _XINPUT_STATE
-{
+typedef struct _XINPUT_STATE {
     DWORD                               dwPacketNumber;
     XINPUT_GAMEPAD                      Gamepad;
 } XINPUT_STATE, *PXINPUT_STATE;
 
-typedef struct _XINPUT_VIBRATION
-{
+typedef struct _XINPUT_VIBRATION {
     WORD                                wLeftMotorSpeed;
     WORD                                wRightMotorSpeed;
 } XINPUT_VIBRATION, *PXINPUT_VIBRATION;
@@ -272,11 +241,11 @@ void joyUpdate() {
 
                 if (caps.wNumAxes > 0) {
                     Input::setJoyPos(j, jkL, joyDir(joyAxis(info.dwXpos, caps.wXmin, caps.wXmax),
-                                                        joyAxis(info.dwYpos, caps.wYmin, caps.wYmax)));
+                                                    joyAxis(info.dwYpos, caps.wYmin, caps.wYmax)));
 
                     if ((caps.wCaps & JOYCAPS_HASR) && (caps.wCaps & JOYCAPS_HASU))
                         Input::setJoyPos(j, jkR, joyDir(joyAxis(info.dwUpos, caps.wUmin, caps.wUmax),
-                                                            joyAxis(info.dwRpos, caps.wRmin, caps.wRmax)));
+                                                        joyAxis(info.dwRpos, caps.wRmin, caps.wRmax)));
 
                     if (caps.wCaps & JOYCAPS_HASZ) {
                         float z = joyAxis(info.dwZpos, caps.wZmin, caps.wZmax);
@@ -297,6 +266,7 @@ void joyUpdate() {
 
                 for (int i = 0; i < 10; i++)
                     Input::setJoyDown(j, JoyKey(jkA + i), (info.dwButtons & (1 << i)) > 0);
+
             } else {
                 joyFree();
                 joyInit();
@@ -354,10 +324,16 @@ char *sndData;
 HWAVEOUT waveOut;
 WAVEFORMATEX waveFmt = { WAVE_FORMAT_PCM, 2, 44100, 44100 * 4, 4, 16, sizeof(waveFmt) };
 WAVEHDR waveBuf[2];
+HANDLE  sndThread;
+HANDLE  sndSema;
 
 void sndFree() {
     if (!sndReady) return;
     sndReady = false;
+    ReleaseSemaphore(sndSema, 1, NULL);
+    WaitForSingleObject(sndThread, INFINITE);
+    CloseHandle(sndThread);
+    CloseHandle(sndSema);
     waveOutUnprepareHeader(waveOut, &waveBuf[0], sizeof(WAVEHDR));
     waveOutUnprepareHeader(waveOut, &waveBuf[1], sizeof(WAVEHDR));
     waveOutReset(waveOut);
@@ -365,24 +341,43 @@ void sndFree() {
     delete[] sndData;
 }
 
-void sndFill(HWAVEOUT waveOut, LPWAVEHDR waveBuf) {
+DWORD WINAPI sndPrep(void* arg) {
+    int idx = 0;
+    while (1) {
+        WaitForSingleObject(sndSema, INFINITE);
+        if (!sndReady) break;
+
+        WAVEHDR *hdr = waveBuf + idx;
+        waveOutUnprepareHeader(waveOut, hdr, sizeof(WAVEHDR));
+        Sound::fill((Sound::Frame*)hdr->lpData, SND_SIZE / 4);
+        waveOutPrepareHeader(waveOut, hdr, sizeof(WAVEHDR));
+        waveOutWrite(waveOut, hdr, sizeof(WAVEHDR));
+
+        idx ^= 1;
+    }
+    return 0;
+}
+
+void sndFill(HWAVEOUT waveOut, LPWAVEHDR waveBufPrev) {
     if (!sndReady) return;
-    waveOutUnprepareHeader(waveOut, waveBuf, sizeof(WAVEHDR));
-    Sound::fill((Sound::Frame*)waveBuf->lpData, SND_SIZE / 4);
-    waveOutPrepareHeader(waveOut, waveBuf, sizeof(WAVEHDR));
-    waveOutWrite(waveOut, waveBuf, sizeof(WAVEHDR));
+    ReleaseSemaphore(sndSema, 1, NULL);
 }
 
 void sndInit(HWND hwnd) {
     if (waveOutOpen(&waveOut, WAVE_MAPPER, &waveFmt, (INT_PTR)hwnd, 0, CALLBACK_WINDOW) == MMSYSERR_NOERROR) {
         sndReady = true;
         sndData  = new char[SND_SIZE * 2];
+        memset(sndData, 0, SND_SIZE * 2);
         memset(&waveBuf, 0, sizeof(waveBuf));
         for (int i = 0; i < 2; i++) {
-            waveBuf[i].dwBufferLength = SND_SIZE;
-            waveBuf[i].lpData = sndData + SND_SIZE * i;
-            sndFill(waveOut, &waveBuf[i]);
+            WAVEHDR *hdr = waveBuf + i;
+            hdr->dwBufferLength = SND_SIZE;
+            hdr->lpData = sndData + SND_SIZE * i;
+            waveOutPrepareHeader(waveOut, hdr, sizeof(WAVEHDR));
+            waveOutWrite(waveOut, hdr, sizeof(WAVEHDR));
         }
+        sndSema   = CreateSemaphore(NULL, 0, 2, NULL);
+        sndThread = CreateThread(NULL, 0, sndPrep, NULL, 0, NULL);
     } else {
         sndReady = false;
         sndData  = NULL;
@@ -709,10 +704,12 @@ int main(int argc, char** argv) {
     _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDOUT);
     _CrtMemCheckpoint(&_msBegin);
 //#elif PROFILE
-#else
+#elif PROFILE
 int main(int argc, char** argv) {
-//#else
-//int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+#else
+int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    int argc = (lpCmdLine && strlen(lpCmdLine)) ? 2 : 1;
+    char *argv[] = { "", lpCmdLine };
 #endif
     cacheDir[0] = saveDir[0] = contentDir[0] = 0;
 
@@ -724,7 +721,23 @@ int main(int argc, char** argv) {
     RECT r = { 0, 0, 1280, 720 };
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, false);
 
-    hWnd = CreateWindow("static", "OpenLara", WS_OVERLAPPEDWINDOW, 0, 0, r.right - r.left, r.bottom - r.top, 0, 0, 0, 0);
+#ifndef _DEBUG
+    {
+        int ox = (GetSystemMetrics(SM_CXSCREEN) - (r.right - r.left)) / 2;
+        int oy = (GetSystemMetrics(SM_CYSCREEN) - (r.bottom - r.top)) / 2;
+        r.left   += ox;
+        r.top    += oy;
+        r.right  += ox;
+        r.bottom += oy;
+    }
+#else
+    r.right += r.left;
+    r.bottom += r.top;
+    r.left = r.top = 0;
+#endif
+
+    hWnd = CreateWindow("static", "OpenLara", WS_OVERLAPPEDWINDOW, r.left, r.top, r.right - r.left, r.bottom - r.top, 0, 0, 0, 0);
+    SendMessage(hWnd, WM_SETICON, 1, (LPARAM)LoadIcon(GetModuleHandle(NULL), "MAINICON"));
 
     ContextCreate();
 
@@ -748,7 +761,12 @@ int main(int argc, char** argv) {
 #endif
 
     SetWindowLong(hWnd, GWL_WNDPROC, (LONG)&WndProc);
-    ShowWindow(hWnd, SW_SHOWDEFAULT);
+
+    if (Core::isQuit) {
+        MessageBoxA(hWnd, "Please check the readme file first!", "Game resources not found", MB_ICONHAND);
+    } else {
+        ShowWindow(hWnd, SW_SHOWDEFAULT);
+    }
 
     MSG msg;
 
@@ -775,7 +793,7 @@ int main(int argc, char** argv) {
                 ContextSwap();
             }
             #ifdef _DEBUG
-                Sleep(20);
+                Sleep(10);
             #endif
         }
     };

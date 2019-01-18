@@ -63,13 +63,18 @@
 
     #undef  OS_FILEIO_CACHE
 #elif _PSP
-    #define _OS_PSP     1
-    #define _GAPI_SCEGU 1
+    #define _OS_PSP  1
+    #define _GAPI_GU 1
 
     #define FFP
     #define TEX_SWIZZLE
     //#define EDRAM_MESH
     #define EDRAM_TEX
+
+    #undef OS_PTHREAD_MT
+#elif __vita__
+    #define _OS_PSV   1
+    #define _GAPI_GXM 1
 
     #undef OS_PTHREAD_MT
 #elif __SWITCH__
@@ -101,8 +106,7 @@
 #include "utils.h"
 
 // muse be equal with base shader
-#define SHADOW_TEX_WIDTH    1024
-#define SHADOW_TEX_HEIGHT   1024
+#define SHADOW_TEX_SIZE      1024
 
 extern void* osMutexInit     ();
 extern void  osMutexFree     (void *obj);
@@ -115,43 +119,6 @@ extern bool  osJoyReady      (int index);
 extern void  osJoyVibrate    (int index, float L, float R);
 
 #define OS_LOCK(mutex) Core::Lock _lock(mutex)
-
-/*
-extern void* osRWLockInit    ();
-extern void  osRWLockFree    (void *obj);
-extern void  osRWLockRead    (void *obj);
-extern void  osRWUnlockRead  (void *obj);
-extern void  osRWLockWrite   (void *obj);
-extern void  osRWUnlockWrite (void *obj);
-
-struct RWLock {
-    void *obj;
-
-    RWLock()           { obj = osRWLockInit(); }
-    ~RWLock()          { osRWLockFree(obj);    }
-    void lockRead()    { osRWLockRead(obj);    }
-    void unlockRead()  { osRWUnlockRead(obj);  }
-    void lockWrite()   { osRWLockWrite(obj);   }
-    void unlockWrite() { osRWUnlockWrite(obj); }
-};
-
-struct LockRead {
-    RWLock &lock;
-
-    LockRead(RWLock &lock) : lock(lock) { lock.lockRead(); }
-    ~LockRead() { lock.unlockRead(); }
-};
-
-struct LockWrite {
-    RWLock &lock;
-
-    LockWrite(RWLock &lock) : lock(lock) { lock.lockWrite(); }
-    ~LockWrite() { lock.unlockWrite(); }
-};
-
-#define OS_LOCK_READ(rwLock)  LockRead  _rLock(rwLock)
-#define OS_LOCK_WRITE(rwLock) LockWrite _wLock(rwLock)
-*/
 
 enum InputKey { ikNone,
 // keyboard
@@ -229,6 +196,7 @@ namespace Core {
         bool texBorder;
         bool colorFloat, texFloat, texFloatLinear;
         bool colorHalf, texHalf,  texHalfLinear;
+        bool clipDist;
     #ifdef PROFILE
         bool profMarker;
         bool profTiming;
@@ -338,6 +306,7 @@ namespace Core {
 #define MAX_LIGHTS           4
 #define MAX_RENDER_BUFFERS   32
 #define MAX_CONTACTS         15
+#define NOISE_TEX_SIZE       32
 
 struct Shader;
 struct Texture;
@@ -374,8 +343,8 @@ enum TexFormat {
     FMT_RGBA, 
     FMT_RGB16,
     FMT_RGBA16,
-    FMT_RGBA_FLOAT,
-    FMT_RGBA_HALF,
+    FMT_RG_FLOAT,
+    FMT_RG_HALF,
     FMT_DEPTH,
     FMT_SHADOW,
     FMT_MAX,
@@ -447,6 +416,7 @@ struct MeshRange {
     E( sMask            )
 
 #define SHADER_UNIFORMS(E) \
+    E( uFlags           ) \
     E( uParam           ) \
     E( uTexParam        ) \
     E( uViewProj        ) \
@@ -481,11 +451,12 @@ struct MeshRange {
     E( WATER_MASK     ) \
     E( WATER_COMPOSE  ) \
     /* filter types */ \
-    E( FILTER_UPSCALE         ) \
-    E( FILTER_DOWNSAMPLE      ) \
-    E( FILTER_GRAYSCALE       ) \
-    E( FILTER_BLUR            ) \
-    E( FILTER_EQUIRECTANGULAR ) \
+    E( FILTER_UPSCALE          ) \
+    E( FILTER_DOWNSAMPLE       ) \
+    E( FILTER_DOWNSAMPLE_DEPTH ) \
+    E( FILTER_GRAYSCALE        ) \
+    E( FILTER_BLUR             ) \
+    E( FILTER_EQUIRECTANGULAR  ) \
     /* options */ \
     E( UNDERWATER      ) \
     E( ALPHA_TEST      ) \
@@ -537,13 +508,13 @@ namespace Core {
     vec4 fogParams;
     vec4 contacts[MAX_CONTACTS];
 
-    Texture *whiteTex, *whiteCube, *blackTex, *ditherTex;
+    Texture *whiteTex, *whiteCube, *blackTex, *ditherTex, *noiseTex;
 
     enum Pass { passCompose, passShadow, passAmbient, passWater, passFilter, passGUI, passMAX } pass;
 
     const char *passNames[Core::passMAX] = { "COMPOSE", "SHADOW", "AMBIENT", "WATER", "FILTER", "GUI" };
 
-    Texture *defaultTarget;
+    GAPI::Texture *defaultTarget;
     
     int32   renderState;
 
@@ -559,9 +530,13 @@ namespace Core {
         vec4          material;
 
     #ifdef _GAPI_GL
-        uint32      VAO;
-        uint32      iBuffer;
-        uint32      vBuffer;
+        uint32 VAO;
+        uint32 iBuffer;
+        uint32 vBuffer;
+    #endif
+
+    #ifdef _GAPI_GXM
+        Vertex *vBuffer;
     #endif
 
         int32       basisCount;
@@ -569,27 +544,28 @@ namespace Core {
     } active;
     
     struct ReqTarget {
-        Texture *texture;
+        GAPI::Texture *texture;
         uint32  op;
         uint32  face;
     } reqTarget;
 
     struct Stats {
-        int dips, tris, rt, frame, fps, fpsTime;
+        uint32 dips, tris, rt, cb, frame, frameIndex, fps;
+        int fpsTime;
     #ifdef PROFILE
         int tFrame;
     #endif
 
-        Stats() : frame(0), fps(0), fpsTime(0) {}
+        Stats() : frame(0), frameIndex(0), fps(0), fpsTime(0) {}
 
         void start() {
-            dips = tris = rt = 0;
+            dips = tris = rt = cb = 0;
         }
 
         void stop() {
             if (fpsTime < Core::getTime()) {
 #ifndef __LIBRETRO__
-                LOG("FPS: %d DIP: %d TRI: %d RT: %d\n", fps, dips, tris, rt);
+                LOG("FPS: %d DIP: %d TRI: %d RT: %d CB: %d\n", fps, dips, tris, rt, cb);
 #endif
             #ifdef PROFILE
                 LOG("frame time: %d mcs\n", tFrame / 1000);
@@ -599,6 +575,8 @@ namespace Core {
                 fpsTime = Core::getTime() + 1000;
             } else
                 frame++;
+
+            frameIndex++;
         }
     } stats;
 }
@@ -609,8 +587,10 @@ namespace Core {
     #include "gapi_d3d9.h"
 #elif _GAPI_GX
     #include "gapi_gx.h"
-#elif _GAPI_SCEGU
+#elif _GAPI_GU
     #include "gapi_gu.h"
+#elif _GAPI_GXM
+    #include "gapi_gxm.h"
 #elif _GAPI_VULKAN
     #include "gapi_vk.h"
 #endif
@@ -650,6 +630,7 @@ namespace Core {
         LOG("  NPOT textures  : %s\n", support.texNPOT       ? "true" : "false");
         LOG("  RG   textures  : %s\n", support.texRG         ? "true" : "false");
         LOG("  border color   : %s\n", support.texBorder     ? "true" : "false");
+        LOG("  clip distance  : %s\n", support.clipDist      ? "true" : "false");
         LOG("  anisotropic    : %d\n", support.maxAniso);
         LOG("  float textures : float = %s, half = %s\n", 
             support.colorFloat ? "full" : (support.texFloat ? (support.texFloatLinear ? "linear" : "nearest") : "false"),
@@ -670,6 +651,7 @@ namespace Core {
         data = 0;
         blackTex  = new Texture(1, 1, FMT_RGBA, OPT_NEAREST, &data);
 
+    // generate dithering texture
         uint8 ditherData[] = {
             0x00, 0x7F, 0x1F, 0x9F, 0x07, 0x87, 0x27, 0xA7,
             0xBF, 0x3F, 0xDF, 0x5F, 0xC7, 0x47, 0xE7, 0x67,
@@ -681,6 +663,15 @@ namespace Core {
             0xFB, 0x7B, 0xDB, 0x5B, 0xF3, 0x73, 0xD3, 0x53,
         };
         ditherTex = new Texture(8, 8, FMT_LUMINANCE, OPT_REPEAT | OPT_NEAREST, &ditherData);
+
+    // generate noise texture
+        uint8 *noiseData = new uint8[SQR(NOISE_TEX_SIZE)];
+        for (int i = 0; i < SQR(NOISE_TEX_SIZE); i++) {
+            noiseData[i] = rand() % 255;
+        }
+        noiseTex = new Texture(NOISE_TEX_SIZE, NOISE_TEX_SIZE, FMT_LUMINANCE, OPT_REPEAT, noiseData);
+        delete[] noiseData;
+
 
 // init settings
         settings.version = SETTINGS_VERSION;
@@ -752,6 +743,7 @@ namespace Core {
 #ifdef __LIBRETRO__
         settings.controls[0].keys[ cInventory ].key = ikTab;
         settings.controls[0].keys[ cStart ].key     = ikEnter;
+        settings.detail.vsync        = false;
 #endif
 
     // use D key for jump in browsers
@@ -787,6 +779,7 @@ namespace Core {
         delete whiteCube;
         delete blackTex;
         delete ditherTex;
+        delete noiseTex;
 
         GAPI::deinit();
         NAPI::deinit();
@@ -819,8 +812,8 @@ namespace Core {
         if (mask & RS_TARGET) {
             GAPI::discardTarget(!(active.targetOp & RT_STORE_COLOR), !(active.targetOp & RT_STORE_DEPTH));
 
-            Texture *target = reqTarget.texture;
-            uint32  face    = reqTarget.face;
+            GAPI::Texture *target = reqTarget.texture;
+            uint32  face          = reqTarget.face;
 
             if (target != active.target || face != active.targetFace) {
                 Core::stats.rt++;
@@ -934,19 +927,19 @@ namespace Core {
             renderState &= ~RS_DEPTH_TEST;
     }
 
-    void setTarget(Texture *target, int op, int face = 0) {
-        if (!target)
-            target = defaultTarget;
+    void setTarget(GAPI::Texture *color, GAPI::Texture *depth, int op, int face = 0) {
+        if (!color)
+            color = defaultTarget;
 
-        bool color = !target || (target->fmt != FMT_DEPTH && target->fmt != FMT_SHADOW);
-        setColorWrite(color, color, color, color);
+        bool isColor = !color || (color->fmt != FMT_DEPTH && color->fmt != FMT_SHADOW);
+        setColorWrite(isColor, isColor, isColor, isColor);
 
-        if (target == defaultTarget) // backbuffer
+        if (color == defaultTarget) // backbuffer
             setViewport(viewportDef);
         else
-            setViewport(0, 0, target->origWidth, target->origHeight);
+            setViewport(0, 0, color->origWidth, color->origHeight);
 
-        reqTarget.texture = target;
+        reqTarget.texture = color;
         reqTarget.op      = op;
         reqTarget.face    = face;
         renderState |= RS_TARGET;
@@ -963,6 +956,18 @@ namespace Core {
         Core::active.material = vec4(diffuse, ambient, specular, alpha);
 
         Core::active.shader->setParam(uMaterial, Core::active.material);
+    }
+
+    void updateLights() {
+        GAPI::updateLights(lightPos, lightColor, MAX_LIGHTS);
+    }
+
+    void resetLights() {
+        for (int i = 0; i < MAX_LIGHTS; i++) {
+            lightPos[i]   = vec4(0, 0, 0, 0);
+            lightColor[i] = vec4(0, 0, 0, 1);
+        }
+        updateLights();
     }
 
     void copyTarget(Texture *dst, int xOffset, int yOffset, int x, int y, int width, int height) {
@@ -999,7 +1004,7 @@ namespace Core {
 
     void endFrame() {
         if (active.target != defaultTarget) {
-            GAPI::setTarget(NULL, 0);
+            GAPI::setTarget(NULL, NULL, 0);
             validateRenderState();
         }
         GAPI::endFrame();
@@ -1015,14 +1020,13 @@ namespace Core {
     }
 
     void DIP(GAPI::Mesh *mesh, const MeshRange &range) {
+        validateRenderState();
+
         mesh->bind(range);
+        GAPI::DIP(mesh, range);
 
         stats.dips++;
         stats.tris += range.iCount / 3;
-
-        validateRenderState();
-
-        GAPI::DIP(mesh, range);
     }
 
     PSO* psoCreate(Shader *shader, uint32 renderState, TexFormat colorFormat = FMT_RGBA, TexFormat depthFormat = FMT_DEPTH, const vec4 &clearColor = vec4(0.0f)) {

@@ -154,9 +154,7 @@ uniform vec4 uFogParams;
 				fog = length(vViewVec.xyz);
     			vNormal.w = clamp(1.0 / exp(fog), 0.0, 1.0);
 			#endif
-		#endif
 
-		#if defined(PASS_COMPOSE) && !defined(TYPE_FLASH)
 			vCoord = coord.xyz;
 		#endif
 		return coord;
@@ -214,7 +212,7 @@ uniform vec4 uFogParams;
 				vec4 light = max(vec4(0.0), lum) * max(vec4(0.0), vec4(1.0) - att);
 
 				#ifdef UNDERWATER
-					light.x *= abs(sin(dot(coord.xyz, vec3(1.0 / 512.0)) + uParam.x)) * 1.5 + 0.5;
+					light.x *= 0.5 + abs(sin(dot(coord.xyz, vec3(1.0 / 1024.0)) + uParam.x)) * 0.75;
 				#endif
 
 				vec3 ambient;
@@ -315,14 +313,13 @@ uniform vec4 uFogParams;
 
 		float getShadow(vec3 lightVec, vec3 normal, vec4 lightProj) {
 			vec3 p = lightProj.xyz / lightProj.w;
-			p.xyz = p.xyz * 0.5 + 0.5;
 			p.z -= SHADOW_CONST_BIAS * SHADOW_TEXEL.x;
 
 			float vis = lightProj.w;
 			#ifdef TYPE_ROOM
 				vis = min(vis, dot(normal, lightVec));
 			#endif
-			if (vis < 0.0 || p.x < 0.0 || p.y < 0.0 || p.x > 1.0 || p.y > 1.0) return 1.0;
+			if (min(vis, min(p.x, p.y)) < 0.0 || max(p.x, p.y) > 1.0) return 1.0;
 
 			#ifdef SHADOW_SAMPLER
 				float rShadow = SHADOW(p);
@@ -486,7 +483,7 @@ uniform vec4 uFogParams;
 
 					color.xyz *= light;
 
-					#ifdef TYPE_ENTITY
+					#if defined(TYPE_ENTITY) && defined(OPT_UNDERWATER_FOG)
 						float specular = calcSpecular(normal, vViewVec.xyz, vLightVec, uLightColor[0], rSpecular);
 						#ifdef UNDERWATER
 							specular *= (1.0 - uwSign);
@@ -494,16 +491,21 @@ uniform vec4 uFogParams;
 						color.xyz += specular;
 					#endif
 
-					#if defined(UNDERWATER) && defined(OPT_UNDERWATER_FOG)
-						float dist;
-						if (uViewPos.y < uParam.y)
-							dist = abs((vCoord.y - uParam.y) / normalize(uViewPos.xyz - vCoord.xyz).y);
-						else
-							dist = length(uViewPos.xyz - vCoord.xyz);
-						float fog = clamp(1.0 / exp(dist * WATER_FOG_DIST * uwSign), 0.0, 1.0);
-						dist += vCoord.y - uParam.y;
-						color.xyz *= mix(vec3(1.0), UNDERWATER_COLOR, clamp(dist * WATER_COLOR_DIST * uwSign, 0.0, 2.0));
-						color.xyz = mix(UNDERWATER_COLOR * 0.2, color.xyz, fog);
+					#ifdef UNDERWATER
+						#ifdef OPT_UNDERWATER_FOG
+							float dist;
+							if (uViewPos.y < uParam.y)
+								dist = abs((vCoord.y - uParam.y) / normalize(uViewPos.xyz - vCoord.xyz).y);
+							else
+								dist = length(uViewPos.xyz - vCoord.xyz);
+							float fog = clamp(1.0 / exp(dist * WATER_FOG_DIST * uwSign), 0.0, 1.0);
+							dist += vCoord.y - uParam.y;
+							color.xyz *= mix(vec3(1.0), UNDERWATER_COLOR, clamp(dist * WATER_COLOR_DIST * uwSign, 0.0, 2.0));
+							color.xyz = mix(UNDERWATER_COLOR * 0.2, color.xyz, fog);
+						#else
+							color.xyz = mix(color.xyz, color.xyz * UNDERWATER_COLOR, uwSign);
+							color.xyz = mix(uFogParams.xyz, color.xyz, vNormal.w);
+						#endif
 					#else
 						color.xyz = mix(uFogParams.xyz, color.xyz, vNormal.w);
 					#endif

@@ -23,7 +23,7 @@ namespace GAPI {
 
 // Shader
     struct Shader {
-        void init(Core::Pass pass, int type, int *def, int defCount) {}
+        void init(Pass pass, int type, int *def, int defCount) {}
         void deinit() {}
         void bind() {}
         void setParam(UniformType uType, const vec4  &value, int count = 1) {}
@@ -57,7 +57,7 @@ namespace GAPI {
                 delete[] memory;
         }
 
-        void swizzle(uint8* out, const uint8* in, uint32 width, uint32 height) {
+        void swizzle(uint8 *out, const uint8 *in, uint32 width, uint32 height) {
             int rowblocks = width / 16;
 
             for (int j = 0; j < height; j++)
@@ -112,7 +112,7 @@ namespace GAPI {
         void unbind(int sampler) {}
 
         void setFilterQuality(int value) {
-            if (value > Core::Settings::LOW)
+            if (value > Settings::LOW)
                 opt &= ~OPT_NEAREST;
             else
                 opt |= OPT_NEAREST;
@@ -235,7 +235,7 @@ namespace GAPI {
         LOG("VRAM     : %d\n", EDRAM_SIZE);
         freeEDRAM();
 
-        support.maxAniso       = 1;
+        support.maxAniso       = 0;
         support.maxVectors     = 0;
         support.shaderBinary   = false;
         support.VAO            = false;
@@ -245,13 +245,13 @@ namespace GAPI {
         support.texNPOT        = false;
         support.texRG          = false;
         support.texBorder      = false;
-        support.maxAniso       = false;
         support.colorFloat     = false;
         support.colorHalf      = false;
         support.texFloatLinear = false;
         support.texFloat       = false;
         support.texHalfLinear  = false;
         support.texHalf        = false;
+        support.clipDist       = false;
 
         Core::width  = 480;
         Core::height = 272;
@@ -396,6 +396,47 @@ namespace GAPI {
         sceGumLoadMatrix((ScePspFMatrix4*)&mProj);
         sceGumMatrixMode(GU_VIEW);
         sceGumLoadMatrix((ScePspFMatrix4*)&mView);
+    }
+
+    void updateLights(vec4 *lightPos, vec4 *lightColor, int count) {
+        int lightsCount = 0;
+
+        ubyte4 amb;
+        amb.x = amb.y = amb.z = clamp(int(active.material.y * 255), 0, 255);
+        amb.w = 255;
+        sceGuAmbient(*(uint32*)&amb);
+
+        for (int i = 0; i < MAX_LIGHTS; i++) {
+            if (lightColor[i].w != 1.0f) {
+                sceGuEnable(GU_LIGHT0 + i);
+                lightsCount++;
+            } else {
+                sceGuDisable(GU_LIGHT0 + i);
+                continue;
+            }
+
+            ScePspFVector3 pos;
+            pos.x = lightPos[i].x;
+            pos.y = lightPos[i].y;
+            pos.z = lightPos[i].z;
+
+            sceGuLight(i, GU_POINTLIGHT, GU_DIFFUSE, &pos);
+
+            ubyte4 color;
+            color.x = clamp(int(lightColor[i].x * 255), 0, 255);
+            color.y = clamp(int(lightColor[i].y * 255), 0, 255);
+            color.z = clamp(int(lightColor[i].z * 255), 0, 255);
+            color.w = 255;
+
+            sceGuLightColor(i, GU_DIFFUSE, *(uint32*)&color);
+            sceGuLightAtt(i, 1.0f, 0.0f, lightColor[i].w * lightColor[i].w);
+        }
+
+        if (lightsCount) {
+            sceGuEnable(GU_LIGHTING);
+        } else {
+            sceGuDisable(GU_LIGHTING);
+        }
     }
 
     void DIP(Mesh *mesh, const MeshRange &range) {
