@@ -253,7 +253,7 @@ void retro_set_environment(retro_environment_t cb)
    struct retro_variable variables[] = {
       {
          "openlara_framerate",
-         "Framerate (restart); 60fps|90fps|120fps|144fps|240fps|15fps|30fps",
+         "Framerate (restart); 60fps|70fps|72fps|75fps|90fps|100fps|119fps|120fps|144fps|240fps|244fps|15fps|30fps",
       },
       {
          "openlara_resolution",
@@ -326,14 +326,26 @@ static void update_variables(bool first_startup)
             FRAMERATE     = 30;
          else if (!strcmp(var.value, "60fps"))
             FRAMERATE     = 60;
+         else if (!strcmp(var.value, "70fps"))
+            FRAMERATE     = 70;
+         else if (!strcmp(var.value, "72fps"))
+            FRAMERATE     = 72;
+         else if (!strcmp(var.value, "75fps"))
+            FRAMERATE     = 75;
          else if (!strcmp(var.value, "90fps"))
             FRAMERATE     = 90;
+         else if (!strcmp(var.value, "100fps"))
+            FRAMERATE     = 100;
+         else if (!strcmp(var.value, "119fps"))
+            FRAMERATE     = 119;
          else if (!strcmp(var.value, "120fps"))
             FRAMERATE     = 120;
          else if (!strcmp(var.value, "144fps"))
             FRAMERATE     = 144;
          else if (!strcmp(var.value, "240fps"))
             FRAMERATE     = 240;
+         else if (!strcmp(var.value, "244fps"))
+            FRAMERATE     = 244;
          }
       else
          FRAMERATE     = 60;
