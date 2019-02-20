@@ -181,6 +181,8 @@ CXXFLAGS += $(INCFLAGS) $(FLAGS)
 ifeq ($(GLES), 1)
    CXXFLAGS += -DHAVE_OPENGLES -DHAVE_OPENGLES2
    CFLAGS += -DHAVE_OPENGLES -DHAVE_OPENGLES2
+   CXXFLAGS += -D__LIBRETRO_GLES__
+   CFLAGS += -D__LIBRETRO_GLES__
    ifeq ($(GLES31), 1)
       CXXFLAGS += -DHAVE_OPENGLES3 -DHAVE_OPENGLES_3_1
       CFLAGS += -DHAVE_OPENGLES3 -DHAVE_OPENGLES_3_1
@@ -189,6 +191,7 @@ ifeq ($(GLES), 1)
       CFLAGS += -DHAVE_OPENGLES3
    endif
    LIBS += -lGLESv2 # Still link against GLESv2 when using GLES3 API, at least on desktop Linux.
+   LIBS += -lEGL
 else
    LIBS += $(GL_LIB)
 endif
