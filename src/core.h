@@ -14,6 +14,9 @@
     #define _OS_WIN      1
 #ifdef __LIBRETRO__
     #define _GAPI_GL     1
+#ifdef __LIBRETRO_GLES__
+    #define _GAPI_GLES   1
+#endif
 #else
     #define _GAPI_GL     1
     //#define _GAPI_D3D9   1

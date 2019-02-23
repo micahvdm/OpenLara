@@ -50,6 +50,40 @@ extern struct retro_hw_render_callback hw_render;
     #define glProgramBinary              glProgramBinaryOES
 
     #define GL_PROGRAM_BINARY_LENGTH     GL_PROGRAM_BINARY_LENGTH_OES
+
+#elif __LIBRETRO_GLES__
+    #include <EGL/egl.h>
+    #define GL_CLAMP_TO_BORDER          0x812D
+    #define GL_TEXTURE_BORDER_COLOR     0x1004
+
+    #define GL_TEXTURE_COMPARE_MODE     0x884C
+    #define GL_TEXTURE_COMPARE_FUNC     0x884D
+    #define GL_COMPARE_REF_TO_TEXTURE   0x884E
+
+    #define GL_RG                       0x8227
+    #define GL_RG16F                    0x822F
+    #define GL_RG32F                    0x8230
+    #define GL_RGBA16F                  0x881A
+    #define GL_RGBA32F                  0x8814
+    #define GL_HALF_FLOAT               0x140B
+
+    #define GL_DEPTH_STENCIL            GL_DEPTH_STENCIL_OES
+    #define GL_UNSIGNED_INT_24_8        GL_UNSIGNED_INT_24_8_OES
+
+    #define PFNGLGENVERTEXARRAYSPROC     PFNGLGENVERTEXARRAYSOESPROC
+    #define PFNGLDELETEVERTEXARRAYSPROC  PFNGLDELETEVERTEXARRAYSOESPROC
+    #define PFNGLBINDVERTEXARRAYPROC     PFNGLBINDVERTEXARRAYOESPROC
+    #define glGenVertexArrays            glGenVertexArraysOES
+    #define glDeleteVertexArrays         glDeleteVertexArraysOES
+    #define glBindVertexArray            glBindVertexArrayOES
+
+    #define PFNGLGETPROGRAMBINARYPROC    PFNGLGETPROGRAMBINARYOESPROC
+    #define PFNGLPROGRAMBINARYPROC       PFNGLPROGRAMBINARYOESPROC
+    #define glGetProgramBinary           glGetProgramBinaryOES
+    #define glProgramBinary              glProgramBinaryOES
+    #define GL_PROGRAM_BINARY_LENGTH     GL_PROGRAM_BINARY_LENGTH_OES
+
+    extern EGLDisplay display;
 #elif defined(_OS_RPI) || defined(_OS_CLOVER)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
@@ -181,7 +215,7 @@ extern struct retro_hw_render_callback hw_render;
         void* GetProc(const char *name) {
             #ifdef _OS_WIN
                 return (void*)wglGetProcAddress(name);
-            #elif _OS_LINUX
+            #elif _OS_LINUX && !(__LIBRETRO_GLES__)
                 return (void*)glXGetProcAddress((GLubyte*)name);
             #else // EGL
                 return (void*)eglGetProcAddress(name);
@@ -205,7 +239,7 @@ extern struct retro_hw_render_callback hw_render;
         PFNGLXSWAPINTERVALSGIPROC glXSwapIntervalSGI;
     #endif
 
-    #if defined(_OS_WIN) || defined(_OS_LINUX)
+    #if defined(_OS_WIN) || defined(_OS_LINUX) && !(__LIBRETRO_GLES__)
         PFNGLGENERATEMIPMAPPROC             glGenerateMipmap;
     // Profiling
         #ifdef PROFILE
@@ -981,7 +1015,7 @@ namespace GAPI {
             #endif
 #endif
 
-            #if defined(_OS_WIN) || defined(_OS_LINUX)
+            #if defined(_OS_WIN) || defined(_OS_LINUX) && !(__LIBRETRO_GLES__)
                 GetProcOGL(glGenerateMipmap);
 
                 #ifdef PROFILE
