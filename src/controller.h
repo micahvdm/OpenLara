@@ -831,7 +831,9 @@ struct Controller {
         const TR::Model *m = getModel();
         ASSERT(m->mCount <= MAX_SPHERES);
 
+        int jFrame = jointsFrame;
         updateJoints();
+        jointsFrame = jFrame;
 
         int count = 0;
         for (int i = 0; i < m->mCount; i++) {
@@ -1265,40 +1267,28 @@ struct Controller {
         return getRoom();
     }
 
-    void updateLights(bool lerp = true) {
-        TR::Room::Light sunLight;
+    #define LIGHT_DIST 8192.0f
 
+    void updateLights(bool lerp = true) {
         const TR::Room &room = getLightRoom();
 
-        if (getModel()) {
-            vec3 center = getBoundingBox().center();
-            float maxAtt = 0.0f;
-            /*
-            if (room.flags.sky) { // TODO trace rooms up for sun light, add direct light projection
-                sunLight.x      = int32(center.x);
-                sunLight.y      = int32(center.y) - 8192;
-                sunLight.z      = int32(center.z);
-                sunLight.color  = Color32(255, 255, 255, 255);
-                sunLight.radius = 1000 * 1024;
-                targetLight     = &sunLight;
-            } else {
-            */
-            {
-                for (int i = 0; i < room.lightsCount; i++) {
-                    TR::Room::Light &light = room.lights[i];
-                    if ((light.color.r | light.color.g | light.color.b) == 0) continue;
+        targetLight = NULL;
 
-                    vec3 dir = vec3(float(light.x), float(light.y), float(light.z)) - center;
-                    float att = max(0.0f, 1.0f - dir.length2() / SQR(light.radius)) * ((light.color.r + light.color.g + light.color.b) / (3.0f * 255.0f));
+        if (getEntity().intensity == -1) {
+            int ambient = room.ambient;
 
-                    if (att > maxAtt) {
-                        maxAtt = att;
-                        targetLight = &light;
-                    }
-                }
+            if (room.lightsCount && getModel()) {
+                vec3 center = getBoundingBox().center();
+
+                int x = int(center.x);
+                int y = int(center.y);
+                int z = int(center.z);
+
+                ambient = room.getAmbient(x, y, z, &targetLight);
             }
-        } else 
-            targetLight = NULL;
+
+            intensity = intensityf(ambient);
+        }
 
         if (targetLight == NULL) {
             mainLightPos   = vec3(0);
@@ -1321,6 +1311,15 @@ struct Controller {
         } else {
             mainLightPos   = tpos;
             mainLightColor = tcolor;
+        }
+
+    // fix position and radius
+        mainLightColor.w = min(LIGHT_DIST * 1.5f, mainLightColor.w);
+        vec3 dir = mainLightPos - pos;
+        float dist = dir.length();
+        if (dist > LIGHT_DIST) {
+            dir *= (LIGHT_DIST / dist);
+            mainLightPos = pos + dir;
         }
     }
 
@@ -1408,8 +1407,8 @@ struct Controller {
         Core::active.shader->setParam(uViewProj, Core::mViewProj * m);
         Core::setBasis(&b, 1);
 
-        float alpha = lerp(0.7f, 0.90f, clamp((info.floor - boxA.max.y) / 1024.0f, 0.0f, 1.0f) );
-        float lum   = 0.5f * (1.0f - alpha);
+        float alpha = lerp(0.7f, 0.9f, clamp((info.floor - boxA.max.y) / 1024.0f, 0.0f, 1.0f) );
+        float lum   = 1.0f - alpha;
         Core::setMaterial(lum, lum, lum, alpha);
 
         Core::setDepthWrite(false);
@@ -1446,7 +1445,7 @@ struct Controller {
 
         vec3 p = pos - Core::viewPos.xyz();
 
-        game->getMesh()->addDynSprite(level->spriteSequences[-(getEntity().modelIndex + 1)].sStart + frame, short3(int16(p.x), int16(p.y), int16(p.z)), color, color);
+        game->getMesh()->addDynSprite(level->spriteSequences[-(getEntity().modelIndex + 1)].sStart + frame, short3(int16(p.x), int16(p.y), int16(p.z)), false, false, color, color);
     }
 
     virtual void render(Frustum *frustum, MeshBuilder *mesh, Shader::Type type, bool caustics) {

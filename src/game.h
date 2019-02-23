@@ -92,7 +92,6 @@ void loadSettings(Stream *stream, void *userData) {
 
     shaderCache = new ShaderCache();
     Game::startLevel((Stream*)userData);
-    UI::init(Game::level);
 }
 
 static void readSlotAsync(Stream *stream, void *userData) {

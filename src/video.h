@@ -1247,6 +1247,11 @@ struct Video {
         }
     };
 
+    enum Format {
+        PC,
+        PSX,
+        SAT,
+    } format;
 
     Decoder *decoder;
     Texture *frameTex[2];
@@ -1267,18 +1272,22 @@ struct Video {
         float pitch = 1.0f;
 
         if (magic == FOURCC("FILM")) {
+            format  = SAT;
             decoder = new Cinepak(stream);
             pitch = decoder->freq / 22050.0f; // 22254 / 22050 = 1.00925
-        } else if (magic == FOURCC("ARMo"))
+        } else if (magic == FOURCC("ARMo")) {
+            format  = PC;
             decoder = new Escape(stream);
-        else
+        } else {
+            format  = PSX;
             decoder = new STR(stream);
+        }
 
         frameData = new Color32[decoder->width * decoder->height];
         memset(frameData, 0, decoder->width * decoder->height * sizeof(Color32));
 
         for (int i = 0; i < 2; i++)
-            frameTex[i] = new Texture(decoder->width, decoder->height, FMT_RGBA, 0, frameData);
+            frameTex[i] = new Texture(decoder->width, decoder->height, 1, FMT_RGBA, 0, frameData);
 
         sample = Sound::play(decoder);
         sample->pitch = pitch;

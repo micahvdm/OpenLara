@@ -211,6 +211,8 @@
     <ClInclude Include="..\..\frustum.h" />
     <ClInclude Include="..\..\game.h" />
     <ClInclude Include="..\..\gameflow.h" />
+    <ClInclude Include="..\..\glyph_cyr.h" />
+    <ClInclude Include="..\..\lang.h" />
     <ClInclude Include="..\..\napi_dummy.h" />
     <ClInclude Include="..\..\napi_socket.h" />
     <ClInclude Include="..\..\network.h" />
@@ -233,9 +235,12 @@
     <ClInclude Include="..\..\video.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\..\shaders\ambient.glsl" />
+    <None Include="..\..\shaders\compose.glsl" />
     <None Include="..\..\shaders\filter.glsl" />
     <None Include="..\..\shaders\gui.glsl" />
-    <None Include="..\..\shaders\shader.glsl" />
+    <None Include="..\..\shaders\shadow.glsl" />
+    <None Include="..\..\shaders\sky.glsl" />
     <None Include="..\..\shaders\water.glsl" />
   </ItemGroup>
   <ItemGroup>

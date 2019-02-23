@@ -986,6 +986,11 @@ namespace TR {
         SND_SECRET          = 173,
 
         SND_HELICOPTER      = 297,
+
+        SND_WINSTON_SCARED  = 344,
+        SND_WINSTON_WALK    = 345,
+        SND_WINSTON_PUSH    = 346,
+        SND_WINSTON_TRAY    = 347,
     };
 
     enum {
@@ -1118,6 +1123,13 @@ namespace TR {
         int16        l, t, r, b;
 
         uint16       sub[4], i5;
+
+        TextureInfo() {}
+
+        TextureInfo(TextureType type, int16 l, int16 t, int16 r, int16 b, uint8 tx, uint8 ty, uint8 tw, uint8 th) : type(type), attribute(1), l(l), t(t), r(r), b(b) {
+            texCoord[0] = texCoordAtlas[0] = short2( tx,          ty          );
+            texCoord[1] = texCoordAtlas[1] = short2( tx + tw - 1, ty + th - 1 );
+        }
 
         short4 getMinMax() const {
             if (type == TEX_TYPE_SPRITE)
@@ -1342,6 +1354,7 @@ namespace TR {
         struct Light {
             int32   x, y, z;
             uint32  radius;
+            int32   intensity;
             Color32 color;
         } *lights;
 
@@ -1355,6 +1368,10 @@ namespace TR {
 
         vec3 getOffset() const {
             return vec3(float(info.x), 0.0f, float(info.z));
+        }
+
+        vec3 getCenter() const {
+            return vec3(info.x + xSectors * 512.0f, (info.yBottom + info.yTop) * 0.5f, info.z + zSectors * 512.0f);
         }
 
         Sector* getSector(int sx, int sz) {
@@ -1401,6 +1418,39 @@ namespace TR {
                     dynLightsCount--;
                     break;
                 }
+        }
+
+        int getAmbient(int x, int y, int z, Light **nearLight = NULL) const {
+            if (!lightsCount) {
+                return ambient;
+            }
+
+            int ambientInv = 0x1FFF - ambient;
+            int maxValue   = 0;
+
+            for (int i = 0; i < lightsCount; i++) {
+                Light &light = lights[i];
+                if (light.intensity > 8192)
+                    continue;
+
+                int dx = x - light.x;
+                int dy = y - light.y;
+                int dz = z - light.z;
+
+                int D = (SQR(dx) + SQR(dy) + SQR(dz)) >> 12;
+                int R = SQR(light.radius >> 1) >> 12;
+
+                int value = min(0x1FFF, (light.intensity * R) / (D + R) + ambientInv);
+
+                if (maxValue < value) {
+                    if (nearLight) {
+                        *nearLight = &light;
+                    }
+                    maxValue = value;
+                }
+            }
+
+            return 0x1FFF - (maxValue + ambientInv) / 2;
         }
     };
 
@@ -1902,7 +1952,7 @@ namespace TR {
         }
 
         bool castShadow() const {
-            return isLara() || isEnemy() || isVehicle() || isActor() || type == DART || type == TRAP_SWORD;
+            return isLara() || isEnemy() || isVehicle() || isActor() || type == DART || type == TRAP_SWORD || type == ENEMY_WINSTON || type == ENEMY_WINSTON_CAMO;
         }
 
         void getAxis(int &dx, int &dz) {
@@ -3250,6 +3300,7 @@ namespace TR {
                             int value = clamp((intensity > 0x1FFF) ? 0 : (intensity >> 5), 0, 255);
                             light.color.r = light.color.g = light.color.b = value;
                             light.color.a = 0;
+                            light.intensity = intensity;
 
                             light.radius = stream.readBE32() * 2;
                         }
@@ -4377,6 +4428,8 @@ namespace TR {
                     light.color.a = 0;
                 }
 
+                light.intensity = intensity;
+
                 if (version == VER_TR3_PSX)
                     light.radius >>= 2;
 
@@ -5205,6 +5258,21 @@ namespace TR {
             }
         }
 
+        void fillObjectTexture32(Tile32 *dst, const Color32 *data, const short4 &uv, TextureInfo *t) {
+            Color32 *ptr = &dst->color[uv.y * 256];
+            for (int y = uv.y; y < uv.w; y++) {
+                for (int x = uv.x; x < uv.z; x++) {
+                    const Color32 &p = data[y * 256 + x];
+                    ptr[x].r = p.r;
+                    ptr[x].g = p.g;
+                    ptr[x].b = p.b;
+                    ptr[x].a = p.a;
+                }
+                ptr += 256;
+            }
+            premultiplyAlpha(dst->color, uv);
+        }
+
         void fillObjectTexture(Tile32 *dst, const short4 &uv, TextureInfo *t) {
         // convert to RGBA
             switch (version) {
@@ -5325,10 +5393,14 @@ namespace TR {
                 default : ASSERT(false);
             }
 
+            premultiplyAlpha(dst->color, uv);
+        }
+
+        void premultiplyAlpha(Color32 *data, const short4 &uv) {
         // pre-multiple alpha
             for (int y = uv.y; y < uv.w; y++)
                 for (int x = uv.x; x < uv.z; x++) {
-                    Color32 &c = dst->color[y * 256 + x]; 
+                    Color32 &c = data[y * 256 + x]; 
                     c.r = uint8((uint16(c.r) * c.a) / 255);
                     c.g = uint8((uint16(c.g) * c.a) / 255);
                     c.b = uint8((uint16(c.b) * c.a) / 255);

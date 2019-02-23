@@ -511,7 +511,7 @@ struct Lara : Character {
         if (level->extra.laraSkin > -1)
             level->entities[entity].modelIndex = level->extra.laraSkin + 1;
 
-        jointChest = JOINT_CHEST;
+        jointChest = level->isCutsceneLevel() ? 0 : JOINT_CHEST;
         jointHead  = JOINT_HEAD;
         rangeChest = vec4(-0.50f, 0.50f, -0.95f, 0.95f) * PI;
         rangeHead  = vec4(-0.30f, 0.30f, -0.55f, 0.55f) * PI;
@@ -1570,15 +1570,6 @@ struct Lara : Character {
         }
     }
 
-    void bakeEnvironment() {
-        flags.invisible = true;
-        if (!environment)
-            environment = new Texture(256, 256, FMT_RGBA, OPT_CUBEMAP | OPT_MIPMAPS | OPT_TARGET);
-        game->renderEnvironment(getRoomIndex(), pos - vec3(0.0f, 384.0f, 0.0f), &environment);
-        environment->generateMipMap();
-        flags.invisible = false;
-    }
-
     virtual void hit(float damage, Controller *enemy = NULL, TR::HitType hitType = TR::HIT_DEFAULT) {
         if (dozy || level->isCutsceneLevel()) return;
 
@@ -1657,7 +1648,7 @@ struct Lara : Character {
             }
             case TR::HIT_MIDAS : {
             // generate environment map for reflections
-                bakeEnvironment();
+                bakeEnvironment(environment);
             // set death animation
                 animation.setAnim(level->models[TR::MODEL_LARA_SPEC].animation + 1);
                 camera->doCutscene(pos, angle.y);
@@ -2971,11 +2962,6 @@ struct Lara : Character {
         //if (Input::state[pid][cStepRight]) input  = WALK  | RIGHT;
         //if (Input::state[pid][cStepLeft])  input  = WALK  | LEFT;
 
-    // scion debug (TODO: remove)
-        if (Input::down[ikU]) {
-            // 203 Water roll
-            animation.setAnim(ANIM_WADE_STAND);
-        }
 
         if (Input::down[ikP]) {
             switch (level->id) {
@@ -2996,6 +2982,9 @@ struct Lara : Character {
                     break;
                 case TR::LVL_TR1_4 :
                     reset(18, vec3(34914, 11008, 41315), 90 * DEG2RAD); // main hall
+                    break;
+                case TR::LVL_TR1_5 :
+                    reset(74, vec3(52549, -3584, 60871), -150 * DEG2RAD); // main hall
                     break;
                 case TR::LVL_TR1_6 :
                     reset(73, vec3(73372, 122, 51687), PI * 0.5f);       // level 6 (midas hand)
@@ -3054,28 +3043,18 @@ struct Lara : Character {
 
     // VR control
         if (Core::settings.detail.stereo == Core::Settings::STEREO_VR && camera->firstPerson && canFreeRotate()) {
+
             if (!(input & WALK)) {
                 input &= ~(LEFT | RIGHT);
             }
 
             vec3 ang = getAngleAbs(Input::hmd.head.dir().xyz());
-
             angle.y = ang.y;
-//            rotFactor = vec2(1.0f);
-//            ang.y = shortAngle(angle.y, ang.y);
-//            if (fabsf(ang.y) > 5 * DEG2RAD)
-//                input |= ang.y < 0.0f ? LEFT : RIGHT;
-
             if (stand == STAND_UNDERWATER) {
                 input &= ~(FORTH | BACK);
-
                 angle.x = ang.x;
-//                ang.x = shortAngle(angle.x, ang.x);
-//                if (fabsf(ang.x) > 5 * DEG2RAD)
-//                    input |= ang.x < 0.0f ? FORTH : BACK;
             }
         }
-
         return input;
     }
 
@@ -3104,10 +3083,6 @@ struct Lara : Character {
             || state == STATE_ROLL_END
             || state == STATE_MIDAS_USE
             || state == STATE_MIDAS_DEATH
-            // make me sick!
-            // || state == STATE_BACK_JUMP
-            // || state == STATE_LEFT_JUMP
-            // || state == STATE_RIGHT_JUMP
             || animation.index == ANIM_CLIMB_2
             || animation.index == ANIM_CLIMB_3
             || animation.index == ANIM_CLIMB_JUMP;
@@ -3760,11 +3735,9 @@ struct Lara : Character {
             Core::updateLights();
         */
             environment->bind(sEnvironment);
-            Core::setBlendMode(bmAlpha);
             visibleMask ^= 0xFFFFFFFF;
             Controller::render(frustum, mesh, type, caustics);
             visibleMask ^= 0xFFFFFFFF;
-            Core::setBlendMode(bmNone);
         }
     }
 };

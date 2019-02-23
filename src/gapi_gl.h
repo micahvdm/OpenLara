@@ -18,38 +18,9 @@ extern struct retro_hw_render_callback hw_render;
 #elif _OS_ANDROID
     #include <dlfcn.h>
 
-    #include <GLES2/gl2.h>
+    #include <GLES3/gl3.h>
+    #include <GLES3/gl3ext.h>
     #include <GLES2/gl2ext.h>
-    #define GL_CLAMP_TO_BORDER          0x812D
-    #define GL_TEXTURE_BORDER_COLOR     0x1004
-
-    #define GL_TEXTURE_COMPARE_MODE     0x884C
-    #define GL_TEXTURE_COMPARE_FUNC     0x884D
-    #define GL_COMPARE_REF_TO_TEXTURE   0x884E
-
-    #define GL_RG                       0x8227
-    #define GL_RG16F                    0x822F
-    #define GL_RG32F                    0x8230
-    #define GL_RGBA16F                  0x881A
-    #define GL_RGBA32F                  0x8814
-    #define GL_HALF_FLOAT               0x140B
-
-    #define GL_DEPTH_STENCIL            GL_DEPTH_STENCIL_OES
-    #define GL_UNSIGNED_INT_24_8        GL_UNSIGNED_INT_24_8_OES
-
-    #define PFNGLGENVERTEXARRAYSPROC     PFNGLGENVERTEXARRAYSOESPROC
-    #define PFNGLDELETEVERTEXARRAYSPROC  PFNGLDELETEVERTEXARRAYSOESPROC
-    #define PFNGLBINDVERTEXARRAYPROC     PFNGLBINDVERTEXARRAYOESPROC
-    #define glGenVertexArrays            glGenVertexArraysOES
-    #define glDeleteVertexArrays         glDeleteVertexArraysOES
-    #define glBindVertexArray            glBindVertexArrayOES
-
-    #define PFNGLGETPROGRAMBINARYPROC    PFNGLGETPROGRAMBINARYOESPROC
-    #define PFNGLPROGRAMBINARYPROC       PFNGLPROGRAMBINARYOESPROC
-    #define glGetProgramBinary           glGetProgramBinaryOES
-    #define glProgramBinary              glProgramBinaryOES
-
-    #define GL_PROGRAM_BINARY_LENGTH     GL_PROGRAM_BINARY_LENGTH_OES
 
 #elif __LIBRETRO_GLES__
     #include <EGL/egl.h>
@@ -67,8 +38,11 @@ extern struct retro_hw_render_callback hw_render;
     #define GL_RGBA32F                  0x8814
     #define GL_HALF_FLOAT               0x140B
 
+    #define GL_TEXTURE_WRAP_R           0x8072
     #define GL_DEPTH_STENCIL            GL_DEPTH_STENCIL_OES
     #define GL_UNSIGNED_INT_24_8        GL_UNSIGNED_INT_24_8_OES
+
+    #define glTexImage3D(...) 0
 
     #define PFNGLGENVERTEXARRAYSPROC     PFNGLGENVERTEXARRAYSOESPROC
     #define PFNGLDELETEVERTEXARRAYSPROC  PFNGLDELETEVERTEXARRAYSOESPROC
@@ -84,6 +58,50 @@ extern struct retro_hw_render_callback hw_render;
     #define GL_PROGRAM_BINARY_LENGTH     GL_PROGRAM_BINARY_LENGTH_OES
 
     extern EGLDisplay display;
+#elif defined(__SDL2__) 
+    #include <SDL2/SDL.h>
+    #if !defined(_GAPI_GLES)
+        #include <SDL2/SDL_opengl.h>
+    #else
+        #include <SDL2/SDL_opengles2.h>
+
+        #define GL_CLAMP_TO_BORDER          0x812D
+        #define GL_TEXTURE_BORDER_COLOR     0x1004
+
+        #define GL_TEXTURE_COMPARE_MODE     0x884C
+        #define GL_TEXTURE_COMPARE_FUNC     0x884D
+        #define GL_COMPARE_REF_TO_TEXTURE   0x884E
+
+        #undef  GL_RG
+        #undef  GL_RG32F
+        #undef  GL_RG16F
+        #undef  GL_RGBA32F
+        #undef  GL_RGBA16F
+        #undef  GL_HALF_FLOAT
+
+        #define GL_RG           GL_RGBA
+        #define GL_RGBA32F      GL_RGBA
+        #define GL_RGBA16F      GL_RGBA
+        #define GL_RG32F        GL_RGBA
+        #define GL_RG16F        GL_RGBA
+        #define GL_HALF_FLOAT   GL_HALF_FLOAT_OES
+
+        #define GL_TEXTURE_3D           0
+        #define GL_TEXTURE_WRAP_R       0
+        #define GL_DEPTH_STENCIL        GL_DEPTH_STENCIL_OES
+        #define GL_UNSIGNED_INT_24_8    GL_UNSIGNED_INT_24_8_OES
+
+        #define glTexImage3D(...) 0
+
+        #define glGenVertexArrays(...)
+        #define glDeleteVertexArrays(...)
+        #define glBindVertexArray(...)
+        
+        #define GL_PROGRAM_BINARY_LENGTH     GL_PROGRAM_BINARY_LENGTH_OES
+        #define glGetProgramBinary(...)
+        #define glProgramBinary(...)
+    #endif
+
 #elif defined(_OS_RPI) || defined(_OS_CLOVER)
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
@@ -98,6 +116,8 @@ extern struct retro_hw_render_callback hw_render;
     #define GL_COMPARE_REF_TO_TEXTURE   0x884E
 
     #undef  GL_RG
+    #undef  GL_RG32F
+    #undef  GL_RG16F
     #undef  GL_RGBA32F
     #undef  GL_RGBA16F
     #undef  GL_HALF_FLOAT
@@ -105,11 +125,17 @@ extern struct retro_hw_render_callback hw_render;
     #define GL_RG           GL_RGBA
     #define GL_RGBA32F      GL_RGBA
     #define GL_RGBA16F      GL_RGBA
+    #define GL_RG32F        GL_RGBA
+    #define GL_RG16F        GL_RGBA
     #define GL_HALF_FLOAT   GL_HALF_FLOAT_OES
 
+    #define GL_TEXTURE_3D           0
+    #define GL_TEXTURE_WRAP_R       0
     #define GL_DEPTH_STENCIL        GL_DEPTH_STENCIL_OES
     #define GL_UNSIGNED_INT_24_8    GL_UNSIGNED_INT_24_8_OES
-    
+
+    #define glTexImage3D(...) 0
+
     #define glGenVertexArrays(...)
     #define glDeleteVertexArrays(...)
     #define glBindVertexArray(...)
@@ -207,7 +233,7 @@ extern struct retro_hw_render_callback hw_render;
     #define glProgramBinary(...)
 #endif
 
-#if defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_ANDROID)
+#if defined(_OS_WIN) || defined(_OS_LINUX)
 
     #ifdef _OS_ANDROID
         #define GetProc(x) dlsym(libGL, x);
@@ -241,6 +267,9 @@ extern struct retro_hw_render_callback hw_render;
 
     #if defined(_OS_WIN) || defined(_OS_LINUX) && !(__LIBRETRO_GLES__)
         PFNGLGENERATEMIPMAPPROC             glGenerateMipmap;
+        #ifdef _OS_WIN
+            PFNGLTEXIMAGE3DPROC             glTexImage3D;
+        #endif
     // Profiling
         #ifdef PROFILE
             PFNGLOBJECTLABELPROC                glObjectLabel;
@@ -302,10 +331,9 @@ extern struct retro_hw_render_callback hw_render;
     PFNGLPROGRAMBINARYPROC              glProgramBinary;
 #endif
 
-#if defined(_GAPI_GLES) && !defined(_OS_RPI) && !defined(_OS_CLOVER) && !defined(_OS_IOS)
+#if defined(_GAPI_GLES) && !defined(_OS_RPI) && !defined(_OS_CLOVER) && !defined(_OS_IOS) && !defined(_OS_ANDROID) && !defined(__SDL2__)
     PFNGLDISCARDFRAMEBUFFEREXTPROC      glDiscardFramebufferEXT;
 #endif
-
 
 #ifdef PROFILE
    //#define USE_CV_MARKERS
@@ -386,10 +414,25 @@ namespace GAPI {
 
     int cullMode, blendMode;
 
+    char GLSL_HEADER_VERT[512];
+    char GLSL_HEADER_FRAG[512];
+
 // Shader
     #ifndef FFP
-        const char SHADER_BASE[] =
-            #include "shaders/shader.glsl"
+        const char SHADER_COMPOSE[] =
+            #include "shaders/compose.glsl"
+        ;
+
+        const char SHADER_SHADOW[] =
+            #include "shaders/shadow.glsl"
+        ;
+
+        const char SHADER_AMBIENT[] =
+            #include "shaders/ambient.glsl"
+        ;
+
+        const char SHADER_SKY[] =
+            #include "shaders/sky.glsl"
         ;
 
         const char SHADER_WATER[] =
@@ -448,24 +491,26 @@ namespace GAPI {
         void init(Pass pass, int type, int *def, int defCount) {
             const char *source;
             switch (pass) {
-                case Core::passCompose :
-                case Core::passShadow  :
-                case Core::passAmbient : source = SHADER_BASE;   break;
-                case Core::passWater   : source = SHADER_WATER;  break;
-                case Core::passFilter  : source = SHADER_FILTER; break;
-                case Core::passGUI     : source = SHADER_GUI;    break;
+                case Core::passCompose : source = SHADER_COMPOSE; break;
+                case Core::passShadow  : source = SHADER_SHADOW;  break;
+                case Core::passAmbient : source = SHADER_AMBIENT; break;
+                case Core::passSky     : source = SHADER_SKY;     break;
+                case Core::passWater   : source = SHADER_WATER;   break;
+                case Core::passFilter  : source = SHADER_FILTER;  break;
+                case Core::passGUI     : source = SHADER_GUI;     break;
                 default                : ASSERT(false); LOG("! wrong pass id\n"); return;
             }
 
             #ifdef _DEBUG_SHADERS
                 Stream *stream = NULL;
                 switch (pass) {
-                    case Core::passCompose :
-                    case Core::passShadow  :
-                    case Core::passAmbient : stream = new Stream("../../src/shaders/shader.glsl"); break;
-                    case Core::passWater   : stream = new Stream("../../src/shaders/water.glsl");  break;
-                    case Core::passFilter  : stream = new Stream("../../src/shaders/filter.glsl"); break;
-                    case Core::passGUI     : stream = new Stream("../../src/shaders/gui.glsl");    break;
+                    case Core::passCompose : stream = new Stream("../../src/shaders/compose.glsl"); break;
+                    case Core::passShadow  : stream = new Stream("../../src/shaders/shadow.glsl");  break;
+                    case Core::passAmbient : stream = new Stream("../../src/shaders/ambient.glsl"); break;
+                    case Core::passSky     : stream = new Stream("../../src/shaders/sky.glsl");     break;
+                    case Core::passWater   : stream = new Stream("../../src/shaders/water.glsl");   break;
+                    case Core::passFilter  : stream = new Stream("../../src/shaders/filter.glsl");  break;
+                    case Core::passGUI     : stream = new Stream("../../src/shaders/gui.glsl");     break;
                     default                : ASSERT(false);  return;
                 }
                 
@@ -491,21 +536,21 @@ namespace GAPI {
 
             char defines[1024];
             defines[0] = 0;
+            strcat(defines, "#define VER3\n");
 
             for (int i = 0; i < defCount; i++) {
-                #ifdef _GAPI_GLES
-                    if (def[i] == SD_SHADOW_SAMPLER)
-                        strcat(defines, "#extension GL_EXT_shadow_samplers : require\n"); // ACHTUNG! must be first in the list
-                #endif
                 sprintf(defines + strlen(defines), "#define %s\n", DefineName[def[i]]);
             }
-            sprintf(defines + strlen(defines), "#define PASS_%s\n", passNames[pass]);
 
             #if defined(_OS_RPI) || defined(_OS_CLOVER)
                 strcat(defines, "#define OPT_VLIGHTPROJ\n");
                 strcat(defines, "#define OPT_VLIGHTVEC\n");
                 strcat(defines, "#define OPT_SHADOW_ONETAP\n");
             #endif
+
+            if (support.tex3D) {
+                strcat(defines, "#define OPT_TEXTURE_3D\n");
+            }
 
             #ifndef _OS_CLOVER
                 // TODO: only for non Mali-400?
@@ -562,20 +607,10 @@ namespace GAPI {
         }
 
         bool linkSource(const char *text, const char *defines = "") {
-            #ifdef _GAPI_GLES
-                #define GLSL_DEFINE ""
-                #define GLSL_VERT   ""
-                #define GLSL_FRAG   "#extension GL_OES_standard_derivatives : enable\n"
-            #else
-                #define GLSL_DEFINE "#version 120\n"
-                #define GLSL_VERT   ""
-                #define GLSL_FRAG   ""
-            #endif
-
             const int type[2] = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER };
             const char *code[2][4] = {
-                    { GLSL_DEFINE GLSL_VERT "#define VERTEX\n",   defines, "#line 0\n", text },
-                    { GLSL_DEFINE GLSL_FRAG "#define FRAGMENT\n", defines, "#line 0\n", text }
+                    { GLSL_HEADER_VERT, defines, "#line 0\n", text },
+                    { GLSL_HEADER_FRAG, defines, "#line 0\n", text }
                 };
 
             GLchar info[1024];
@@ -701,38 +736,38 @@ namespace GAPI {
 
     struct Texture {
         uint32     ID;
-        int        width, height, origWidth, origHeight;
+        int        width, height, depth, origWidth, origHeight, origDepth;
         TexFormat  fmt;
         uint32     opt;
+        GLenum     target;
 
-        Texture(int width, int height, uint32 opt) : ID(0), width(width), height(height), origWidth(width), origHeight(height), fmt(FMT_RGBA), opt(opt) {}
+        Texture(int width, int height, int depth, uint32 opt) : ID(0), width(width), height(height), depth(depth), origWidth(width), origHeight(height), origDepth(depth), fmt(FMT_RGBA), opt(opt) {}
 
         void init(void *data) {
             ASSERT((opt & OPT_PROXY) == 0);
 
             bool filter   = (opt & OPT_NEAREST) == 0;
             bool mipmaps  = (opt & OPT_MIPMAPS) != 0;
-            bool cube     = (opt & OPT_CUBEMAP) != 0;
+            bool isCube   = (opt & OPT_CUBEMAP) != 0;
+            bool isVolume = (opt & OPT_VOLUME)  != 0;
             bool isShadow = fmt == FMT_SHADOW;
+
+            target = isVolume ? GL_TEXTURE_3D : (isCube ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D);
 
             glGenTextures(1, &ID);
 
             Core::active.textures[0] = NULL;
             bind(0);
 
-            GLenum target = cube ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D;
-
-            if (fmt == FMT_SHADOW) {
+            if (isShadow) {
                 glTexParameteri(target, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
                 glTexParameteri(target, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
             }
 
-            bool border = isShadow && Core::support.texBorder;
-            glTexParameteri(target, GL_TEXTURE_WRAP_S, (opt & OPT_REPEAT) ? GL_REPEAT : (border ? GL_CLAMP_TO_BORDER : GL_CLAMP_TO_EDGE));
-            glTexParameteri(target, GL_TEXTURE_WRAP_T, (opt & OPT_REPEAT) ? GL_REPEAT : (border ? GL_CLAMP_TO_BORDER : GL_CLAMP_TO_EDGE));
-            if (border) {
-                float color[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-                glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, color);
+            glTexParameteri(target, GL_TEXTURE_WRAP_S, (opt & OPT_REPEAT) ? GL_REPEAT : GL_CLAMP_TO_EDGE);
+            glTexParameteri(target, GL_TEXTURE_WRAP_T, (opt & OPT_REPEAT) ? GL_REPEAT : GL_CLAMP_TO_EDGE);
+            if (isVolume) {
+                glTexParameteri(target, GL_TEXTURE_WRAP_R, (opt & OPT_REPEAT) ? GL_REPEAT : GL_CLAMP_TO_EDGE);
             }
 
             glTexParameteri(target, GL_TEXTURE_MIN_FILTER, filter ? (mipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR) : (mipmaps ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST));
@@ -740,22 +775,27 @@ namespace GAPI {
 
             FormatDesc desc = getFormat();
 
-            void *pix = (width == origWidth && height == origHeight) ? data : NULL;
+            void *pix = (width == origWidth && height == origHeight && depth == origDepth) ? data : NULL;
 
-            for (int i = 0; i < 6; i++) {
-                glTexImage2D(cube ? (GL_TEXTURE_CUBE_MAP_POSITIVE_X + i) : GL_TEXTURE_2D, 0, desc.ifmt, width, height, 0, desc.fmt, desc.type, pix);
-                if (!cube) break;
+            if (isVolume) {
+                glTexImage3D(target, 0, desc.ifmt, width, height, depth, 0, desc.fmt, desc.type, pix);
+            } else if (isCube) {
+                for (int i = 0; i < 6; i++) {
+                    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, desc.ifmt, width, height, 0, desc.fmt, desc.type, pix);
+                }
+            } else {
+                glTexImage2D(target, 0, desc.ifmt, width, height, 0, desc.fmt, desc.type, pix);
             }
-			
+
             if (pix != data) {
                 update(data);
-			}
+            }
         }
 
         void deinit() {
             if (ID) {
                 glDeleteTextures(1, &ID);
-			}
+            }
         }
 
         FormatDesc getFormat() {
@@ -767,25 +807,32 @@ namespace GAPI {
             }
 
             #ifdef _OS_WEB // fucking firefox!
-                if (fmt == FMT_RG_FLOAT) {
-                    if (Core::support.texFloat) {
-                        desc.ifmt = GL_RGBA;
-                        desc.type = GL_FLOAT;
+                if (WEBGL_VERSION == 1) {
+                    if (fmt == FMT_RG_FLOAT) {
+                        if (Core::support.texFloat) {
+                            desc.ifmt = GL_RGBA;
+                            desc.type = GL_FLOAT;
+                        }
                     }
-                }
 
-                if (fmt == FMT_RG_HALF) {
-                    if (Core::support.texHalf) {
-                        desc.ifmt = GL_RGBA;
-                        desc.type = GL_HALF_FLOAT_OES;
+                    if (fmt == FMT_RG_HALF) {
+                        if (Core::support.texHalf) {
+                            desc.ifmt = GL_RGBA;
+                            desc.type = GL_HALF_FLOAT_OES;
+                        }
+                    }
+                } else {
+                    if (fmt == FMT_DEPTH || fmt == FMT_SHADOW) {
+                        desc.ifmt = GL_DEPTH_COMPONENT16;
                     }
                 }
             #else
                 if ((fmt == FMT_RG_FLOAT && !Core::support.colorFloat) || (fmt == FMT_RG_HALF && !Core::support.colorHalf)) {
                     desc.ifmt = GL_RGBA;
                     #ifdef _GAPI_GLES
-                        if (fmt == FMT_RG_HALF)
+                        if (fmt == FMT_RG_HALF) {
                             desc.type = GL_HALF_FLOAT_OES;
+                        }
                     #endif
                 }
             #endif
@@ -794,18 +841,19 @@ namespace GAPI {
 
         void generateMipMap() {
             bind(0);
-            GLenum target = (opt & OPT_CUBEMAP) ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D;
 
             glGenerateMipmap(target);
-            if (!(opt & OPT_CUBEMAP) && !(opt & OPT_NEAREST) && (Core::support.maxAniso > 0))
+            if ((opt & (OPT_VOLUME | OPT_CUBEMAP | OPT_NEAREST)) == 0 && (Core::support.maxAniso > 0)) {
                 glTexParameteri(target, GL_TEXTURE_MAX_ANISOTROPY_EXT, min(int(Core::support.maxAniso), 8));
-            //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 4);
+                //glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, 4);
+            }
         }
 
         void update(void *data) {
+            ASSERT((opt & (OPT_VOLUME | OPT_CUBEMAP)) == 0);
             bind(0);
-			FormatDesc desc = getFormat();
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, origWidth, origHeight, desc.fmt, desc.type, data);
+            FormatDesc desc = getFormat();
+            glTexSubImage2D(target, 0, 0, 0, origWidth, origHeight, desc.fmt, desc.type, data);
         }
 
         void bind(int sampler) {
@@ -815,7 +863,7 @@ namespace GAPI {
             if (Core::active.textures[sampler] != this) {
                 Core::active.textures[sampler] = this;
                 glActiveTexture(GL_TEXTURE0 + sampler);
-                glBindTexture((opt & OPT_CUBEMAP) ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D, ID);
+                glBindTexture(target, ID);
             }
         }
 
@@ -823,7 +871,7 @@ namespace GAPI {
             if (Core::active.textures[sampler]) {
                 Core::active.textures[sampler] = NULL;
                 glActiveTexture(GL_TEXTURE0 + sampler);
-                glBindTexture((opt & OPT_CUBEMAP) ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D, 0);
+                glBindTexture(target, 0);
             }
         }
 
@@ -833,10 +881,11 @@ namespace GAPI {
 
             Core::active.textures[0] = NULL;
             bind(0);
-            if (Core::support.maxAniso > 0)
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, value > Core::Settings::MEDIUM ? min(int(Core::support.maxAniso), 8) : 1);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter ? (mipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR ) : ( mipmaps ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST ));
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter ? GL_LINEAR : GL_NEAREST);
+            if (Core::support.maxAniso > 0) {
+                glTexParameteri(target, GL_TEXTURE_MAX_ANISOTROPY_EXT, value > Core::Settings::MEDIUM ? min(int(Core::support.maxAniso), 8) : 1);
+            }
+            glTexParameteri(target, GL_TEXTURE_MIN_FILTER, filter ? (mipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR ) : ( mipmaps ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST ));
+            glTexParameteri(target, GL_TEXTURE_MAG_FILTER, filter ? GL_LINEAR : GL_NEAREST);
         }
     };
 
@@ -1002,7 +1051,7 @@ namespace GAPI {
             void *libGL = dlopen("libGLESv2.so", RTLD_LAZY);
         #endif
 
-        #if defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_ANDROID)
+        #if defined(_OS_WIN) || defined(_OS_LINUX)
             #ifdef _OS_WIN
                 GetProcOGL(glActiveTexture);
             #endif
@@ -1017,6 +1066,9 @@ namespace GAPI {
 
             #if defined(_OS_WIN) || defined(_OS_LINUX) && !(__LIBRETRO_GLES__)
                 GetProcOGL(glGenerateMipmap);
+                #ifdef _OS_WIN
+                    GetProcOGL(glTexImage3D);
+                #endif
 
                 #ifdef PROFILE
                     GetProcOGL(glObjectLabel);
@@ -1071,15 +1123,15 @@ namespace GAPI {
                 GetProcOGL(glBufferSubData);
             #endif
 
-            #ifdef _GAPI_GLES
-                GetProcOGL(glDiscardFramebufferEXT);
-            #endif
-
             GetProcOGL(glGenVertexArrays);
             GetProcOGL(glDeleteVertexArrays);
             GetProcOGL(glBindVertexArray);
             GetProcOGL(glGetProgramBinary);
             GetProcOGL(glProgramBinary);
+
+            #ifdef _GAPI_GLES
+                GetProcOGL(glDiscardFramebufferEXT);
+            #endif
         #endif
 
         LOG("Vendor   : %s\n", (char*)glGetString(GL_VENDOR));
@@ -1102,32 +1154,34 @@ namespace GAPI {
         }
 */
 
-    #ifdef FFP
-        support.maxAniso       = 0;
-        support.maxVectors     = 0;
-        support.shaderBinary   = false;
-        support.VAO            = false;
-        support.depthTexture   = false;
-        support.shadowSampler  = false;
-        support.discardFrame   = false;
-        support.texNPOT        = false;
-        support.texRG          = false;
-        support.texBorder      = false;
-        support.colorFloat     = false;
-        support.colorHalf      = false;
-        support.texFloatLinear = false;
-        support.texFloat       = false;
-        support.texHalfLinear  = false;
-        support.texHalf        = false;
-        support.clipDist       = false;
-    #else
+    #ifndef FFP
+        bool GLES3 = false;
+        #ifdef _OS_WEB
+            GLES3 = WEBGL_VERSION != 1;
+        #else
+            #ifdef _GAPI_GLES
+                int GLES_VERSION = 1;
+                #if defined(__SDL2__)
+                SDL_GL_GetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, &GLES_VERSION);
+                #else
+                glGetIntegerv(GL_MAJOR_VERSION, &GLES_VERSION);
+                #endif 
+                GLES3 = GLES_VERSION > 2; 
+            #endif
+        #endif
+
         support.shaderBinary   = extSupport(ext, "_program_binary");
-        support.VAO            = extSupport(ext, "_vertex_array_object");
-        support.depthTexture   = extSupport(ext, "_depth_texture");
-        support.shadowSampler  = support.depthTexture && (extSupport(ext, "_shadow_samplers") || extSupport(ext, "GL_ARB_shadow"));
+        support.VAO            = GLES3 || extSupport(ext, "_vertex_array_object");
+        support.depthTexture   = GLES3 || extSupport(ext, "_depth_texture");
+        support.shadowSampler  = extSupport(ext, "_shadow_samplers") || extSupport(ext, "GL_ARB_shadow");
         support.discardFrame   = extSupport(ext, "_discard_framebuffer");
-        support.texNPOT        = extSupport(ext, "_texture_npot") || extSupport(ext, "_texture_non_power_of_two");
-        support.texRG          = extSupport(ext, "_texture_rg ");   // hope that isn't last extension in string ;)
+        support.texNPOT        = GLES3 || extSupport(ext, "_texture_npot") || extSupport(ext, "_texture_non_power_of_two");
+        support.texRG          = GLES3 || extSupport(ext, "_texture_rg ");   // hope that isn't last extension in string ;)
+        #if (defined(_GAPI_GLES) || defined(__LIBRETRO_GLES__))
+            support.tex3D      = GLES3;
+        #else
+            support.tex3D      = glTexImage3D != NULL;
+        #endif
         support.texBorder      = extSupport(ext, "_texture_border_clamp");
         support.maxAniso       = extSupport(ext, "_texture_filter_anisotropic");
         support.colorFloat     = extSupport(ext, "_color_buffer_float");
@@ -1137,6 +1191,7 @@ namespace GAPI {
         support.texHalfLinear  = support.colorHalf || extSupport(ext, "GL_ARB_texture_float") || extSupport(ext, "_texture_half_float_linear") || extSupport(ext, "_color_buffer_half_float");
         support.texHalf        = support.texHalfLinear || extSupport(ext, "_texture_half_float");
         support.clipDist       = false; // TODO
+
 
         #ifdef PROFILE
             support.profMarker = extSupport(ext, "_KHR_debug");
@@ -1174,6 +1229,55 @@ namespace GAPI {
 
         glClearColor(0, 0, 0, 0);
     #endif
+
+        GLSL_HEADER_VERT[0] = GLSL_HEADER_FRAG[0] = 0;
+    #ifdef _GAPI_GLES
+        if (!GLES3) {
+            strcat(GLSL_HEADER_VERT, "#define VERTEX\n"
+                                     "precision lowp  int;\n"
+                                     "precision highp float;\n");
+
+            strcat(GLSL_HEADER_FRAG, "#extension GL_OES_standard_derivatives : enable\n");
+            if (support.shadowSampler) {
+                strcat(GLSL_HEADER_FRAG, "#extension GL_EXT_shadow_samplers : enable\n");
+            }
+            strcat(GLSL_HEADER_FRAG, "#define FRAGMENT\n"
+                                     "precision lowp  int;\n"
+                                     "precision highp float;\n"
+                                     "#define fragColor gl_FragColor\n");
+        } else {
+            strcat(GLSL_HEADER_VERT, "#version 300 es\n"
+                                     "#define VERTEX\n"
+                                     "precision lowp  int;\n"
+                                     "precision highp float;\n"
+                                     "#define varying   out\n"
+                                     "#define attribute in\n"
+                                     "#define texture2D texture\n");
+
+            strcat(GLSL_HEADER_FRAG, "#version 300 es\n");
+            if (support.shadowSampler) {
+                strcat(GLSL_HEADER_FRAG, "#extension GL_EXT_shadow_samplers : enable\n");
+            }
+            strcat(GLSL_HEADER_FRAG, "#define FRAGMENT\n"
+                                     "precision lowp  int;\n"
+                                     "precision highp float;\n"
+                                     "precision lowp  sampler3D;\n"
+                                     "#define varying     in\n"
+                                     "#define texture2D   texture\n"
+                                     "#define texture3D   texture\n"
+                                     "#define textureCube texture\n"
+                                     "out vec4 fragColor;\n");
+        }
+    #else
+        strcat(GLSL_HEADER_VERT, "#version 110\n"
+                                 "#define VERTEX\n");
+        strcat(GLSL_HEADER_FRAG, "#version 110\n"
+                                 "#define FRAGMENT\n"
+                                 "#define fragColor gl_FragColor\n");
+    #endif
+
+        ASSERT(strlen(GLSL_HEADER_VERT) < COUNT(GLSL_HEADER_VERT));
+        ASSERT(strlen(GLSL_HEADER_FRAG) < COUNT(GLSL_HEADER_FRAG));
     }
 
     void deinit() {
@@ -1247,6 +1351,10 @@ namespace GAPI {
             glBindFramebuffer(GL_FRAMEBUFFER, FBO);
             glFramebufferTexture2D    (GL_FRAMEBUFFER, depth ? GL_DEPTH_ATTACHMENT  : GL_COLOR_ATTACHMENT0, texTarget,       target->ID, 0);
             glFramebufferRenderbuffer (GL_FRAMEBUFFER, depth ? GL_COLOR_ATTACHMENT0 : GL_DEPTH_ATTACHMENT,  GL_RENDERBUFFER, rtCache[!depth].items[rtIndex].ID);
+            GLuint status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+            if (status != GL_FRAMEBUFFER_COMPLETE) {
+                LOG("status: %d\n", (int)status);
+            }
         }
     }
 
@@ -1257,8 +1365,15 @@ namespace GAPI {
             GLenum discard[2];
             if (color) discard[count++] = Core::active.target ? GL_COLOR_ATTACHMENT0 : GL_COLOR_EXT;
             if (depth) discard[count++] = Core::active.target ? GL_DEPTH_ATTACHMENT  : GL_DEPTH_EXT;
-            if (count)
-                glDiscardFramebufferEXT(GL_FRAMEBUFFER, count, discard);
+            if (count) {
+                #ifdef _OS_ANDROID
+                    glInvalidateFramebuffer(GL_FRAMEBUFFER, count, discard);
+                #else
+                    #if !defined(__SDL2__)
+                        glDiscardFramebufferEXT(GL_FRAMEBUFFER, count, discard);
+                    #endif
+                #endif
+            }
         }
     #endif
     }
