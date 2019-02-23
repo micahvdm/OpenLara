@@ -1,16 +1,16 @@
 #include "common.hlsl"
 
-// UNDERWATER, ALPHA_TEST, CLIP_PLANE (D3D9 only), OPT_SHADOW, OPT_CAUSTICS, OPT_CONTACT
+// ALPHA_TEST, UNDERWATER, CLIP_PLANE (D3D9 only), OPT_SHADOW, OPT_CAUSTICS, OPT_CONTACT
 
 struct VS_OUTPUT {
-	float4 pos		 : POSITION;
-	float3 coord	 : TEXCOORD0;
-	float4 texCoord	 : TEXCOORD1;
-	float4 normal	 : TEXCOORD2;
-	float4 diffuse	 : TEXCOORD3;
-	float3 ambient	 : TEXCOORD4;
-	float3 lightMap	 : TEXCOORD5;
-	float4 light	 : TEXCOORD6;
+	float4 pos       : POSITION;
+	float3 coord     : TEXCOORD0;
+	float4 texCoord  : TEXCOORD1;
+	float4 normal    : TEXCOORD2;
+	float4 diffuse   : TEXCOORD3;
+	float3 ambient   : TEXCOORD4;
+	float3 lightMap  : TEXCOORD5;
+	float4 light     : TEXCOORD6;
 	float4 lightProj : TEXCOORD7;
 #ifdef _GAPI_GXM
 	float clipDist   : CLP0;
@@ -31,8 +31,6 @@ VS_OUTPUT main(VS_INPUT In) {
 	Out.coord = mulBasis(rBasisRot, rBasisPos.xyz, In.aCoord.xyz);
 	Out.texCoord.xy *= Out.texCoord.zw;
 
-	float3 viewVec = (uViewPos.xyz - Out.coord) * uFogParams.w;
-
 	Out.normal.xyz = mulQuat(rBasisRot, normalize(In.aNormal.xyz));
 
 	float3 lv1 = (uLightPos[1].xyz - Out.coord) * uLightColor[1].w;
@@ -51,12 +49,13 @@ VS_OUTPUT main(VS_INPUT In) {
 	lum.w = dot(Out.normal.xyz, normalize(lv3)); att.w = dot(lv3, lv3);
 	light = max((float4)0.0, lum) * max((float4)0.0, (float4)1.0 - att);
 
-	if (UNDERWATER) {
-		light.x *= abs(sin(dot(Out.coord.xyz, 1.0 / 512.0) + uParam.x)) * 1.5 + 0.5;
+	#ifdef UNDERWATER
+		light.x *= calcCausticsV(Out.coord);
 		Out.normal.w = 0.0;
-	} else {
+	#else
+		float3 viewVec = (uViewPos.xyz - Out.coord) * uFogParams.w;
 		Out.normal.w = saturate(1.0 / exp(length(viewVec.xyz)));
-	}
+	#endif
 
 	if (OPT_SHADOW) {
 		Out.light    = light;
@@ -76,24 +75,22 @@ VS_OUTPUT main(VS_INPUT In) {
 	Out.lightProj = mul(uLightProj, float4(Out.coord, 1.0));
 
 	Out.clipDist = uParam.w - Out.coord.y * uParam.z;
-	
+
 	return Out;
 }
 
 #else // PIXEL
 
 float4 main(VS_OUTPUT In) : COLOR0 {
-	float4 color = tex2D(sDiffuse, In.texCoord.xy / In.texCoord.zw);
+	float4 color = RGBA(tex2D(sDiffuse, In.texCoord.xy / In.texCoord.zw));
 
-	if (ALPHA_TEST) {
+	#ifdef ALPHA_TEST
 		clip(color.w - ALPHA_REF);
-	}
+	#endif
 
-#ifndef _GAPI_GXM
-	if (CLIP_PLANE) {
+	#ifdef CLIP_PLANE
 		clip(In.clipDist);
-	}
-#endif
+	#endif
 
 	color *= In.diffuse;
 
@@ -119,11 +116,11 @@ float4 main(VS_OUTPUT In) : COLOR0 {
 
 	color.xyz *= light;
 
-	if (UNDERWATER) {
-		applyFogUW(color.xyz, In.coord, WATER_FOG_DIST);	
-	} else {
+	#ifdef UNDERWATER
+		applyFogUW(color.xyz, In.coord, WATER_FOG_DIST, WATER_COLOR_DIST);
+	#else
 		applyFog(color.xyz, In.normal.w);
-	}
+	#endif
 
 	return color;
 }

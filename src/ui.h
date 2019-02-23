@@ -6,282 +6,13 @@
 #include "controller.h"
 
 #define PICKUP_SHOW_TIME 5.0f
+#define SUBTITLES_SPEED  0.1f
 
 #ifdef _OS_PSV
     #define UI_SHOW_FPS
 #endif
 
-enum StringID {
-      STR_NOT_IMPLEMENTED
-// common
-    , STR_LOADING
-    , STR_HELP_PRESS
-    , STR_HELP_TEXT
-    , STR_LEVEL_STATS
-    , STR_HINT_SAVING
-    , STR_HINT_SAVING_DONE
-    , STR_HINT_SAVING_ERROR
-    , STR_YES
-    , STR_NO
-    , STR_OFF
-    , STR_ON
-    , STR_SPLIT
-    , STR_VR
-    , STR_QUALITY_LOW
-    , STR_QUALITY_MEDIUM
-    , STR_QUALITY_HIGH
-    , STR_APPLY
-    , STR_GAMEPAD_1
-    , STR_GAMEPAD_2
-    , STR_GAMEPAD_3
-    , STR_GAMEPAD_4
-    , STR_NOT_READY
-    , STR_PLAYER_1
-    , STR_PLAYER_2
-    , STR_PRESS_ANY_KEY
-    , STR_HELP_SELECT
-    , STR_HELP_BACK
-// inventory pages
-    , STR_OPTION
-    , STR_INVENTORY
-    , STR_ITEMS
-// save game page
-    , STR_SAVEGAME
-    , STR_CURRENT_POSITION
-// inventory option
-    , STR_GAME
-    , STR_MAP
-    , STR_COMPASS
-    , STR_STOPWATCH
-    , STR_HOME
-    , STR_DETAIL
-    , STR_SOUND
-    , STR_CONTROLS
-    , STR_GAMMA
-// passport menu
-    , STR_AUTOSAVE
-    , STR_LOAD_GAME
-    , STR_START_GAME
-    , STR_RESTART_LEVEL
-    , STR_EXIT_TO_TITLE
-    , STR_EXIT_GAME
-    , STR_SELECT_LEVEL
-// detail options
-    , STR_SELECT_DETAIL
-    , STR_OPT_DETAIL_FILTER
-    , STR_OPT_DETAIL_LIGHTING
-    , STR_OPT_DETAIL_SHADOWS
-    , STR_OPT_DETAIL_WATER
-    , STR_OPT_DETAIL_VSYNC
-    , STR_OPT_DETAIL_STEREO
-    , STR_OPT_SIMPLE_ITEMS
-// sound options
-    , STR_SET_VOLUMES
-    , STR_REVERBERATION
-// controls options
-    , STR_SET_CONTROLS
-    , STR_OPT_CONTROLS_KEYBOARD
-    , STR_OPT_CONTROLS_GAMEPAD
-    , STR_OPT_CONTROLS_VIBRATION
-    , STR_OPT_CONTROLS_RETARGET
-    , STR_OPT_CONTROLS_MULTIAIM
-    // controls
-    , STR_CTRL_FIRST
-    , STR_CTRL_LAST = STR_CTRL_FIRST + cMAX - 1
-    // keys
-    , STR_KEY_FIRST
-    , STR_KEY_LAST  = STR_KEY_FIRST + ikZ
-    // gamepad
-    , STR_JOY_FIRST
-    , STR_JOY_LAST  = STR_JOY_FIRST + jkMAX - 1
-// inventory items
-    , STR_UNKNOWN
-    , STR_EXPLOSIVE
-    , STR_PISTOLS
-    , STR_SHOTGUN
-    , STR_MAGNUMS
-    , STR_UZIS
-    , STR_AMMO_PISTOLS
-    , STR_AMMO_SHOTGUN
-    , STR_AMMO_MAGNUMS
-    , STR_AMMO_UZIS
-    , STR_MEDI_SMALL
-    , STR_MEDI_BIG
-    , STR_LEAD_BAR
-    , STR_SCION
-// keys
-    , STR_KEY
-    , STR_KEY_SILVER
-    , STR_KEY_RUSTY
-    , STR_KEY_GOLD
-    , STR_KEY_SAPPHIRE
-    , STR_KEY_NEPTUNE
-    , STR_KEY_ATLAS
-    , STR_KEY_DAMOCLES
-    , STR_KEY_THOR
-    , STR_KEY_ORNATE
-// puzzles
-    , STR_PUZZLE
-    , STR_PUZZLE_GOLD_IDOL
-    , STR_PUZZLE_GOLD_BAR
-    , STR_PUZZLE_COG
-    , STR_PUZZLE_FUSE
-    , STR_PUZZLE_ANKH
-    , STR_PUZZLE_HORUS
-    , STR_PUZZLE_ANUBIS
-    , STR_PUZZLE_SCARAB
-    , STR_PUZZLE_PYRAMID
-
-    , STR_MAX
-};
-
-const char *helpText = 
-    "Start - add second player or restore Lara@"
-    "H - Show or hide this help@"
-    "ALT + ENTER - Fullscreen@"
-    "5 - Save Game@"
-    "9 - Load Game@"
-    "C - Look@"
-    "R - Slow motion@"
-    "T - Fast motion@"
-    "Roll - Up + Down@"
-    "Step Left - Walk + Left@"
-    "Step Right - Walk + Right@"
-    "Out of water - Up + Action@"
-    "Handstand - Up + Walk@"
-    "Swan dive - Up + Walk + Jump@"
-    "First Person View - Look + Action@"
-    "DOZY on - Look + Duck + Action + Jump@"
-    "DOZY off - Walk";
-
-const char *levelStats = 
-    "%s@@@"
-    "KILLS %d@@"
-    "PICKUPS %d@@"
-    "SECRETS %d of %d@@"
-    "TIME TAKEN %s";
-
-const char *STR[STR_MAX] = {
-      "Not implemented yet!"
-// help
-    , "Loading..."
-    , "Press H for help"
-    , helpText
-    , levelStats
-    , "Saving game..."
-    , "Saving done!"
-    , "SAVING ERROR!"
-    , "YES"
-    , "NO"
-    , "Off"
-    , "On"
-    , "Split Screen"
-    , "VR"
-    , "Low"
-    , "Medium"
-    , "High"
-    , "Apply"
-    , "Gamepad 1"
-    , "Gamepad 2"
-    , "Gamepad 3"
-    , "Gamepad 4"
-    , "Not Ready"
-    , "Player 1"
-    , "Player 2"
-    , "Press Any Key"
-    , "%s - Select"
-    , "%s - Go Back"
-// inventory pages
-    , "OPTION"
-    , "INVENTORY"
-    , "ITEMS"
-// save game page
-    , "Save Game?"
-    , "Current Position"
-// inventory option
-    , "Game"
-    , "Map"
-    , "Compass"
-    , "Statistics"
-    , "Lara's Home"
-    , "Detail Levels"
-    , "Sound"
-    , "Controls"
-    , "Gamma"
-// passport menu
-    , "Autosave"
-    , "Load Game"
-    , "Start Game"
-    , "Restart Level"
-    , "Exit to Title"
-    , "Exit Game"
-    , "Load Game"
-// detail options
-    , "Select Detail"
-    , "Filtering"
-    , "Lighting"
-    , "Shadows"
-    , "Water"
-    , "VSync"
-    , "Stereo"
-    , "Simple Items"
-// sound options
-    , "Set Volumes"
-    , "Reverberation"
-// controls options
-    , "Set Controls"
-    , "Keyboard"
-    , "Gamepad"
-    , "Vibration"
-    , "Retargeting"
-    , "Multi-aiming"
-    // controls
-    , "Left", "Right", "Up", "Down", "Jump", "Walk", "Action", "Draw Weapon", "Look", "Duck", "Dash", "Roll", "Inventory", "Start"
-    // keys
-    , "NONE", "LEFT", "RIGHT", "UP", "DOWN", "SPACE", "TAB", "ENTER", "ESCAPE", "SHIFT", "CTRL", "ALT"
-    , "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"
-    , "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"
-    , "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"
-    // gamepad
-    , "NONE", "A", "B", "X", "Y", "L BUMPER", "R BUMPER", "SELECT", "START", "L STICK", "R STICK", "L TRIGGER", "R TRIGGER", "D-LEFT", "D-RIGHT", "D-UP", "D-DOWN"
-// inventory items
-    , "Unknown"
-    , "Explosive"
-    , "Pistols"
-    , "Shotgun"
-    , "Magnums"
-    , "Uzis"
-    , "Pistol Clips"
-    , "Shotgun Shells"
-    , "Magnum Clips"
-    , "Uzi Clips"
-    , "Small Medi Pack"
-    , "Large Medi Pack"
-    , "Lead Bar"
-    , "Scion"
-// keys
-    , "Key"
-    , "Silver Key"
-    , "Rusty Key"
-    , "Gold Key"
-    , "Sapphire Key"
-    , "Neptune Key"
-    , "Atlas Key"
-    , "Damocles Key"
-    , "Thor Key"
-    , "Ornate Key"
-// puzzles
-    , "Puzzle"
-    , "Gold Idol"
-    , "Gold Bar"
-    , "Machine Cog"
-    , "Fuse"
-    , "Ankh"
-    , "Eye of Horus"
-    , "Seal of Anubis"
-    , "Scarab"
-    , "Pyramid Key"
-};
+#include "lang.h"
 
 #ifdef _NAPI_SOCKET
 extern char command[256];
@@ -292,7 +23,10 @@ namespace UI {
     float    width, height;
     float    helpTipTime;
     float    hintTime;
+    float    subsTime;
+
     StringID hintStr;
+    StringID subsStr;
 
     bool     showHelp;
 
@@ -306,23 +40,74 @@ namespace UI {
 
     Array<PickupItem> pickups;
 
-    const static uint8 char_width[110] = {
+    int advGlyphsStart;
+
+    #define CYR_MAP           "ÁÃÄÆÇÈËÏÓÔÖ×ØÙÚÛÜÝÞßáâãäæçêëìíïôö÷øùúûüýþÿ"
+    #define CYR_MAP_COUNT     COUNT(CYR_MAP)
+    #define CYR_MAP_START     102
+    #define CYR_MAP_UPPERCASE 20
+
+    const static uint8 char_width[110 + CYR_MAP_COUNT] = {
         14, 11, 11, 11, 11, 11, 11, 13, 8, 11, 12, 11, 13, 13, 12, 11, 12, 12, 11, 12, 13, 13, 13, 12, 12, 11, // A-Z
         9, 9, 9, 9, 9, 9, 9, 9, 5, 9, 9, 5, 12, 10, 9, 9, 9, 8, 9, 8, 9, 9, 11, 9, 9, 9, // a-z
         12, 8, 10, 10, 10, 10, 10, 9, 10, 10, // 0-9
-        5, 5, 5, 11, 9, 10, 8, 6, 6, 7, 7, 3, 11, 8, 13, 16, 9, 4, 12, 12, 
-        7, 5, 7, 7, 7, 7, 7, 7, 7, 7, 16, 14, 14, 14, 16, 16, 16, 16, 16, 12, 14, 8, 8, 8, 8, 8, 8, 8 }; 
+        5, 5, 5, 11, 9, 7, 8, 6, 0, 7, 7, 3, 8, 8, 13, 7, 9, 4, 12, 12, 
+        7, 5, 7, 7, 7, 7, 7, 7, 7, 7, 16, 14, 14, 14, 16, 16, 16, 16, 16, 12, 14, 8, 8, 8, 8, 8, 8, 8,
+    // cyrillic
+        11, 11, 11, 13, 10, 13, 11, 11, 12, 12, 11, 9, 13, 13, 10, 13, // ÁÃÄÆÇÈËÏÓÔÖ×ØÙÚÛ
+        9, 11, 12, 11, 10, 9, 8, 10, 11, 9, 10, 10, 11, 9, 10, 10,     // ÜÝÞßáâãäæçêëìíïô
+        10, 9, 11, 12, 9, 11, 8, 9, 13, 9                              // ö÷øùúûüýþÿ
+    }; 
         
-    static const uint8 char_map[102] = {
+    static const uint8 char_map[102 + 33*2] = {
             0, 64, 66, 78, 77, 74, 78, 79, 69, 70, 92, 72, 63, 71, 62, 68, 52, 53, 54, 55, 56, 57, 58, 59, 
         60, 61, 73, 73, 66, 74, 75, 65, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 
         18, 19, 20, 21, 22, 23, 24, 25, 80, 76, 81, 97, 98, 77, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 
-        37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 100, 101, 102, 67, 0, 0, 0, 0, 0, 0, 0 };
+        37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 100, 101, 102, 67, 0, 0, 0, 0, 0, 0, 0,
+    // cyrillic
+        0, 110, 0, 111, 112, 0, 113, 114, 115, 0, 0, 116, 0, 0, 0, 117, 0, 0, 0, 118, 119, 0, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129,
+        0, 130, 131, 132, 133, 0, 134, 135, 0, 0, 136, 137, 138, 139, 0, 140, 0, 0, 0, 0, 141, 0, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151,
+    };
 
-    enum Align  { aLeft, aRight, aCenter };
+    enum Align  { aLeft, aRight, aCenter, aCenterV };
+
+    inline char remapCyrillic(char c) {
+        if ((c >= 'À' && c <= 'ß') || (c >= 'à' && c <= 'ÿ')) {
+            switch (c) {
+                case 'à' : return 'a';
+                case 'å' : return 'e';
+                case '¸' : return 'e';
+                case 'è' : return 'u';
+                case 'é' : return 'u';
+                case 'î' : return 'o';
+                case 'ð' : return 'p';
+                case 'ñ' : return 'c';
+                case 'ò' : return 'm';
+                case 'ó' : return 'y';
+                case 'õ' : return 'x';
+                case 'À' : return 'A';
+                case 'Â' : return 'B';
+                case 'Å' : return 'E';
+                case '¨' : return 'E';
+                case 'Ê' : return 'K';
+                case 'Ì' : return 'M';
+                case 'Í' : return 'H';
+                case 'Î' : return 'O';
+                case 'Ð' : return 'P';
+                case 'Ñ' : return 'C';
+                case 'Ò' : return 'T';
+                case 'Õ' : return 'X';
+            }
+            return c;
+        }
+        return c;
+    }
 
     inline int charRemap(char c) {
-        ASSERT(c <= 126);
+        if ((c >= 'À' && c <= 'ß') || (c >= 'à' && c <= 'ÿ')) {
+            return char_map[CYR_MAP_START + (c - 'À')];
+        }
+
         if (c < 11)
             return c + 81;
         if (c < 16)
@@ -331,16 +116,62 @@ namespace UI {
         return char_map[c - 32];
     }
 
+    inline bool skipChar(char c) {
+        return c == '~' || c == '$' || c == '(' || c == ')' || c == '|' || c == '/' || c == '*' || c == '{';
+    }
+
+    inline bool upperCase(int index) {
+        return index < 26 || (index >= 110 && (index < 110 + CYR_MAP_UPPERCASE));
+    }
+
+    void patchGlyphs(TR::Level &level) {
+        UI::advGlyphsStart = level.spriteTexturesCount;
+
+        TR::TextureInfo cyrSprites[CYR_MAP_COUNT];
+        for (int i = 0; i < COUNT(cyrSprites); i++) {
+            int idx = 110 + i; // mapped index
+            int w = char_width[idx];
+            int h = upperCase(idx) ? 13 : 9;
+            int o = 0;
+            char c = CYR_MAP[i];
+
+            if (c == 'á' || c == 'ä') h = 14;
+            if (c == 'Ö' || c == 'Ù' || c == 'ö' || c == 'ù') { o = 1; h++; }
+            if (c == 'ô') { o = 2; h += 2; }
+
+            cyrSprites[i] = TR::TextureInfo(TR::TEX_TYPE_SPRITE, 0, -h + o, w, o, (i % 16) * 16, (i / 16) * 16 + (16 - h), w, h);
+        }
+
+        // add additional sprites for Cyrillyc glyphs
+        int              newSpritesCount = level.spriteTexturesCount + COUNT(cyrSprites);
+        TR::TextureInfo *newSprites      = new TR::TextureInfo[newSpritesCount];
+
+        memcpy(newSprites,                             level.spriteTextures, sizeof(TR::TextureInfo) * level.spriteTexturesCount);
+        memcpy(newSprites + level.spriteTexturesCount, cyrSprites,           sizeof(TR::TextureInfo) * COUNT(cyrSprites));
+
+        delete[] level.spriteTextures;
+
+        level.spriteTexturesCount = newSpritesCount;
+        level.spriteTextures      = newSprites;
+    }
+
     short2 getLineSize(const char *text) {
-        int x = 0;
+        int  x = 0;
 
         while (char c = *text++) {
-            if (c == ' ' || c == '_') {
+            c = remapCyrillic(c);
+            if (c == '\xBF') c = '?';
+            if (c == '\xA1') c = '!';
+
+            if (skipChar(c)) {
+                //
+            } else if (c == ' ' || c == '_') {
                 x += 6;
             } else if (c == '@') {
                 break;
-            } else 
+            } else {
                 x += char_width[charRemap(c)] + 1;
+            }
         }
         return short2(x, 16);
     }
@@ -349,13 +180,19 @@ namespace UI {
         int x = 0, w = 0, h = 16;
 
         while (char c = *text++) {
-            if (c == ' ' || c == '_') {
+            c = remapCyrillic(c);
+            if (c == '\xBF') c = '?';
+            if (c == '\xA1') c = '!';
+
+            if (skipChar(c)) {
+                //
+            } else if (c == ' ' || c == '_') {
                 x += 6;
             } else if (c == '@') {
                 w = max(w, x);
                 h += 16;
                 x = 0;
-            } else 
+            } else
                 x += char_width[charRemap(c)] + 1;
         }
         w = max(w, x);
@@ -385,6 +222,8 @@ namespace UI {
     }
 
     void begin() {
+        ensureLanguage(Core::settings.audio.language);
+
         Core::setDepthTest(false);
         Core::setBlendMode(bmPremult);
         Core::setCullMode(cmNone);
@@ -420,7 +259,7 @@ namespace UI {
         if (align != aLeft) {
             int lineWidth = getLineSize(text).x;
 
-            if (align == aCenter)
+            if (align == aCenter || align == aCenterV)
                 return (width - lineWidth) / 2;
 
             if (align == aRight)
@@ -442,8 +281,17 @@ namespace UI {
 
         int x = int(pos.x) + getLeftOffset(text, align, int(width));
         int y = int(pos.y);
+        if (align == aCenterV) {
+            y -= getTextSize(text).y / 2;
+        }
 
         while (char c = *text++) {
+            bool invertX = false, invertY = false;
+            int dx = 0, dy = 0;
+
+            c = remapCyrillic(c);
+            if (c == '\xBF') { c = '?'; invertX = invertY = true; }
+            if (c == '\xA1') { c = '!'; invertX = invertY = true; }
 
             if (c == '@') {
                 x = int(pos.x) + getLeftOffset(text, align, int(width));
@@ -456,10 +304,14 @@ namespace UI {
                 continue;
             }
 
-            int frame = charRemap(c);
+            char charFrame = c;
+            if (charFrame == '\xBF') charFrame = '?';
+            if (charFrame == '\xA1') charFrame = '!';
+            if (charFrame == '|')    charFrame = ',';
+            if (charFrame == '*')    charFrame = '.';
+            if (charFrame == '{')    charFrame = '(';
 
-            if (frame >= level->spriteSequences[seq].sCount)
-                continue;
+            int frame = charRemap(charFrame);
 
             Color32 tColor, bColor;
             if (isShadow) {
@@ -479,9 +331,67 @@ namespace UI {
                 }
             }
 
-            mesh->addDynSprite(level->spriteSequences[seq].sStart + frame, short3(x, y, 0), tColor, bColor, true);
+            bool isSkipChar = skipChar(c);
 
-            x += char_width[frame] + 1;
+            if (isSkipChar) {
+                int idx = charRemap(remapCyrillic(*text));
+                bool isUppderCase = upperCase(idx);
+                
+                if (c == '{') {
+                    invertY = true;
+                    dx = isUppderCase ? 2 : 0;
+                    dy = isUppderCase ? -17 : -13;
+                } else if (c == '*') {
+                    dx = (char_width[idx] - char_width[frame]) / 2;
+                    dy = isUppderCase ? -13 : -9;
+                } else if (c == '/') {
+                    frame = idx;
+                    text++;
+                    isSkipChar = false;
+                } else if (c == '|') {
+                    dy = 2;
+                    invertX = true;
+                    if (isUppderCase) {
+                        dx = (char_width[idx] - char_width[frame]);
+                    } else {
+                        dx = (char_width[idx] - char_width[frame]) / 2;
+                    }
+                } else {
+                    dx = (char_width[idx] - char_width[frame]) / 2 - 1;
+                    if (isUppderCase) { // if next char is uppercase
+                        dy -= 4;
+                    }
+                }
+            }
+
+            if (invertX) dx += char_width[frame];
+            if (invertY) dy -= 10;
+            int ax = 1;
+
+            if (c == '/') {
+                ax += 2;
+                x += 2;
+                int ox = frame < 26 ? 1 : 0;
+                int line = charRemap(')');
+                mesh->addDynSprite(level->spriteSequences[seq].sStart + line, short3(x + ox + 1, y + 4, 0), false, false, tColor, bColor, true);
+                mesh->addDynSprite(level->spriteSequences[seq].sStart + line, short3(x + ox - 3, y + 7, 0), false, false, tColor, bColor, true);
+            }
+
+            int spriteIndex = frame;
+            if (frame < level->spriteSequences[seq].sCount) {
+                spriteIndex += level->spriteSequences[seq].sStart;
+            } else {
+                spriteIndex += advGlyphsStart - 110;
+            }
+
+            if (spriteIndex >= level->spriteTexturesCount)
+                continue;
+
+            mesh->addDynSprite(spriteIndex, short3(x + dx, y + dy, 0), invertX, invertY, tColor, bColor, true);
+
+            if (!isSkipChar) {
+                x += char_width[frame] + ax;
+            }
         }
     }
 
@@ -498,16 +408,17 @@ namespace UI {
         if (specChar >= level->spriteSequences[seq].sCount)
             return;
 
-        mesh->addDynSprite(level->spriteSequences[seq].sStart + specChar, short3(int16(pos.x), int16(pos.y), 0), COLOR_WHITE, COLOR_WHITE, true);
+        mesh->addDynSprite(level->spriteSequences[seq].sStart + specChar, short3(int16(pos.x), int16(pos.y), 0), false, false, COLOR_WHITE, COLOR_WHITE, true);
     }
 
     #undef MAX_CHARS
 
     void init(IGame *game) {
+        ensureLanguage(Core::settings.audio.language);
         UI::game = game;
         showHelp = false;
         helpTipTime = 5.0f;
-        hintTime = 0.0f;
+        hintTime = subsTime = 0.0f;
     }
 
     void deinit() {
@@ -518,8 +429,13 @@ namespace UI {
     }
 
     void update() {
-        if (hintTime > 0.0f)
+        if (hintTime > 0.0f) {
             hintTime = max(0.0f, hintTime - Core::deltaTime);
+        }
+
+        if (subsTime > 0.0f) {
+            subsTime = max(0.0f, subsTime - Core::deltaTime);
+        }
 
         if (Input::down[ikH]) {
             Input::down[ikH] = false;
@@ -555,7 +471,8 @@ namespace UI {
         m.translate(vec3(pos.x, pos.y, 0.0));
         m.scale(vec3(scale.x, scale.y, 1.0));
         Core::active.shader->setParam(uViewProj, m);
-        Core::setMaterial(1.0f, 1.0f, 1.0f, active ? 0.7f : 0.5f);
+        float a = active ? 0.7f : 0.5f;
+        Core::setMaterial(a, a, a, a);
         game->getMesh()->renderCircle();
     }
 
@@ -565,7 +482,7 @@ namespace UI {
         if (Input::touchTimerVis <= 0.0f) return;
 
         Core::setDepthTest(false);
-        Core::setBlendMode(bmAlpha);
+        Core::setBlendMode(bmPremult);
         Core::setCullMode(cmNone);
 
         Core::mViewProj = GAPI::ortho(0.0f, float(Core::width), float(Core::height), 0.0f, 0.0f, 1.0f);
@@ -609,21 +526,29 @@ namespace UI {
         hintTime = time;
     }
 
+    void showSubs(StringID str) {
+        if (str == STR_EMPTY || !Core::settings.audio.subtitles)
+            return;
+        subsStr  = str;
+        subsTime = strlen(STR[str]) * SUBTITLES_SPEED;
+    }
+
     void renderHelp() {
     #ifdef _NAPI_SOCKET
         textOut(vec2(16, height - 32), command, aLeft, width - 32, 255, UI::SHADE_GRAY);
     #endif
-        // TODO: Core::eye offset
+        float eye = UI::width * Core::eye * 0.02f;
+
         if (hintTime > 0.0f) {
-            textOut(vec2(16, 32), hintStr, aLeft, width - 32, 255, UI::SHADE_GRAY);
+            textOut(vec2(16 - eye, 32), hintStr, aLeft, width - 32, 255, UI::SHADE_GRAY);
         }
 
     #if !defined(__LIBRETRO__) && (defined(_OS_WEB) || defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_MAC) || defined(_OS_RPI))
         if (showHelp) {
-            textOut(vec2(32, 32), STR_HELP_TEXT, aLeft, width - 32, 255, UI::SHADE_GRAY);
+            textOut(vec2(32 - eye, 32), STR_HELP_TEXT, aLeft, width - 32, 255, UI::SHADE_GRAY);
         } else {
             if (helpTipTime > 0.0f) {
-                textOut(vec2(0, height - 32), STR_HELP_PRESS, aCenter, width, 255, UI::SHADE_ORANGE);
+                textOut(vec2(0 - eye, height - 16), STR_HELP_PRESS, aCenter, width, 255, UI::SHADE_ORANGE);
             }
         }
     #endif
@@ -633,6 +558,17 @@ namespace UI {
         sprintf(buf, "%d", Core::stats.fps);
         textOut(vec2(0, 16), buf, aLeft, width, 255, UI::SHADE_ORANGE);
     #endif
+    }
+
+    void renderSubs() {
+        if (!Core::settings.audio.subtitles) return;
+
+        float eye = UI::width * Core::eye * 0.02f;
+
+        if (subsTime > 0.0f) {
+            textOut(vec2(16 - eye, height - 48) + vec2(1, 1), STR[subsStr], aCenterV, width - 32, 255, UI::SHADE_GRAY, true);
+            textOut(vec2(16 - eye, height - 48), STR[subsStr], aCenterV, width - 32, 255, UI::SHADE_GRAY);
+        }
     }
 
     void addPickup(TR::Entity::Type type, int playerIndex, const vec2 &pos) {

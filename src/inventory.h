@@ -35,7 +35,7 @@ struct OptionItem {
     uint8    maxValue;
     bool     bar;
 
-    OptionItem(Type type = TYPE_EMPTY, int title = STR_NOT_IMPLEMENTED, intptr_t offset = 0, uint32 color = 0xFFFFFFFF, int icon = 0, uint8 maxValue = 0, bool bar = false) : type(type), title(StringID(title)), offset(offset), color(color), icon(icon), maxValue(maxValue), bar(bar) {}
+    OptionItem(Type type = TYPE_EMPTY, int title = STR_EMPTY, intptr_t offset = 0, uint32 color = 0xFFFFFFFF, int icon = 0, uint8 maxValue = 0, bool bar = false) : type(type), title(StringID(title)), offset(offset), color(color), icon(icon), maxValue(maxValue), bar(bar) {}
 
     void setValue(uint8 value, Core::Settings *settings) const {
         *(uint8*)(intptr_t(settings) + offset) = value;
@@ -54,7 +54,7 @@ struct OptionItem {
     }
 
     float drawParam(float x, float y, float w, StringID oStr, bool active, uint8 value) const {
-        if (oStr != STR_NOT_IMPLEMENTED) {
+        if (oStr != STR_EMPTY) {
             UI::textOut(vec2(x + 32.0f, y), oStr);
             x = x + w * 0.5f;
             w = w * 0.5f - 32.0f;
@@ -104,7 +104,7 @@ struct OptionItem {
                 UI::textOut(vec2(x, y), title, UI::aCenter, w, 255, UI::SHADE_GRAY); 
             case TYPE_EMPTY   : break;
             case TYPE_BUTTON  : {
-                const char *caption = offset ? (char*)offset : STR[title];
+                const char *caption = STR[offset ? StringID(offset) : title];
                 UI::textOut(vec2(x, y), caption, UI::aCenter, w);
                 break;
             }
@@ -122,16 +122,16 @@ struct OptionItem {
 static const OptionItem optDetail[] = {
     OptionItem( OptionItem::TYPE_TITLE,  STR_SELECT_DETAIL ),
     OptionItem( ),
-    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_FILTER,   SETTINGS( detail.filter   ), STR_QUALITY_LOW, 0, 2 ),
-    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_LIGHTING, SETTINGS( detail.lighting ), STR_QUALITY_LOW, 0, 2 ),
-    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_SHADOWS,  SETTINGS( detail.shadows  ), STR_QUALITY_LOW, 0, 2 ),
-    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_WATER,    SETTINGS( detail.water    ), STR_QUALITY_LOW, 0, 2 ),
-    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_SIMPLE_ITEMS,    SETTINGS( detail.simple   ), STR_OFF, 0, 1 ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_FILTER,   SETTINGS( detail.filter    ), STR_QUALITY_LOW, 0, 2 ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_LIGHTING, SETTINGS( detail.lighting  ), STR_QUALITY_LOW, 0, 2 ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_SHADOWS,  SETTINGS( detail.shadows   ), STR_QUALITY_LOW, 0, 2 ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_WATER,    SETTINGS( detail.water     ), STR_QUALITY_LOW, 0, 2 ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_SIMPLE_ITEMS,    SETTINGS( detail.simple    ), STR_OFF, 0, 1 ),
 #if !defined(__LIBRETRO__) && (defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_PSP) || defined(_OS_RPI) || defined(_OS_PSV))
-    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_VSYNC,    SETTINGS( detail.vsync    ), STR_OFF, 0, 1 ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_VSYNC,    SETTINGS( detail.vsync     ), STR_OFF, 0, 1 ),
 #endif
 #ifndef _OS_PSP
-    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_STEREO,   SETTINGS( detail.stereo   ), STR_OFF, 0, 
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_STEREO,   SETTINGS( detail.stereo    ), STR_OFF, 0, 
 #if /*defined(_OS_WIN) ||*/ defined(_OS_ANDROID)
     3 /* with VR option */
 #else
@@ -146,17 +146,19 @@ static const OptionItem optDetail[] = {
 static const OptionItem optSound[] = {
     OptionItem( OptionItem::TYPE_TITLE,  STR_SET_VOLUMES ),
     OptionItem( ),
-    OptionItem( OptionItem::TYPE_PARAM,  STR_NOT_IMPLEMENTED,     SETTINGS( audio.music  ), 0xFF0080FF, 101, SND_MAX_VOLUME, true ),
-    OptionItem( OptionItem::TYPE_PARAM,  STR_NOT_IMPLEMENTED,     SETTINGS( audio.sound  ), 0xFFFF8000, 102, SND_MAX_VOLUME, true ),
-    OptionItem( OptionItem::TYPE_PARAM,  STR_REVERBERATION,       SETTINGS( audio.reverb ), STR_OFF, 0, 1 ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_EMPTY,         SETTINGS( audio.music     ), 0xFF0080FF, 101, SND_MAX_VOLUME, true ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_EMPTY,         SETTINGS( audio.sound     ), 0xFFFF8000, 102, SND_MAX_VOLUME, true ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_REVERBERATION, SETTINGS( audio.reverb    ), STR_OFF, 0, 1 ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_SUBTITLES, SETTINGS( audio.subtitles ), STR_OFF, 0, 1 ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_LANGUAGE,  SETTINGS( audio.language  ), STR_LANG_EN, 0, 8 ),
 };
 
 static const OptionItem optControls[] = {
     OptionItem( OptionItem::TYPE_TITLE,  STR_SET_CONTROLS ),
     OptionItem( ),
-    OptionItem( OptionItem::TYPE_PARAM,  STR_NOT_IMPLEMENTED         , SETTINGS( playerIndex                    ), STR_PLAYER_1,  0, 1 ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_EMPTY,                SETTINGS( playerIndex                    ), STR_PLAYER_1,  0, 1 ),
 #ifndef _OS_CLOVER
-    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_CONTROLS_GAMEPAD    , SETTINGS( controls[0].joyIndex           ), STR_GAMEPAD_1, 0, 3 ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_CONTROLS_GAMEPAD, SETTINGS( controls[0].joyIndex           ), STR_GAMEPAD_1, 0, 3 ),
 #endif
 #if defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_RPI)
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_CONTROLS_VIBRATION  , SETTINGS( controls[0].vibration          ), STR_OFF,       0, 1 ),
@@ -164,7 +166,7 @@ static const OptionItem optControls[] = {
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_CONTROLS_RETARGET   , SETTINGS( controls[0].retarget           ), STR_OFF,       0, 1 ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_CONTROLS_MULTIAIM   , SETTINGS( controls[0].multiaim           ), STR_OFF,       0, 1 ),
 #ifndef __LIBRETRO__
-    OptionItem( OptionItem::TYPE_PARAM,  STR_NOT_IMPLEMENTED         , SETTINGS( ctrlIndex                      ), STR_OPT_CONTROLS_KEYBOARD, 0, 1 ),
+    OptionItem( OptionItem::TYPE_PARAM,  STR_EMPTY                   , SETTINGS( ctrlIndex                      ), STR_OPT_CONTROLS_KEYBOARD, 0, 1 ),
     OptionItem( OptionItem::TYPE_KEY,    STR_CTRL_FIRST + cUp        , SETTINGS( controls[0].keys[ cUp        ] ), STR_KEY_FIRST ),
     OptionItem( OptionItem::TYPE_KEY,    STR_CTRL_FIRST + cDown      , SETTINGS( controls[0].keys[ cDown      ] ), STR_KEY_FIRST ),
     OptionItem( OptionItem::TYPE_KEY,    STR_CTRL_FIRST + cRight     , SETTINGS( controls[0].keys[ cRight     ] ), STR_KEY_FIRST ),
@@ -323,7 +325,7 @@ struct Inventory {
 
                 OptionItem item;
                 item.type   = OptionItem::TYPE_BUTTON;
-                item.offset = slot.isCheckpoint() ? intptr_t(STR[STR_CURRENT_POSITION]) : intptr_t(TR::LEVEL_INFO[id].title); // offset as int pointer to level title string
+                item.offset = slot.isCheckpoint() ? STR_CURRENT_POSITION : TR::LEVEL_INFO[id].title;
                 item.color  = i; // color as slot index
                 optLoadSlots.push(item);
             }
@@ -681,6 +683,9 @@ struct Inventory {
     }
 
     void init(bool playLogo, bool playVideo) {
+        active    = false;
+        phaseRing = 0.0f;
+
         this->playLogo  = playLogo;
         this->playVideo = playVideo;
 
@@ -1350,7 +1355,7 @@ struct Inventory {
 
         for (int i = 0; i < COUNT(background); i++)
             if (!background[i])
-                background[i] = new Texture(INVENTORY_BG_SIZE, INVENTORY_BG_SIZE, FMT_RGBA, OPT_TARGET);
+                background[i] = new Texture(INVENTORY_BG_SIZE, INVENTORY_BG_SIZE, 1, FMT_RGBA, OPT_TARGET);
 
         return background[0];
     }
@@ -1460,6 +1465,9 @@ struct Inventory {
 
         float width  = 320.0f;
         float height = optionsCount * LINE_HEIGHT + 8;
+
+        if (item->type == TR::Entity::INV_CONTROLS || item->type == TR::Entity::INV_DETAIL)
+            width += 80;
 
         float eye = UI::width * Core::eye * 0.02f;
         float x = ( UI::width  - width  ) * 0.5f - eye;
@@ -1573,7 +1581,7 @@ struct Inventory {
                 case TR::Entity::INV_GAMMA     :
                 case TR::Entity::INV_STOPWATCH :
                 case TR::Entity::INV_MAP       :
-                    UI::textOut(vec2(-eye, 240), STR_NOT_IMPLEMENTED, UI::aCenter, UI::width);
+                    UI::textOut(vec2(-eye, 240), STR_EMPTY, UI::aCenter, UI::width);
                     break;
                 default : ;
             }
@@ -1594,11 +1602,11 @@ struct Inventory {
         float ringTilt      = cpos.angle();
         float radius        = phaseRing * INVENTORY_MAX_RADIUS * phase;
         float collapseAngle = phaseRing * phase * PI - PI;
-        float ringHeight    = lerp(float(this->page), float(targetPage), hermite(phasePage)) * INVENTORY_HEIGHT;
+        float ringHeight    = lerp(float(this->page), float(targetPage), quintic(phasePage)) * INVENTORY_HEIGHT;
         float angle         = getAngle(pageItemIndex[page], count);
 
         if (phaseSelect < 1.0f)
-            angle = lerpAngle(angle, getAngle(targetIndex, count), hermite(phaseSelect));
+            angle = lerpAngle(angle, getAngle(targetIndex, count), quintic(phaseSelect));
         
         Basis basis = Basis(quat(vec3(1, 0, 0), ringTilt), vec3(0));
 
@@ -1632,17 +1640,23 @@ struct Inventory {
         }
     }
 
-    void renderTitleBG(float sx = 1.0f, float sy = 1.0f, uint8 alpha = 255) {
-        float aspectSrc, aspectDst, aspectImg, ax, ay;
+    void renderTitleBG(float sx = 1.0f, float sy = 1.0f, uint8 alpha = 255, float cropW = 1.0f, float cropH = 1.0f) {
+        float aspectSrc, aspectDst, aspectImg, ax, ay, tx, ty;
 
         if (background[0]) {
-            float ox = sx * background[0]->origWidth;
-            float oy = sy * background[0]->origHeight;
+            Texture *tex = background[0];
+            float origW = float(tex->origWidth)  * cropW;
+            float origH = float(tex->origHeight) * cropH;
+            tx = 0.5f * (tex->origWidth  - origW) / tex->width;
+            ty = 0.5f * (tex->origHeight - origH) / tex->height;
+            float ox = sx * origW;
+            float oy = sy * origH;
             aspectSrc = ox / oy;
             aspectDst = float(Core::width) / float(Core::height);
-            ax = background[0]->origWidth  / float(background[0]->width);
-            ay = background[0]->origHeight / float(background[0]->height);
+            ax = origW / tex->width;
+            ay = origH / tex->height;
         } else {
+            tx = ty = 0.0f;
             aspectSrc = ax = ay = 1.0f;
             aspectDst = float(Core::width) / float(Core::height);
         }
@@ -1679,10 +1693,10 @@ struct Inventory {
             size.x = 32767;
             size.y = short(32767 / aspectImg);
 
-            vertices[ 4].coord = short4(-size.x,  32767, 0, 0);
-            vertices[ 5].coord = short4( size.x,  32767, 0, 0);
-            vertices[ 6].coord = short4( size.x, size.y, 0, 0);
-            vertices[ 7].coord = short4(-size.x, size.y, 0, 0);
+            vertices[ 4].coord = short4(-size.x,   32767, 0, 0);
+            vertices[ 5].coord = short4( size.x,   32767, 0, 0);
+            vertices[ 6].coord = short4( size.x,  size.y, 0, 0);
+            vertices[ 7].coord = short4(-size.x,  size.y, 0, 0);
 
             vertices[ 8].coord = short4(-size.x, -size.y, 0, 0);
             vertices[ 9].coord = short4( size.x, -size.y, 0, 0);
@@ -1690,8 +1704,8 @@ struct Inventory {
             vertices[11].coord = short4(-size.x,  -32767, 0, 0);
         }
 
-        short tw = short(ax * 32767);
-        short th = short(ay * 32767);
+        short2 t0(short(tx * 32767), short(ty * 32767));
+        short2 t1(t0.x + short(ax * 32767), t0.y + short(ay * 32767));
 
         vertices[ 0].coord = short4(-size.x,  size.y, 0, 0);
         vertices[ 1].coord = short4( size.x,  size.y, 0, 0);
@@ -1711,10 +1725,10 @@ struct Inventory {
         vertices[10].light = 
         vertices[11].light = ubyte4(0, 0, 0, alpha);
 
-        vertices[ 0].texCoord = short4( 0,  0, 0, 0);
-        vertices[ 1].texCoord = short4(tw,  0, 0, 0);
-        vertices[ 2].texCoord = short4(tw, th, 0, 0);
-        vertices[ 3].texCoord = short4( 0, th, 0, 0);
+        vertices[ 0].texCoord = short4(t0.x, t0.y, 0, 0);
+        vertices[ 1].texCoord = short4(t1.x, t0.y, 0, 0);
+        vertices[ 2].texCoord = short4(t1.x, t1.y, 0, 0);
+        vertices[ 3].texCoord = short4(t0.x, t1.y, 0, 0);
         vertices[ 4].texCoord =
         vertices[ 5].texCoord =
         vertices[ 6].texCoord =
@@ -1724,10 +1738,11 @@ struct Inventory {
         vertices[10].texCoord =
         vertices[11].texCoord = short4(0, 0, 0, 0);
 
-        if ((Core::settings.detail.stereo == Core::Settings::STEREO_VR && !video) || !background[0])
+        if ((Core::settings.detail.stereo == Core::Settings::STEREO_VR && !video) || !background[0]) {
             Core::blackTex->bind(sDiffuse); // black background
-        else
+        } else {
             background[0]->bind(sDiffuse);
+        }
 
         game->setShader(Core::passFilter, Shader::FILTER_UPSCALE, false, false);
         Core::active.shader->setParam(uParam, vec4(float(Core::active.textures[sDiffuse]->width), float(Core::active.textures[sDiffuse]->height), Core::getTime() * 0.001f, 0.0f));
@@ -1850,16 +1865,21 @@ struct Inventory {
             Texture *tmp = background[0];
 
             float sy = 1.0f;
-            if ((game->getLevel()->version & TR::VER_TR1) && !playLogo)
+            float ch = 1.0f;
+            if ((game->getLevel()->version & TR::VER_TR1) && !playLogo) {
                 sy = 1.2f;
+                if (video->format == Video::PSX) {
+                    ch = 120.0f / 208.0f;
+                }
+            }
 
             Core::resetLights();
 
             background[0] = video->frameTex[0];
-            renderTitleBG(1.0f, sy, 255);
+            renderTitleBG(1.0f, sy, 255, 1.0f, ch);
 
             background[0] = video->frameTex[1];
-            renderTitleBG(1.0f, sy, clamp(int((video->stepTimer / video->step) * 255), 0, 255));
+            renderTitleBG(1.0f, sy, clamp(int((video->stepTimer / video->step) * 255), 0, 255), 1.0f, ch);
 
             background[0] = tmp;
 
@@ -1904,7 +1924,7 @@ struct Inventory {
             sprintf(time, "%d:%02d", m, s);
 
         sprintf(buf, STR[STR_LEVEL_STATS], 
-                TR::LEVEL_INFO[saveStats.level].title,
+                STR[TR::LEVEL_INFO[saveStats.level].title],
                 saveStats.kills,
                 saveStats.pickups,
                 secrets, secretsMax, time);

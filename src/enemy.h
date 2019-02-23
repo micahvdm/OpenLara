@@ -79,6 +79,7 @@ struct Enemy : Character {
     Enemy(IGame *game, int entity, float health, int radius, float length, float aggression) : Character(game, entity, health), ai(AI_RANDOM), mood(MOOD_SLEEP), wound(false), nextState(0), targetBox(TR::NO_BOX), thinkTime(1.0f / 30.0f), length(length), aggression(aggression), radius(radius), hitSound(-1), target(NULL), path(NULL) {
         targetDist   = +INF;
         targetInView = targetFromView = targetCanAttack = false;
+        waypoint     = pos;
     }
 
     virtual ~Enemy() {
@@ -167,7 +168,7 @@ struct Enemy : Character {
                 if (enemy->health > 0.0f) {
                     vec3 dir = vec3(enemy->pos.x - pos.x, 0.0f, enemy->pos.z - pos.z);
                     float D = dir.length2();
-                    float R = float(enemy->radius + radius);
+                    float R = float((enemy->radius + radius) / 2);
                     if (D < R * R) {
                         D = sqrtf(D);
                         pos -= dir.normal() * (R - D);
@@ -227,22 +228,6 @@ struct Enemy : Character {
             animation.overrideMask &= ~(1 << chest);
     }
 
-    void getTargetInfo(int height, vec3 *pos, float *angleX, float *angleY, float *dist) {
-        vec3 p = waypoint;
-        p.y -= height;
-        if (pos) *pos = p;
-        vec3 a = p - this->pos;
-        if (dist) *dist = a.length();
-
-        if (angleX || angleY) {
-            a = a.normal();
-            vec3 b = getDir();
-            vec3 n = vec3(0, 1, 0);
-            if (angleX) *angleX = 0.0f;
-            if (angleY) *angleY = atan2f(b.cross(a).dot(n), a.dot(b));
-        }
-    }
-
     bool targetIsVisible(float maxDist) {
         if (targetInView && targetDist < maxDist && target->health > 0.0f) {
             TR::Location from, to;
@@ -264,28 +249,28 @@ struct Enemy : Character {
         Character::lookAt(targetInView ? target : NULL);
     }
 
-    int turn(float delta, float speed) {
-        float w = speed * Core::deltaTime;
-
-        updateTilt(delta, w, speed * 0.1f);
-
-        if (delta != 0.0f) {
-            decrease(delta, angle.y, w);
-            if (speed != 0.0f) {
-                velocity = velocity.rotateY(-w);
-                return speed < 0 ? LEFT : RIGHT;
-            }
-        }
-        return 0;
-    }
-
     void turn(bool tilt, float w) {
-        float angleY = 0.0f;
+        float speed = animation.getSpeed();
 
-        if (tilt)
-            getTargetInfo(0, NULL, NULL, &angleY, NULL);
+        if (!target || speed == 0.0f || w == 0.0f) {
+            angle.z = lerp(angle.z, 0.0f, 4.0f * Core::deltaTime);
+            return;
+        }
 
-        turn(angleY, w);
+        vec3  d = waypoint - pos;
+        float a = clampAngle(normalizeAngle(PIH - d.angleY() - angle.y));
+
+        w /= 30.0f;
+
+        float minDist = speed * PIH / w;
+
+        if ( (a > PIH || a < -PIH) && (SQR(d.x) + SQR(d.z) < SQR(minDist)) )
+            w *= 0.5f;
+
+        a = clamp(a, -w, w);
+
+        angle.y += a * 30.0f * Core::deltaTime;
+        angle.z = lerp(angle.z, tilt ? a * 2.0f : 0.0f, 4.0f * Core::deltaTime);
     }
 
     int lift(float delta, float speed) {
@@ -2251,12 +2236,32 @@ struct GiantMutant : Enemy {
         return state;
     }
 
+    int turn(float delta, float speed) {
+        float w = speed * Core::deltaTime;
+
+        updateTilt(delta, w, speed * 0.1f);
+
+        if (delta != 0.0f) {
+            decrease(delta, angle.y, w);
+            if (speed != 0.0f) {
+                velocity = velocity.rotateY(-w);
+                return speed < 0 ? LEFT : RIGHT;
+            }
+        }
+
+        angle.z = 0.0f;
+        return 0;
+    }
+
     virtual void updatePosition() {
         float angleY = 0.0f;
         if (target && target->health > 0.0f && fabsf(targetAngle) > GIANT_MUTANT_MIN_ANGLE)
             if (state == STATE_TURN_LEFT || state == STATE_TURN_RIGHT || state == STATE_WALK || state == STATE_STOP)
                 angleY = targetAngle;
-        turn(angleY, GIANT_MUTANT_TURN_SLOW);
+        
+        if (angleY != 0.0f) {
+            turn(targetAngle, GIANT_MUTANT_TURN_SLOW);
+        }
 
         Enemy::updatePosition();
         //setOverrides(true, jointChest, jointHead);
@@ -2809,14 +2814,19 @@ struct SkaterBoy : Human {
         game->addEntity(TR::Entity::UZIS, getRoomIndex(), pos, 0);
     }
 
+    virtual void hit(float damage, Controller *enemy = NULL, TR::HitType hitType = TR::HIT_DEFAULT) {
+        bool flag = health >= 120;
+        Human::hit(damage, enemy, hitType);
+        if (flag && health < 120) {
+            game->playTrack(56, true);
+        }
+    };
+    
     virtual int getStateGround() {
         if (!think(false))
             return state;
 
         fullChestRotation = state == STATE_STAND_FIRE || state == STATE_MOVE_FIRE;
-
-        if (health < 120)
-            game->playTrack(56, true);
 
         switch (state) {
             case STATE_STOP :
@@ -3358,6 +3368,139 @@ struct Tiger : Enemy {
         Enemy::updatePosition();
         setOverrides(true, jointChest, jointHead);
         lookAt(target);
+    }
+};
+
+
+#define WINSTON_DIST        1536.0f
+#define WINSTON_TURN_SLOW   (DEG2RAD * 60)
+#define WINSTON_FREEZE_TIME 60.0f
+
+struct Winston : Enemy {
+
+    enum {
+        STATE_NONE ,
+        STATE_STOP ,
+        STATE_WALK ,
+    };
+
+    Texture *environment;
+
+    Winston(IGame *game, int entity) : Enemy(game, entity, 20, 341, 200.0f, 0.25f), environment(NULL) {
+        dropHeight = -1024;
+        jointChest = 11;
+        jointHead  = 25;
+        nextState  = STATE_NONE;
+        lookAtSpeed = 1.0f;
+        timer = 0.0f;
+    }
+
+    virtual ~Winston() {
+        delete environment;
+    }
+
+    virtual int getStateGround() {
+        if (getRoomIndex() == 94) {
+            int doorIndex = (level->version & TR::VER_TR2) ? 38 : 68;
+
+            Controller *door = (Controller*)game->getLevel()->entities[doorIndex].controller;
+            if (!door->isActive()) {
+                if (timer > WINSTON_FREEZE_TIME) {
+                    flags.unused |= 4;
+                    if (!environment) {
+                        bakeEnvironment(environment);
+                    }
+                } else {
+                    timer += Core::deltaTime;
+                }
+                return STATE_STOP;
+            } else {
+                if (!(flags.unused & 4)) {
+                    timer = 0.0f;
+                }
+            }
+        }
+
+        if (flags.unused & 4) {
+            timer -= Core::deltaTime;
+            if (timer < 0.0f) {
+                timer = 0.0f;
+                flags.unused &= ~4;
+            }
+            return STATE_STOP;
+        }
+
+        if (!think(false))
+            return state;
+
+        if (nextState == state)
+            nextState = STATE_NONE;
+
+        if (nextState != STATE_NONE)
+            return nextState;
+
+        switch (state) {
+            case STATE_STOP    :
+                if ((targetDist > WINSTON_DIST || !targetInView) && nextState != STATE_WALK) {
+                    nextState = STATE_WALK;
+                    game->playSound(TR::SND_WINSTON_WALK, pos, Sound::PAN);
+                }
+            case STATE_WALK     :
+                if (targetDist < WINSTON_DIST) {
+                    if (targetInView) {
+                        nextState = STATE_STOP;
+                        flags.unused &= ~1;
+                    } else if (!(flags.unused & 1)) {
+                        game->playSound(TR::SND_WINSTON_SCARED, pos, Sound::PAN);
+                        game->playSound(TR::SND_WINSTON_TRAY, pos, Sound::PAN);
+                        flags.unused |= 1;
+                    }
+                }
+        }
+
+        bool touch = collide(target) != 0;
+        bool push  = (flags.unused & 2) != 0;
+
+        if (!push && touch) {
+            game->playSound(TR::SND_WINSTON_PUSH, pos, Sound::PAN);
+            game->playSound(TR::SND_WINSTON_TRAY, pos, Sound::PAN);
+            flags.unused |= 2;
+        }
+
+        if (push && !touch) {
+            flags.unused &= ~2;
+        }
+
+        if (rand() < 0x100) {
+            game->playSound(TR::SND_WINSTON_TRAY, pos, Sound::PAN);
+        }
+
+        return state;
+    }
+
+    virtual void updatePosition() {
+        if (flags.unused & 4) {
+            animation.time = 0.0f;
+            animation.updateInfo();
+            return;
+        }
+
+        turn(state == STATE_WALK, WINSTON_TURN_SLOW);
+        angle.z = 0.0f;
+
+        Enemy::updatePosition();
+        setOverrides(true, jointChest, jointHead);
+        lookAt(target);
+    }
+
+    virtual void render(Frustum *frustum, MeshBuilder *mesh, Shader::Type type, bool caustics) {
+        if (environment && (flags.unused & 4)) {
+            game->setRoomParams(getRoomIndex(), Shader::MIRROR, 1.5f, 2.0f, 2.5f, 1.0f, false);
+            environment->bind(sEnvironment);
+            Controller::render(frustum, mesh, type, caustics);
+        } else {
+            Enemy::render(frustum, mesh, type, caustics);
+        }
     }
 };
 

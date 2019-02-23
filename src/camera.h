@@ -85,8 +85,8 @@ struct Camera : ICamera {
         Sound::listener[cameraIndex].matrix = matrix;
         if (cameraIndex == 0) { // reverb effect only for main player
             TR::Room &r = level->rooms[getRoomIndex()];
-            int h = (r.info.yBottom - r.info.yTop) / 1024;
-            Sound::reverb.setRoomSize(vec3(float(r.xSectors), float(h), float(r.zSectors)) * 2.419f); // convert cells size into meters
+            float h = (r.info.yBottom - r.info.yTop) / 1024.0f;
+            Sound::reverb.setRoomSize(vec3(float(r.xSectors), h, float(r.zSectors)) * 2.419f); // convert cells size into meters
         }
     }
 
@@ -166,8 +166,9 @@ struct Camera : ICamera {
             fpHead.pos -= joint.rot * vec3(0, 48, -24);
         }
 
-        if (Core::settings.detail.stereo == Core::Settings::STEREO_VR)
+        if (Core::settings.detail.stereo == Core::Settings::STEREO_VR) {
             fpHead.rot = quat(vec3(1, 0, 0), PI);
+        }
 
         mViewInv.identity();
         mViewInv.setRot(fpHead.rot);
