@@ -38,8 +38,11 @@ extern struct retro_hw_render_callback hw_render;
     #define GL_RGBA32F                  0x8814
     #define GL_HALF_FLOAT               0x140B
 
+    #define GL_TEXTURE_WRAP_R           0x8072
     #define GL_DEPTH_STENCIL            GL_DEPTH_STENCIL_OES
     #define GL_UNSIGNED_INT_24_8        GL_UNSIGNED_INT_24_8_OES
+
+    #define glTexImage3D(...) 0
 
     #define PFNGLGENVERTEXARRAYSPROC     PFNGLGENVERTEXARRAYSOESPROC
     #define PFNGLDELETEVERTEXARRAYSPROC  PFNGLDELETEVERTEXARRAYSOESPROC
@@ -1174,7 +1177,7 @@ namespace GAPI {
         support.discardFrame   = extSupport(ext, "_discard_framebuffer");
         support.texNPOT        = GLES3 || extSupport(ext, "_texture_npot") || extSupport(ext, "_texture_non_power_of_two");
         support.texRG          = GLES3 || extSupport(ext, "_texture_rg ");   // hope that isn't last extension in string ;)
-        #ifdef _GAPI_GLES
+        #if (defined(_GAPI_GLES) || defined(__LIBRETRO_GLES__))
             support.tex3D      = GLES3;
         #else
             support.tex3D      = glTexImage3D != NULL;
