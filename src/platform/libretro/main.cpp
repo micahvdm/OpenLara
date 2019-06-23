@@ -43,6 +43,8 @@ static unsigned SND_RATE      = 44100;
 static unsigned width         = BASE_WIDTH;
 static unsigned height        = BASE_HEIGHT;
 
+static bool libretro_supports_bitmasks = false;
+
 Sound::Frame *sndData;
 
 char levelpath[255] = {0};
@@ -51,7 +53,7 @@ static retro_video_refresh_t video_cb;
 static retro_audio_sample_batch_t audio_batch_cb;
 static retro_environment_t environ_cb;
 static retro_input_poll_t input_poll_cb;
-static retro_input_state_t input_state_cb;
+static retro_input_state_t input_cb;
 static retro_set_rumble_state_t set_rumble_cb;
 
 #ifdef _WIN32
@@ -197,17 +199,19 @@ void retro_init(void)
       }
    }
 
+   if (environ_cb(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL))
+      libretro_supports_bitmasks = true;
+
     struct retro_rumble_interface rumbleInterface;
     if (environ_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumbleInterface))
-    {
         set_rumble_cb = rumbleInterface.set_rumble_state;
-    }
-
 }
 
 void retro_deinit(void)
 {
    contentDir[0] = cacheDir[0] = saveDir[0] = 0;
+
+   libretro_supports_bitmasks = false;
 }
 
 unsigned retro_api_version(void)
@@ -281,7 +285,7 @@ void retro_set_input_poll(retro_input_poll_t cb)
 
 void retro_set_input_state(retro_input_state_t cb)
 {
-   input_state_cb = cb;
+   input_cb = cb;
 }
 
 void retro_set_video_refresh(retro_video_refresh_t cb)
@@ -381,92 +385,103 @@ void retro_run(void)
    /* Player 1+2 */
    for (size_t i = 0; i < 2; i++)
    {
+      int16_t ret = 0;
+      if (libretro_supports_bitmasks)
+         ret = input_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_MASK);
+      else
+      {
+         unsigned j;
+         for (j = 0; j < (RETRO_DEVICE_ID_JOYPAD_R2+1); j++)
+            if (input_cb(i, RETRO_DEVICE_JOYPAD, 0, j))
+               ret |= (1 << j);
+      }
+
       /* Analog */
-      int lsx = input_state_cb(i, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X);
-      int lsy = input_state_cb(i, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y);
+      int lsx = input_cb(i, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X);
+      int lsy = input_cb(i, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y);
 
       Input::setJoyPos(i, jkL, DeadZone(lsx, lsy));
 
       /* Up */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_UP))
          Input::setJoyDown(i, JoyKey::jkUp, true);
       else
          Input::setJoyDown(i, JoyKey::jkUp, false);
 
       /* Down */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_DOWN))
          Input::setJoyDown(i, JoyKey::jkDown, true);
       else
          Input::setJoyDown(i, JoyKey::jkDown, false);
 
       /* Left */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_LEFT))
          Input::setJoyDown(i, JoyKey::jkLeft, true);
       else
          Input::setJoyDown(i, JoyKey::jkLeft, false);
 
       /* Right */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_RIGHT))
          Input::setJoyDown(i, JoyKey::jkRight, true);
       else
          Input::setJoyDown(i, JoyKey::jkRight, false);
 
       /* Inventory screen */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_SELECT))
          Input::setJoyDown(i, JoyKey::jkSelect, true);
       else
          Input::setJoyDown(i, JoyKey::jkSelect, false);
 
       /* Start */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_START))
          Input::setJoyDown(i, JoyKey::jkStart, true);
       else
          Input::setJoyDown(i, JoyKey::jkStart, false);
      
       /* Draw weapon */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_X))
          Input::setJoyDown(i, JoyKey::jkY, true);
       else
          Input::setJoyDown(i, JoyKey::jkY, false);
 
       /* Grab/shoot - Action button */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_B))
          Input::setJoyDown(i, JoyKey::jkA, true);
       else
          Input::setJoyDown(i, JoyKey::jkA, false);
 
       /* Roll */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_A))
          Input::setJoyDown(i, JoyKey::jkB, true);
       else
          Input::setJoyDown(i, JoyKey::jkB, false);
 
       /* Jump */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_Y))
          Input::setJoyDown(i, JoyKey::jkX, true);
       else
          Input::setJoyDown(i, JoyKey::jkX, false);
 
       /* Walk */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_R))
          Input::setJoyDown(i, JoyKey::jkRB, true);
       else
          Input::setJoyDown(i, JoyKey::jkRB, false);
 
       /* Look */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_L))
          Input::setJoyDown(i, JoyKey::jkLB, true);
       else
          Input::setJoyDown(i, JoyKey::jkLB, false);
 
       /* Duck/Crouch */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_L2))
          Input::setJoyDown(i, JoyKey::jkLT, true);
       else
          Input::setJoyDown(i, JoyKey::jkLT, false);
 
       /* Dash */
-      if (input_state_cb(i, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2))
+      if (ret & (1 << RETRO_DEVICE_ID_JOYPAD_R2))
          Input::setJoyDown(i, JoyKey::jkRT, true);
       else
          Input::setJoyDown(i, JoyKey::jkRT, false);
