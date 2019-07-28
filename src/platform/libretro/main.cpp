@@ -8,6 +8,7 @@
 #include <libretro.h>
 #include <file/file_path.h>
 
+#include "libretro_core_options.h"
 #include "../../game.h"
 
 #ifdef OSX
@@ -257,16 +258,12 @@ void retro_set_environment(retro_environment_t cb)
    struct retro_variable variables[] = {
       {
          "openlara_framerate",
-         "Framerate (restart); 60fps|70fps|72fps|75fps|90fps|100fps|119fps|120fps|144fps|240fps|244fps|15fps|30fps",
-      },
-      {
-         "openlara_resolution",
-         "Internal resolution (restart); 320x240|360x480|480x272|512x384|512x512|640x240|640x448|640x480|720x576|800x600|960x720|1024x768|1024x1024|1280x720|1280x960|1600x1200|1920x1080|1920x1440|1920x1600|2048x2048|2560x1440|3840x2160|7680x4320|15360x8640|16000x9000",
+         "Framerate (restart); 60fps|70fps|72fps|75fps|90fps|100fps|119fps|120fps|144fps|240fps|244fps|30fps",
       },
       { NULL, NULL },
    };
 
-   cb(RETRO_ENVIRONMENT_SET_VARIABLES, variables);
+   libretro_set_core_options(environ_cb);
 }
 
 void retro_set_audio_sample(retro_audio_sample_t cb)
@@ -324,9 +321,7 @@ static void update_variables(bool first_startup)
 
       if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
       {
-         if (!strcmp(var.value, "15fps"))
-            FRAMERATE     = 15;
-         else if (!strcmp(var.value, "30fps"))
+         if (!strcmp(var.value, "30fps"))
             FRAMERATE     = 30;
          else if (!strcmp(var.value, "60fps"))
             FRAMERATE     = 60;
