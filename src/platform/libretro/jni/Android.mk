@@ -2,9 +2,8 @@ LOCAL_PATH := $(call my-dir)
 
 CORE_DIR := $(LOCAL_PATH)/..
 
-# Force gles2 for now since gles3 doesn't compile
 GLES  := 1
-GLES3 := 0
+GLES3 := 1
 
 include $(CORE_DIR)/Makefile.common
 
