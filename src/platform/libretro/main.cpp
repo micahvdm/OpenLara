@@ -519,18 +519,19 @@ static void context_reset(void)
 static void context_destroy(void)
 {}
 
-#ifdef HAVE_OPENGLES
-static bool retro_init_hw_context(void)
+static bool retro_init_hw_context(unsigned preferred)
 {
-#if defined(HAVE_OPENGLES_3_1)
-   hw_render.context_type = RETRO_HW_CONTEXT_OPENGLES_VERSION;
-   hw_render.version_major = 3;
-   hw_render.version_minor = 1;
-#elif defined(HAVE_OPENGLES3)
-   hw_render.context_type = RETRO_HW_CONTEXT_OPENGLES3;
-#else
-   hw_render.context_type = RETRO_HW_CONTEXT_OPENGLES2;
-#endif
+   hw_render.context_type = (retro_hw_context_type)preferred;
+   if (preferred == RETRO_HW_CONTEXT_OPENGL_CORE || preferred == RETRO_HW_CONTEXT_OPENGLES_VERSION)
+   {
+      hw_render.version_major = 3;
+      hw_render.version_minor = 1;
+   }
+   else
+   {
+      hw_render.version_major = 0;
+      hw_render.version_minor = 0;
+   }
    hw_render.context_reset = context_reset;
    hw_render.context_destroy = context_destroy;
    hw_render.depth = true;
@@ -542,28 +543,6 @@ static bool retro_init_hw_context(void)
 
    return true;
 }
-#else
-static bool retro_init_hw_context(void)
-{
-#if defined(CORE)
-   hw_render.context_type = RETRO_HW_CONTEXT_OPENGL_CORE;
-   hw_render.version_major = 3;
-   hw_render.version_minor = 1;
-#else
-   hw_render.context_type = RETRO_HW_CONTEXT_OPENGL;
-#endif
-   hw_render.context_reset = context_reset;
-   hw_render.context_destroy = context_destroy;
-   hw_render.depth = true;
-   hw_render.stencil = true;
-   hw_render.bottom_left_origin = true;
-
-   if (!environ_cb(RETRO_ENVIRONMENT_SET_HW_RENDER, &hw_render))
-      return false;
-
-   return true;
-}
-#endif
 
 bool retro_load_game(const struct retro_game_info *info)
 {
@@ -614,13 +593,50 @@ bool retro_load_game(const struct retro_game_info *info)
       return false;
    }
 
-   if (!retro_init_hw_context())
+   // get current video driver
+   unsigned preferred;
+   if (!environ_cb(RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER, &preferred))
+      preferred = RETRO_HW_CONTEXT_DUMMY;
+   bool found_gl_context = false;
+   if (preferred == RETRO_HW_CONTEXT_OPENGL
+    || preferred == RETRO_HW_CONTEXT_OPENGL_CORE
+    || preferred == RETRO_HW_CONTEXT_OPENGLES_VERSION
+    || preferred == RETRO_HW_CONTEXT_OPENGLES2
+    || preferred == RETRO_HW_CONTEXT_OPENGLES3)
+   {
+      // try requesting the right context for current driver
+      found_gl_context = retro_init_hw_context(preferred);
+   }
+   else if (preferred == RETRO_HW_CONTEXT_VULKAN)
+   {
+      // if vulkan is the current driver, we probably prefer glcore over gl so that the same slang shaders can be used
+      found_gl_context = retro_init_hw_context(RETRO_HW_CONTEXT_OPENGL_CORE);
+   }
+   else
+   {
+      // try every context as fallback if current driver wasn't found
+#ifdef HAVE_OPENGLES
+      if (!found_gl_context)
+         found_gl_context = retro_init_hw_context(RETRO_HW_CONTEXT_OPENGLES_VERSION);
+      if (!found_gl_context)
+         found_gl_context = retro_init_hw_context(RETRO_HW_CONTEXT_OPENGLES3);
+      if (!found_gl_context)
+         found_gl_context = retro_init_hw_context(RETRO_HW_CONTEXT_OPENGLES2);
+#else
+      if (!found_gl_context)
+         found_gl_context = retro_init_hw_context(RETRO_HW_CONTEXT_OPENGL_CORE);
+      if (!found_gl_context)
+         found_gl_context = retro_init_hw_context(RETRO_HW_CONTEXT_OPENGL);
+#endif
+   }
+
+   if (!found_gl_context)
    {
       fprintf(stderr, "HW Context could not be initialized, exiting...\n");
       return false;
    }
 
-if (!path_is_absolute(info->path))
+   if (!path_is_absolute(info->path))
    {
       fprintf(stderr, "Full path to content is required, exiting...\n");
       return false;
