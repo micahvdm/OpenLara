@@ -7,7 +7,7 @@
 # Core definitions
 .core-defs:
   variables:
-    JNI_PATH: .
+    JNI_PATH: src/platform/libretro
     CORENAME: openlara
     MAKEFILE_PATH: src/platform/libretro
     MAKEFILE: Makefile
