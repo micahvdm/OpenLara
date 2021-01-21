@@ -14,15 +14,7 @@
 
 # Inclusion templates, required for the build to work
 include:
-  ################################## DESKTOPS ################################
-  # Windows 64-bit
-  - project: 'libretro-infrastructure/ci-templates'
-    file: '/windows-x64-mingw.yml'
-    
-  # Windows 32-bit
-  - project: 'libretro-infrastructure/ci-templates'
-    file: '/windows-i686-mingw.yml'
-    
+  ################################## DESKTOPS ################################  
   # Linux 64-bit
   - project: 'libretro-infrastructure/ci-templates'
     file: '/linux-x64.yml'
@@ -31,18 +23,10 @@ include:
   - project: 'libretro-infrastructure/ci-templates'
     file: '/linux-i686.yml'
 
-  # MacOS 64-bit
-  - project: 'libretro-infrastructure/ci-templates'
-    file: '/osx-x64.yml'
-
   ################################## CELLULAR ################################
   # Android
   - project: 'libretro-infrastructure/ci-templates'
     file: '/android-jni.yml'
-
-  # iOS 9
-  - project: 'libretro-infrastructure/ci-templates'
-    file: '/ios9.yml'
 
   ################################## CONSOLES ################################
 
@@ -57,18 +41,6 @@ stages:
 ##############################################################################
 #
 ################################### DESKTOPS #################################
-# Windows 64-bit
-libretro-build-windows-x64:
-  extends:
-    - .libretro-windows-x64-mingw-make-default
-    - .core-defs
-    
-# Windows 32-bit
-libretro-build-windows-i686:
-  extends:
-    - .libretro-windows-i686-mingw-make-default
-    - .core-defs
-    
 # Linux 64-bit
 libretro-build-linux-x64:
   extends:
@@ -79,12 +51,6 @@ libretro-build-linux-x64:
 libretro-build-linux-i686:
   extends:
     - .libretro-linux-i686-make-default
-    - .core-defs
-
-# MacOS 64-bit
-libretro-build-osx-x64:
-  extends:
-    - .libretro-osx-x64-make-default
     - .core-defs
 
 ################################### CELLULAR #################################
@@ -110,12 +76,6 @@ android-x86_64:
 android-x86:
   extends:
     - .libretro-android-jni-x86
-    - .core-defs
-
-# iOS 9
-libretro-build-ios-9:
-  extends:
-    - .libretro-ios9-make-default
     - .core-defs
 
 ################################### CONSOLES #################################
