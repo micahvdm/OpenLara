@@ -100,12 +100,13 @@ else ifneq (,$(findstring qnx,$(platform)))
    GL_LIB := -lGLESv2
    GLES := 1
 else ifneq (,$(findstring armv,$(platform)))
-   CC = gcc
+   CC ?= gcc
    TARGET := $(TARGET_NAME)_libretro.so
    fpic := -fPIC
    SHARED := -shared -Wl,--version-script=link.T -Wl,--no-undefined
    CXXFLAGS += -I.
    CFLAGS += -I.
+   LIBS += -lpthread
 ifneq (,$(findstring gles,$(platform)))
    GLES := 1
 else
