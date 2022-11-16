@@ -4,7 +4,12 @@
 #include <string.h>
 #include <math.h>
 
+#ifdef _WIN32
+#include "glsym.h" // Use local modified glsym.h to allow compilation on 64bit Windows
+#else
 #include <glsym/glsym.h>
+#endif
+
 #include <libretro.h>
 #include <file/file_path.h>
 
