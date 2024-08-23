@@ -57,7 +57,7 @@ def find_gl_symbols(lines):
    syms = []
    for line in lines:
       m = re.search(r'^typedef.+PFN(\S+)PROC.+$', line)
-      g = re.search(r'^.+(gl\S+)\W*\(.+\).*$', line)
+      g = re.search(r'^.+\s(gl\S+)\W*\(.+\).*$', line)
       if m and noext(m.group(1)):
          typedefs.append(m.group(0).replace('PFN', 'RGLSYM').replace('GLDEBUGPROC', 'RGLGENGLDEBUGPROC'))
       if g and noext(g.group(1)):
@@ -74,7 +74,7 @@ def generate_declarations(gl_syms):
    return ['RGLSYM' + x.upper() + 'PROC ' + '__rglgen_' + x + ';' for x in gl_syms]
 
 def generate_macros(gl_syms):
-   return ['    SYM(' + x.replace('gl', '') + '),' for x in gl_syms]
+   return ['    SYM(' + x.replace('gl', '', 1) + '),' for x in gl_syms]
 
 def dump(f, lines):
    f.write('\n'.join(lines))

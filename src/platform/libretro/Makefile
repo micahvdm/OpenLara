@@ -36,7 +36,7 @@ TARGET_NAME = openlara
 
 CORE_DIR := .
 
-ifeq ($(platform), unix)
+ifneq ($(findstring unix,$(platform)),)
    TARGET := $(TARGET_NAME)_libretro.so
    fpic := -fPIC
    SHARED := -shared -Wl,--version-script=link.T -Wl,--no-undefined
